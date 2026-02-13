@@ -19,7 +19,7 @@
 
 **Step 1: Initialize Go module**
 
-Run: `go mod init github.com/bjk/intuneme`
+Run: `go mod init github.com/frostyard/intune`
 
 **Step 2: Install cobra dependency**
 
@@ -65,7 +65,7 @@ Create `main.go`:
 ```go
 package main
 
-import "github.com/bjk/intuneme/cmd"
+import "github.com/frostyard/intune/cmd"
 
 func main() {
 	cmd.Execute()
@@ -346,7 +346,7 @@ package prereq
 import (
 	"fmt"
 
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/runner"
 )
 
 type requirement struct {
@@ -752,7 +752,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/runner"
 )
 
 func PullImage(r runner.Runner, image string) error {
@@ -923,10 +923,10 @@ import (
 	"os"
 	"os/user"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/prereq"
-	"github.com/bjk/intuneme/internal/provision"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/prereq"
+	"github.com/frostyard/intune/internal/provision"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -1035,7 +1035,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bjk/intuneme/internal/session"
+	"github.com/frostyard/intune/internal/session"
 )
 
 func TestBuildBootArgs(t *testing.T) {
@@ -1106,8 +1106,8 @@ package nspawn
 import (
 	"fmt"
 
-	"github.com/bjk/intuneme/internal/runner"
-	"github.com/bjk/intuneme/internal/session"
+	"github.com/frostyard/intune/internal/runner"
+	"github.com/frostyard/intune/internal/session"
 )
 
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
@@ -1179,10 +1179,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/nspawn"
-	"github.com/bjk/intuneme/internal/runner"
-	"github.com/bjk/intuneme/internal/session"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/nspawn"
+	"github.com/frostyard/intune/internal/runner"
+	"github.com/frostyard/intune/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -1284,9 +1284,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/nspawn"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/nspawn"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -1335,9 +1335,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/nspawn"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/nspawn"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -1393,9 +1393,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/nspawn"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/nspawn"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 

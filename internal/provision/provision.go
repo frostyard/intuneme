@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/runner"
 )
 
 //go:embed intuneme-profile.sh

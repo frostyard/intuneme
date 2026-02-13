@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/nspawn"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/nspawn"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 

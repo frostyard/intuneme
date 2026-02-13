@@ -6,10 +6,10 @@ import (
 	"os/user"
 	"path/filepath"
 
-	"github.com/bjk/intuneme/internal/config"
-	"github.com/bjk/intuneme/internal/prereq"
-	"github.com/bjk/intuneme/internal/provision"
-	"github.com/bjk/intuneme/internal/runner"
+	"github.com/frostyard/intune/internal/config"
+	"github.com/frostyard/intune/internal/prereq"
+	"github.com/frostyard/intune/internal/provision"
+	"github.com/frostyard/intune/internal/runner"
 	"github.com/spf13/cobra"
 )
 
