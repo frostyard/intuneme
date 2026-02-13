@@ -29,6 +29,12 @@ if [ -S /run/host-pipewire ]; then
     systemctl --user import-environment PIPEWIRE_REMOTE 2>/dev/null
 fi
 
+# PulseAudio socket (bind-mounted from host at /run/host-pulse)
+if [ -S /run/host-pulse ]; then
+    export PULSE_SERVER=unix:/run/host-pulse
+    systemctl --user import-environment PULSE_SERVER 2>/dev/null
+fi
+
 # Initialize gnome-keyring once per boot.
 # The keyring must be unlocked for microsoft-identity-broker to store credentials.
 _keyring_dir="$HOME/.local/share/keyrings"
