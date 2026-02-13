@@ -58,3 +58,15 @@ func TestBuildShellArgs(t *testing.T) {
 		t.Errorf("missing user@machine in: %s", joined)
 	}
 }
+
+func TestDetectHostSockets_PulseAudio(t *testing.T) {
+	sockets := []BindMount{
+		{"/run/user/1000/pulse/native", "/run/host-pulse"},
+	}
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--bind=/run/user/1000/pulse/native:/run/host-pulse") {
+		t.Errorf("missing pulse socket bind in: %s", joined)
+	}
+}
