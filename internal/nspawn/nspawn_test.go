@@ -45,6 +45,9 @@ func TestBuildBootArgsNoSockets(t *testing.T) {
 	if strings.Contains(joined, "host-pipewire") {
 		t.Errorf("unexpected pipewire bind in: %s", joined)
 	}
+	if strings.Contains(joined, "host-pulse") {
+		t.Errorf("unexpected pulse bind in: %s", joined)
+	}
 }
 
 func TestBuildShellArgs(t *testing.T) {
