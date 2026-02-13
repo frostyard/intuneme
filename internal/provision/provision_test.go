@@ -45,9 +45,9 @@ func TestExtractRootfs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExtractRootfs error: %v", err)
 	}
-	// Should run: podman create, podman cp, podman rm
-	if len(r.commands) != 3 {
-		t.Fatalf("expected 3 commands, got %d: %v", len(r.commands), r.commands)
+	// Should run: podman rm (cleanup), podman create, podman cp, podman rm
+	if len(r.commands) != 4 {
+		t.Fatalf("expected 4 commands, got %d: %v", len(r.commands), r.commands)
 	}
 }
 

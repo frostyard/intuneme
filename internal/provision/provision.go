@@ -18,6 +18,9 @@ func PullImage(r runner.Runner, image string) error {
 }
 
 func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
+	// Remove any leftover extract container from a previous failed run
+	r.Run("podman", "rm", "intuneme-extract")
+
 	// Create temporary container
 	out, err := r.Run("podman", "create", "--name", "intuneme-extract", image)
 	if err != nil {
@@ -107,20 +110,68 @@ WantedBy=multi-user.target
 	return nil
 }
 
-// CreateContainerUser runs useradd inside the rootfs via nspawn.
+// CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
+// If a user with the target UID already exists (e.g., "ubuntu" from the OCI image),
+// it is renamed and reconfigured. Otherwise a new user is created.
 func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int) error {
-	out, err := r.Run("sudo", "systemd-nspawn", "-D", rootfsPath, "--pipe",
-		"useradd",
-		"--uid", fmt.Sprintf("%d", uid),
-		"--create-home",
-		"--shell", "/bin/bash",
-		"--groups", "adm,sudo,video,audio",
-		user,
-	)
+	// Check if a user with this UID already exists in the rootfs passwd
+	passwdPath := filepath.Join(rootfsPath, "etc", "passwd")
+	existingUser, err := findUserByUID(passwdPath, uid)
 	if err != nil {
-		return fmt.Errorf("useradd in container failed: %w\n%s", err, out)
+		return fmt.Errorf("check existing users: %w", err)
+	}
+
+	if existingUser != "" && existingUser != user {
+		// Rename the existing user and fix up their home directory
+		fmt.Printf("  Renaming existing user %q to %q...\n", existingUser, user)
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"usermod", "--login", user, "--home", fmt.Sprintf("/home/%s", user), "--move-home", existingUser,
+		); err != nil {
+			return fmt.Errorf("usermod (rename) failed: %w", err)
+		}
+		// Ensure correct groups
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+		); err != nil {
+			return fmt.Errorf("usermod (groups) failed: %w", err)
+		}
+	} else if existingUser == "" {
+		// No user with this UID — create one
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"useradd",
+			"--uid", fmt.Sprintf("%d", uid),
+			"--create-home",
+			"--shell", "/bin/bash",
+			"--groups", "adm,sudo,video,audio",
+			user,
+		); err != nil {
+			return fmt.Errorf("useradd in container failed: %w", err)
+		}
+	} else {
+		// User already exists with the right name — just ensure groups
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+		); err != nil {
+			return fmt.Errorf("usermod (groups) failed: %w", err)
+		}
 	}
 	return nil
+}
+
+// findUserByUID reads a passwd file and returns the username for a given UID, or "" if not found.
+func findUserByUID(passwdPath string, uid int) (string, error) {
+	data, err := os.ReadFile(passwdPath)
+	if err != nil {
+		return "", err
+	}
+	uidStr := fmt.Sprintf("%d", uid)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[2] == uidStr {
+			return fields[0], nil
+		}
+	}
+	return "", nil
 }
 
 // InstallPolkitRule installs the polkit rule on the host using sudo.
@@ -136,13 +187,28 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
     }
 });
 `
-	// Create directory with sudo
-	r.Run("sudo", "mkdir", "-p", rulesDir)
-
-	// Write rule file via sudo tee
-	out, err := r.Run("sudo", "tee", filepath.Join(rulesDir, "50-intuneme.rules"), rule)
+	// Write rule to a temp file, then sudo cp it into place
+	tmpFile, err := os.CreateTemp("", "intuneme-polkit-*.rules")
 	if err != nil {
-		return fmt.Errorf("install polkit rule failed: %w\n%s", err, out)
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(rule); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	// Create directory with sudo
+	if err := r.RunAttached("sudo", "mkdir", "-p", rulesDir); err != nil {
+		return fmt.Errorf("create polkit rules dir: %w", err)
+	}
+
+	// Copy temp file into place with sudo
+	dest := filepath.Join(rulesDir, "50-intuneme.rules")
+	if err := r.RunAttached("sudo", "cp", tmpFile.Name(), dest); err != nil {
+		return fmt.Errorf("install polkit rule failed: %w", err)
 	}
 	return nil
 }
