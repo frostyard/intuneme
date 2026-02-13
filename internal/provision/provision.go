@@ -157,6 +157,13 @@ WantedBy=multi-user.target
 	os.MkdirAll(wantsDir, 0755)
 	os.Symlink(svcPath, filepath.Join(wantsDir, "fix-home-ownership.service"))
 
+	// Enable device broker — unit is "static" so systemctl enable is a no-op;
+	// create the symlink directly.
+	os.Symlink(
+		"/usr/lib/systemd/system/microsoft-identity-device-broker.service",
+		filepath.Join(wantsDir, "microsoft-identity-device-broker.service"),
+	)
+
 	// /usr/local/bin/microsoft-edge — wrapper that enables Wayland/Ozone on Wayland sessions
 	edgeWrapper := `#!/bin/sh -e
 
