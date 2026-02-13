@@ -218,7 +218,7 @@ func InstallPackages(r runner.Runner, rootfsPath string) error {
 	}
 
 	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-		"bash", "-c", "apt-get update && apt-get install -y microsoft-edge-stable libsecret-tools sudo",
+		"bash", "-c", "apt-get update && apt-get install -y microsoft-edge-stable libsecret-tools sudo libpulse0",
 	)
 }
 
