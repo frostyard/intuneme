@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 
 	"github.com/bjk/intuneme/internal/config"
 	"github.com/bjk/intuneme/internal/prereq"
@@ -32,6 +33,13 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("missing prerequisites")
 		}
 
+		// Create ~/Intune directory
+		home, _ := os.UserHomeDir()
+		intuneHome := filepath.Join(home, "Intune")
+		if err := os.MkdirAll(intuneHome, 0755); err != nil {
+			return fmt.Errorf("create ~/Intune: %w", err)
+		}
+
 		// Check if already initialized
 		cfg, _ := config.Load(root)
 		if _, err := os.Stat(cfg.RootfsPath); err == nil && !forceInit {
@@ -57,9 +65,29 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
+		fmt.Println("Setting container user password...")
+		if err := provision.SetContainerPassword(r, cfg.RootfsPath, u.Username, "Intuneme2024!"); err != nil {
+			return fmt.Errorf("set password failed: %w", err)
+		}
+
+		fmt.Println("Installing additional packages (Edge, libsecret-tools)...")
+		if err := provision.InstallPackages(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("install packages failed: %w", err)
+		}
+
+		fmt.Println("Enabling services...")
+		if err := provision.EnableServices(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("enable services failed: %w", err)
+		}
+
 		fmt.Println("Applying fixups...")
 		if err := provision.WriteFixups(cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
 			return err
+		}
+
+		fmt.Println("Configuring PAM modules...")
+		if err := provision.ConfigurePAM(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("configure PAM failed: %w", err)
 		}
 
 		fmt.Println("Installing polkit rules...")

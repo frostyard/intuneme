@@ -21,6 +21,11 @@ func (m *mockRunner) RunAttached(name string, args ...string) error {
 	return nil
 }
 
+func (m *mockRunner) RunBackground(name string, args ...string) error {
+	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	return nil
+}
+
 func (m *mockRunner) LookPath(name string) (string, error) {
 	return "/usr/bin/" + name, nil
 }
@@ -78,6 +83,30 @@ func TestWriteFixups(t *testing.T) {
 	svcPath := filepath.Join(rootfs, "etc", "systemd", "system", "fix-home-ownership.service")
 	if _, err := os.Stat(svcPath); err != nil {
 		t.Errorf("expected fix-home-ownership.service to exist: %v", err)
+	}
+
+	// v2: Check profile.d/intuneme.sh exists
+	profilePath := filepath.Join(rootfs, "etc", "profile.d", "intuneme.sh")
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Errorf("expected profile.d/intuneme.sh to exist: %v", err)
+	}
+
+	// v2: Check broker display override exists
+	brokerOverride := filepath.Join(rootfs, "usr", "lib", "systemd", "user",
+		"microsoft-identity-broker.service.d", "display.conf")
+	if _, err := os.Stat(brokerOverride); err != nil {
+		t.Errorf("expected broker display override to exist: %v", err)
+	}
+
+	// v2: Keyring dir should NOT be pre-created (handled at runtime by profile script)
+	keyringDir := filepath.Join(rootfs, "home", "testuser", ".local", "share", "keyrings")
+	if _, err := os.Stat(keyringDir); err == nil {
+		t.Errorf("keyring dir should not be pre-created in v2")
+	}
+
+	// v2: start-intune.sh should NOT exist
+	if _, err := os.Stat(filepath.Join(rootfs, "opt", "intuneme", "start-intune.sh")); err == nil {
+		t.Errorf("start-intune.sh should not exist in v2")
 	}
 }
 

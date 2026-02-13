@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/bjk/intuneme/internal/config"
 	"github.com/bjk/intuneme/internal/nspawn"
@@ -42,6 +43,24 @@ var destroyCmd = &cobra.Command{
 
 		// Remove config
 		os.Remove(fmt.Sprintf("%s/config.toml", root))
+
+		// Clean intune state from ~/Intune (persists via bind mount)
+		home, _ := os.UserHomeDir()
+		intuneHome := filepath.Join(home, "Intune")
+		staleStateDirs := []string{
+			filepath.Join(intuneHome, ".config", "intune"),
+			filepath.Join(intuneHome, ".local", "share", "intune"),
+			filepath.Join(intuneHome, ".local", "share", "intune-portal"),
+			filepath.Join(intuneHome, ".local", "share", "microsoft-identity-broker"),
+			filepath.Join(intuneHome, ".local", "share", "keyrings"),
+			filepath.Join(intuneHome, ".cache", "intune-portal"),
+		}
+		for _, dir := range staleStateDirs {
+			if _, err := os.Stat(dir); err == nil {
+				fmt.Printf("Cleaning %s...\n", dir)
+				os.RemoveAll(dir)
+			}
+		}
 
 		fmt.Println("Destroyed.")
 		return nil

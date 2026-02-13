@@ -3,46 +3,52 @@ package nspawn
 import (
 	"strings"
 	"testing"
-
-	"github.com/bjk/intuneme/internal/session"
 )
 
 func TestBuildBootArgs(t *testing.T) {
-	s := &session.Session{
-		XDGRuntimeDir: "/run/user/1000",
-		Display:       ":1",
-		XAuthority:    "/run/user/1000/.mutter-Xwaylandauth.abc123",
-		UID:           1000,
+	sockets := []BindMount{
+		{"/run/user/1000/wayland-0", "/run/host-wayland"},
 	}
-	args := BuildBootArgs("/home/testuser/.local/share/intuneme/rootfs", "intuneme", "/home/testuser", s)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--machine=intuneme") {
 		t.Errorf("missing --machine flag in: %s", joined)
 	}
-	if !strings.Contains(joined, "--bind=/home/testuser") {
+	if !strings.Contains(joined, "--bind=/home/testuser/Intune:/home/testuser") {
 		t.Errorf("missing home bind in: %s", joined)
 	}
 	if !strings.Contains(joined, "--bind=/tmp/.X11-unix") {
 		t.Errorf("missing X11 bind in: %s", joined)
 	}
-	if !strings.Contains(joined, "--bind=/run/user/1000:/run/user-external/1000") {
-		t.Errorf("missing XDG runtime bind in: %s", joined)
+	if !strings.Contains(joined, "--bind=/dev/dri") {
+		t.Errorf("missing /dev/dri bind in: %s", joined)
+	}
+	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
+		t.Errorf("missing wayland socket bind in: %s", joined)
 	}
 	if !strings.Contains(joined, "-b") {
 		t.Errorf("missing -b (boot) flag in: %s", joined)
 	}
 }
 
-func TestBuildShellArgs(t *testing.T) {
-	s := &session.Session{
-		XDGRuntimeDir: "/run/user/1000",
-		Display:       ":1",
-		DBusAddress:   "unix:path=/run/user/1000/bus",
-		XAuthority:    "/run/user/1000/.mutter-Xwaylandauth.abc123",
-		UID:           1000,
+func TestBuildBootArgsNoSockets(t *testing.T) {
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil)
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--machine=intuneme") {
+		t.Errorf("missing --machine flag in: %s", joined)
 	}
-	args := BuildShellArgs("intuneme", "testuser", s)
+	if strings.Contains(joined, "host-wayland") {
+		t.Errorf("unexpected wayland bind in: %s", joined)
+	}
+	if strings.Contains(joined, "host-pipewire") {
+		t.Errorf("unexpected pipewire bind in: %s", joined)
+	}
+}
+
+func TestBuildShellArgs(t *testing.T) {
+	args := BuildShellArgs("intuneme", "testuser")
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "shell") {
@@ -50,11 +56,5 @@ func TestBuildShellArgs(t *testing.T) {
 	}
 	if !strings.Contains(joined, "testuser@intuneme") {
 		t.Errorf("missing user@machine in: %s", joined)
-	}
-	if !strings.Contains(joined, "--setenv=DISPLAY=:1") {
-		t.Errorf("missing DISPLAY setenv in: %s", joined)
-	}
-	if !strings.Contains(joined, "intune-portal") {
-		t.Errorf("missing intune-portal command in: %s", joined)
 	}
 }

@@ -2,39 +2,107 @@ package nspawn
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/bjk/intuneme/internal/runner"
-	"github.com/bjk/intuneme/internal/session"
 )
 
+// BindMount represents a host:container bind mount pair.
+type BindMount struct {
+	Host      string
+	Container string
+}
+
+// xauthorityPatterns are searched in XDG_RUNTIME_DIR when $XAUTHORITY is unset.
+var xauthorityPatterns = []string{
+	".mutter-Xwaylandauth.*",
+	"xauth_*",
+}
+
+// findXAuthority locates the host's Xauthority file.
+func findXAuthority(uid int) string {
+	// Check env first
+	if xa := os.Getenv("XAUTHORITY"); xa != "" {
+		if _, err := os.Stat(xa); err == nil {
+			return xa
+		}
+	}
+	// Glob for known patterns in runtime dir
+	runtimeDir := fmt.Sprintf("/run/user/%d", uid)
+	for _, pattern := range xauthorityPatterns {
+		matches, _ := filepath.Glob(filepath.Join(runtimeDir, pattern))
+		if len(matches) > 0 {
+			return matches[0]
+		}
+	}
+	// Check classic location
+	if home, err := os.UserHomeDir(); err == nil {
+		xa := filepath.Join(home, ".Xauthority")
+		if _, err := os.Stat(xa); err == nil {
+			return xa
+		}
+	}
+	return ""
+}
+
+// DetectHostSockets checks which optional host sockets/files exist and returns
+// bind mount pairs for them.
+func DetectHostSockets(uid int) []BindMount {
+	runtimeDir := fmt.Sprintf("/run/user/%d", uid)
+	checks := []struct {
+		hostPath      string
+		containerPath string
+	}{
+		{runtimeDir + "/wayland-0", "/run/host-wayland"},
+		{runtimeDir + "/pipewire-0", "/run/host-pipewire"},
+	}
+
+	var mounts []BindMount
+	for _, c := range checks {
+		if _, err := os.Stat(c.hostPath); err == nil {
+			mounts = append(mounts, BindMount{c.hostPath, c.containerPath})
+		}
+	}
+
+	// Xauthority — required for X11 display access
+	if xa := findXAuthority(uid); xa != "" {
+		mounts = append(mounts, BindMount{xa, "/run/host-xauthority"})
+	}
+
+	return mounts
+}
+
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
-func BuildBootArgs(rootfs, machine, homeDir string, s *session.Session) []string {
+func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount) []string {
 	args := []string{
 		"-D", rootfs,
 		fmt.Sprintf("--machine=%s", machine),
-		fmt.Sprintf("--bind=%s", homeDir),
+		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
-		fmt.Sprintf("--bind=%s:/run/user-external/%d", s.XDGRuntimeDir, s.UID),
-		"-b",
+		"--bind=/dev/dri",
 	}
+	for _, s := range sockets {
+		args = append(args, fmt.Sprintf("--bind=%s:%s", s.Host, s.Container))
+	}
+	args = append(args, "--console=pipe", "-b")
 	return args
 }
 
-// BuildShellArgs returns the machinectl shell arguments to launch intune-portal.
-func BuildShellArgs(machine, user string, s *session.Session) []string {
-	args := []string{"shell"}
-	for _, env := range s.ContainerEnv() {
-		args = append(args, fmt.Sprintf("--setenv=%s", env))
-	}
-	args = append(args, fmt.Sprintf("%s@%s", user, machine))
-	args = append(args, "/usr/bin/intune-portal")
-	return args
+// BuildShellArgs returns the machinectl shell arguments for an interactive session.
+func BuildShellArgs(machine, user string) []string {
+	return []string{"shell", fmt.Sprintf("%s@%s", user, machine)}
 }
 
 // Boot starts the nspawn container in the background using sudo.
-func Boot(r runner.Runner, rootfs, machine, homeDir string, s *session.Session) error {
-	args := append([]string{"systemd-nspawn"}, BuildBootArgs(rootfs, machine, homeDir, s)...)
-	return r.RunAttached("sudo", args...)
+func Boot(r runner.Runner, rootfs, machine, intuneHome, containerHome string, sockets []BindMount) error {
+	args := append([]string{"systemd-nspawn"}, BuildBootArgs(rootfs, machine, intuneHome, containerHome, sockets)...)
+	return r.RunBackground("sudo", args...)
+}
+
+// ValidateSudo prompts for the sudo password if needed.
+func ValidateSudo(r runner.Runner) error {
+	return r.RunAttached("sudo", "-v")
 }
 
 // IsRunning checks if the machine is registered with machinectl.
@@ -43,9 +111,9 @@ func IsRunning(r runner.Runner, machine string) bool {
 	return err == nil
 }
 
-// LaunchIntune runs intune-portal inside the container via machinectl shell.
-func LaunchIntune(r runner.Runner, machine, user string, s *session.Session) error {
-	args := append([]string{"shell"}, BuildShellArgs(machine, user, s)[1:]...)
+// Shell opens an interactive session in the container via machinectl shell.
+func Shell(r runner.Runner, machine, user string) error {
+	args := BuildShellArgs(machine, user)
 	return r.RunAttached("machinectl", args...)
 }
 

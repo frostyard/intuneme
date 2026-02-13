@@ -1,6 +1,7 @@
 package provision
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/bjk/intuneme/internal/runner"
 )
+
+//go:embed intuneme-profile.sh
+var intuneProfileScript []byte
 
 func PullImage(r runner.Runner, image string) error {
 	out, err := r.Run("podman", "pull", image)
@@ -71,16 +75,62 @@ func WriteFixups(rootfsPath, user string, uid, gid int, hostname string) error {
 		return fmt.Errorf("write environment: %w", err)
 	}
 
-	// PAM config for gnome-keyring
-	pamAuth := filepath.Join(rootfsPath, "etc", "pam.d", "common-auth")
-	appendLine(pamAuth, "auth optional pam_gnome_keyring.so")
-	pamSession := filepath.Join(rootfsPath, "etc", "pam.d", "common-session")
-	appendLine(pamSession, "session optional pam_gnome_keyring.so auto_start")
+	// Password quality — two files needed (matching mkosi reference):
+	// 1. /usr/share/pam-configs/pwquality — PAM profile with inline params so
+	//    pam-auth-update generates the correct common-password line
+	// 2. /etc/security/pwquality.conf — config file that pam_pwquality.so and
+	//    the intune compliance agent both read for the actual policy values
+	pwqualityProfile := `Name: Pwquality password strength checking
+Default: yes
+Priority: 1024
+Conflicts: cracklib
+Password-Type: Primary
+Password:
+	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
+Password-Initial:
+	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
+`
+	pamConfigsDir := filepath.Join(rootfsPath, "usr", "share", "pam-configs")
+	os.MkdirAll(pamConfigsDir, 0755)
+	if err := os.WriteFile(filepath.Join(pamConfigsDir, "pwquality"), []byte(pwqualityProfile), 0644); err != nil {
+		return fmt.Errorf("write pam-configs/pwquality: %w", err)
+	}
 
-	// Pre-create keyring directory
-	keyringDir := filepath.Join(rootfsPath, "home", user, ".local", "share", "keyrings")
-	os.MkdirAll(keyringDir, 0755)
-	os.WriteFile(filepath.Join(keyringDir, "default"), []byte("login\n"), 0644)
+	pwqualityConf := `# Intune compliance password policy
+minlen = 12
+dcredit = -1
+ucredit = -1
+lcredit = -1
+ocredit = -1
+enforcing = 1
+retry = 3
+dictcheck = 1
+usercheck = 1
+`
+	pwqDir := filepath.Join(rootfsPath, "etc", "security")
+	os.MkdirAll(pwqDir, 0755)
+	if err := os.WriteFile(filepath.Join(pwqDir, "pwquality.conf"), []byte(pwqualityConf), 0644); err != nil {
+		return fmt.Errorf("write pwquality.conf: %w", err)
+	}
+
+	// Override intune-agent timer to activate on default.target instead of
+	// graphical-session.target (which is never reached in a headless nspawn container).
+	// Without this, the agent never runs and never reports compliance status.
+	agentTimerOverride := filepath.Join(rootfsPath, "etc", "systemd", "user", "intune-agent.timer.d")
+	os.MkdirAll(agentTimerOverride, 0755)
+	if err := os.WriteFile(filepath.Join(agentTimerOverride, "override.conf"), []byte(`[Unit]
+PartOf=default.target
+After=default.target
+
+[Install]
+WantedBy=default.target
+`), 0644); err != nil {
+		return fmt.Errorf("write intune-agent timer override: %w", err)
+	}
+	// Enable the timer for default.target
+	userWantsDir := filepath.Join(rootfsPath, "etc", "systemd", "user", "default.target.wants")
+	os.MkdirAll(userWantsDir, 0755)
+	os.Symlink("/usr/lib/systemd/user/intune-agent.timer", filepath.Join(userWantsDir, "intune-agent.timer"))
 
 	// fix-home-ownership.service
 	svc := fmt.Sprintf(`[Unit]
@@ -107,7 +157,95 @@ WantedBy=multi-user.target
 	os.MkdirAll(wantsDir, 0755)
 	os.Symlink(svcPath, filepath.Join(wantsDir, "fix-home-ownership.service"))
 
+	// /usr/local/bin/microsoft-edge — wrapper that enables Wayland/Ozone on Wayland sessions
+	edgeWrapper := `#!/bin/sh -e
+
+if [ -n "$WAYLAND_DISPLAY" ]
+then
+    set -- \
+        '--enable-features=UseOzonePlatform' \
+        '--enable-features=WebRTCPipeWireCapturer' \
+        '--ozone-platform=wayland' \
+        "$@"
+fi
+
+/usr/bin/microsoft-edge "$@"
+`
+	edgePath := filepath.Join(rootfsPath, "usr", "local", "bin", "microsoft-edge")
+	os.MkdirAll(filepath.Dir(edgePath), 0755)
+	if err := os.WriteFile(edgePath, []byte(edgeWrapper), 0755); err != nil {
+		return fmt.Errorf("write microsoft-edge wrapper: %w", err)
+	}
+
+	// Install profile.d/intuneme.sh — sets display/audio env on login
+	profileDir := filepath.Join(rootfsPath, "etc", "profile.d")
+	os.MkdirAll(profileDir, 0755)
+	if err := os.WriteFile(filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
+		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
+	}
+
+	// Broker display override — broker starts before login, needs DISPLAY
+	brokerOverrideDir := filepath.Join(rootfsPath, "usr", "lib", "systemd", "user",
+		"microsoft-identity-broker.service.d")
+	os.MkdirAll(brokerOverrideDir, 0755)
+	if err := os.WriteFile(filepath.Join(brokerOverrideDir, "display.conf"),
+		[]byte("[Service]\nEnvironment=\"DISPLAY=:0\"\n"), 0644); err != nil {
+		return fmt.Errorf("write broker display override: %w", err)
+	}
+
 	return nil
+}
+
+// InstallPackages installs additional packages inside the container rootfs.
+// The frostyard OCI image includes intune-portal and the identity broker but
+// not Microsoft Edge or libsecret-tools, which we need for SSO and keyring init.
+func InstallPackages(r runner.Runner, rootfsPath string) error {
+	// Add the Edge apt repo (uses same Microsoft GPG key already in the image)
+	edgeRepo := "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft-edge.gpg] https://packages.microsoft.com/repos/edge stable main\n"
+	edgeListPath := filepath.Join(rootfsPath, "etc", "apt", "sources.list.d", "microsoft-edge.list")
+	os.MkdirAll(filepath.Dir(edgeListPath), 0755)
+	if err := os.WriteFile(edgeListPath, []byte(edgeRepo), 0644); err != nil {
+		return fmt.Errorf("write edge repo: %w", err)
+	}
+
+	// Download the Edge GPG key on the host and install it into the rootfs.
+	// The frostyard image doesn't have curl/gpg so we fetch from the host side.
+	keyPath := filepath.Join(rootfsPath, "etc", "apt", "keyrings", "microsoft-edge.gpg")
+	out, err := r.Run("bash", "-c",
+		fmt.Sprintf("curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o %s", keyPath))
+	if err != nil {
+		return fmt.Errorf("download edge GPG key: %w\n%s", err, out)
+	}
+
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"bash", "-c", "apt-get update && apt-get install -y microsoft-edge-stable libsecret-tools sudo",
+	)
+}
+
+// EnableServices enables systemd services inside the container rootfs.
+// The system device broker must be enabled so it starts on boot.
+func EnableServices(r runner.Runner, rootfsPath string) error {
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"systemctl", "enable", "microsoft-identity-device-broker",
+	)
+}
+
+// ConfigurePAM runs pam-auth-update inside the container to properly configure PAM
+// modules for password quality, gnome-keyring, and intune compliance.
+// This must run inside the container (via systemd-nspawn) because pam-auth-update
+// regenerates /etc/pam.d/common-* files from profiles in /usr/share/pam-configs/.
+func ConfigurePAM(r runner.Runner, rootfsPath string) error {
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"pam-auth-update", "--enable", "pwquality", "mkhomedir", "gnome-keyring", "intune", "unix", "--force",
+	)
+}
+
+// SetContainerPassword sets the user's password inside the container via chpasswd.
+// Without a password, the account is locked and machinectl shell/login won't work interactively.
+func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) error {
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"bash", "-c", fmt.Sprintf("echo '%s:%s' | chpasswd", user, password),
+	)
 }
 
 // CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
@@ -213,14 +351,3 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	return nil
 }
 
-func appendLine(path, line string) {
-	data, _ := os.ReadFile(path)
-	content := string(data)
-	if !strings.Contains(content, line) {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			defer f.Close()
-			f.WriteString(line + "\n")
-		}
-	}
-}

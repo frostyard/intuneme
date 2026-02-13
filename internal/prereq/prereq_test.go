@@ -18,6 +18,10 @@ func (m *mockRunner) RunAttached(name string, args ...string) error {
 	return nil
 }
 
+func (m *mockRunner) RunBackground(name string, args ...string) error {
+	return nil
+}
+
 func (m *mockRunner) LookPath(name string) (string, error) {
 	if m.available[name] {
 		return "/usr/bin/" + name, nil
