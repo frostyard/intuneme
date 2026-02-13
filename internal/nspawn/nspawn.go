@@ -56,6 +56,7 @@ func DetectHostSockets(uid int) []BindMount {
 	}{
 		{runtimeDir + "/wayland-0", "/run/host-wayland"},
 		{runtimeDir + "/pipewire-0", "/run/host-pipewire"},
+		{runtimeDir + "/pulse/native", "/run/host-pulse"},
 	}
 
 	var mounts []BindMount
