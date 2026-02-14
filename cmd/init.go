@@ -83,7 +83,7 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Println("Applying fixups...")
-		if err := provision.WriteFixups(cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
+		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
 			return err
 		}
 

@@ -31,12 +31,29 @@ func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
 		return fmt.Errorf("podman create failed: %w\n%s", err, out)
 	}
 
-	// Copy filesystem out
-	out, err = r.Run("podman", "cp", "intuneme-extract:/", rootfsPath)
+	// Export the container filesystem to a tar, then extract with sudo to
+	// preserve correct UIDs. Rootless podman cp remaps through the user
+	// namespace, making ALL files (including /etc/sudo.conf, /usr/bin/sudo)
+	// owned by the calling user. podman export preserves container-internal
+	// UIDs where root-owned files stay uid 0.
+	tmpTar := filepath.Join(os.TempDir(), "intuneme-rootfs.tar")
+	out, err = r.Run("podman", "export", "-o", tmpTar, "intuneme-extract")
 	if err != nil {
-		// Clean up on failure
 		_, _ = r.Run("podman", "rm", "intuneme-extract")
-		return fmt.Errorf("podman cp failed: %w\n%s", err, out)
+		return fmt.Errorf("podman export failed: %w\n%s", err, out)
+	}
+	defer func() { _ = os.Remove(tmpTar) }()
+
+	if err := os.MkdirAll(rootfsPath, 0755); err != nil {
+		_, _ = r.Run("podman", "rm", "intuneme-extract")
+		return fmt.Errorf("mkdir rootfs: %w", err)
+	}
+
+	// RunAttached so sudo can prompt for password if needed (this is the
+	// first sudo command in the init flow).
+	if err := r.RunAttached("sudo", "tar", "-xf", tmpTar, "-C", rootfsPath); err != nil {
+		_, _ = r.Run("podman", "rm", "intuneme-extract")
+		return fmt.Errorf("extract rootfs failed: %w", err)
 	}
 
 	// Remove temporary container
@@ -48,9 +65,37 @@ func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
 	return nil
 }
 
-func WriteFixups(rootfsPath, user string, uid, gid int, hostname string) error {
+// sudoWriteFile writes data to path via a temp file + sudo install.
+func sudoWriteFile(r runner.Runner, path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp("", "intuneme-fixup-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	_ = tmp.Close()
+	_, err = r.Run("sudo", "install", "-m", fmt.Sprintf("%04o", perm), tmp.Name(), path)
+	return err
+}
+
+// sudoMkdirAll creates directories with sudo.
+func sudoMkdirAll(r runner.Runner, path string) error {
+	_, err := r.Run("sudo", "mkdir", "-p", path)
+	return err
+}
+
+// sudoSymlink creates a symlink with sudo, removing any existing link first.
+func sudoSymlink(r runner.Runner, target, link string) error {
+	_, err := r.Run("sudo", "ln", "-sf", target, link)
+	return err
+}
+
+func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostname string) error {
 	// /etc/hostname
-	if err := os.WriteFile(
+	if err := sudoWriteFile(r,
 		filepath.Join(rootfsPath, "etc", "hostname"),
 		[]byte(hostname+"\n"), 0644,
 	); err != nil {
@@ -59,7 +104,7 @@ func WriteFixups(rootfsPath, user string, uid, gid int, hostname string) error {
 
 	// /etc/hosts
 	hosts := fmt.Sprintf("127.0.0.1 %s localhost\n", hostname)
-	if err := os.WriteFile(
+	if err := sudoWriteFile(r,
 		filepath.Join(rootfsPath, "etc", "hosts"),
 		[]byte(hosts), 0644,
 	); err != nil {
@@ -68,7 +113,7 @@ func WriteFixups(rootfsPath, user string, uid, gid int, hostname string) error {
 
 	// /etc/environment
 	env := "DISPLAY=:0\nNO_AT_BRIDGE=1\nGTK_A11Y=none\n"
-	if err := os.WriteFile(
+	if err := sudoWriteFile(r,
 		filepath.Join(rootfsPath, "etc", "environment"),
 		[]byte(env), 0644,
 	); err != nil {
@@ -91,10 +136,10 @@ Password-Initial:
 	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
 `
 	pamConfigsDir := filepath.Join(rootfsPath, "usr", "share", "pam-configs")
-	if err := os.MkdirAll(pamConfigsDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, pamConfigsDir); err != nil {
 		return fmt.Errorf("mkdir pam-configs: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(pamConfigsDir, "pwquality"), []byte(pwqualityProfile), 0644); err != nil {
+	if err := sudoWriteFile(r, filepath.Join(pamConfigsDir, "pwquality"), []byte(pwqualityProfile), 0644); err != nil {
 		return fmt.Errorf("write pam-configs/pwquality: %w", err)
 	}
 
@@ -110,10 +155,10 @@ dictcheck = 1
 usercheck = 1
 `
 	pwqDir := filepath.Join(rootfsPath, "etc", "security")
-	if err := os.MkdirAll(pwqDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, pwqDir); err != nil {
 		return fmt.Errorf("mkdir security: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(pwqDir, "pwquality.conf"), []byte(pwqualityConf), 0644); err != nil {
+	if err := sudoWriteFile(r, filepath.Join(pwqDir, "pwquality.conf"), []byte(pwqualityConf), 0644); err != nil {
 		return fmt.Errorf("write pwquality.conf: %w", err)
 	}
 
@@ -121,10 +166,10 @@ usercheck = 1
 	// graphical-session.target (which is never reached in a headless nspawn container).
 	// Without this, the agent never runs and never reports compliance status.
 	agentTimerOverride := filepath.Join(rootfsPath, "etc", "systemd", "user", "intune-agent.timer.d")
-	if err := os.MkdirAll(agentTimerOverride, 0755); err != nil {
+	if err := sudoMkdirAll(r, agentTimerOverride); err != nil {
 		return fmt.Errorf("mkdir intune-agent timer override: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentTimerOverride, "override.conf"), []byte(`[Unit]
+	if err := sudoWriteFile(r, filepath.Join(agentTimerOverride, "override.conf"), []byte(`[Unit]
 PartOf=default.target
 After=default.target
 
@@ -135,10 +180,10 @@ WantedBy=default.target
 	}
 	// Enable the timer for default.target
 	userWantsDir := filepath.Join(rootfsPath, "etc", "systemd", "user", "default.target.wants")
-	if err := os.MkdirAll(userWantsDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, userWantsDir); err != nil {
 		return fmt.Errorf("mkdir user wants dir: %w", err)
 	}
-	if err := os.Symlink("/usr/lib/systemd/user/intune-agent.timer", filepath.Join(userWantsDir, "intune-agent.timer")); err != nil {
+	if err := sudoSymlink(r, "/usr/lib/systemd/user/intune-agent.timer", filepath.Join(userWantsDir, "intune-agent.timer")); err != nil {
 		return fmt.Errorf("symlink intune-agent.timer: %w", err)
 	}
 
@@ -158,22 +203,22 @@ WantedBy=multi-user.target
 `, uid, gid, user)
 
 	svcPath := filepath.Join(rootfsPath, "etc", "systemd", "system", "fix-home-ownership.service")
-	if err := os.WriteFile(svcPath, []byte(svc), 0644); err != nil {
+	if err := sudoWriteFile(r, svcPath, []byte(svc), 0644); err != nil {
 		return fmt.Errorf("write fix-home-ownership.service: %w", err)
 	}
 
 	// Enable the service (symlink)
 	wantsDir := filepath.Join(rootfsPath, "etc", "systemd", "system", "multi-user.target.wants")
-	if err := os.MkdirAll(wantsDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, wantsDir); err != nil {
 		return fmt.Errorf("mkdir multi-user wants dir: %w", err)
 	}
-	if err := os.Symlink(svcPath, filepath.Join(wantsDir, "fix-home-ownership.service")); err != nil {
+	if err := sudoSymlink(r, svcPath, filepath.Join(wantsDir, "fix-home-ownership.service")); err != nil {
 		return fmt.Errorf("symlink fix-home-ownership.service: %w", err)
 	}
 
 	// Enable device broker — unit is "static" so systemctl enable is a no-op;
 	// create the symlink directly.
-	if err := os.Symlink(
+	if err := sudoSymlink(r,
 		"/usr/lib/systemd/system/microsoft-identity-device-broker.service",
 		filepath.Join(wantsDir, "microsoft-identity-device-broker.service"),
 	); err != nil {
@@ -195,39 +240,39 @@ fi
 /usr/bin/microsoft-edge "$@"
 `
 	edgePath := filepath.Join(rootfsPath, "usr", "local", "bin", "microsoft-edge")
-	if err := os.MkdirAll(filepath.Dir(edgePath), 0755); err != nil {
+	if err := sudoMkdirAll(r, filepath.Dir(edgePath)); err != nil {
 		return fmt.Errorf("mkdir edge wrapper dir: %w", err)
 	}
-	if err := os.WriteFile(edgePath, []byte(edgeWrapper), 0755); err != nil {
+	if err := sudoWriteFile(r, edgePath, []byte(edgeWrapper), 0755); err != nil {
 		return fmt.Errorf("write microsoft-edge wrapper: %w", err)
 	}
 
 	// Install profile.d/intuneme.sh — sets display/audio env on login
 	profileDir := filepath.Join(rootfsPath, "etc", "profile.d")
-	if err := os.MkdirAll(profileDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, profileDir); err != nil {
 		return fmt.Errorf("mkdir profile.d: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
+	if err := sudoWriteFile(r, filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
 		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
 	}
 
 	// Passwordless sudo for the container user
 	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
-	if err := os.MkdirAll(sudoersDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, sudoersDir); err != nil {
 		return fmt.Errorf("mkdir sudoers.d: %w", err)
 	}
 	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
-	if err := os.WriteFile(filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
+	if err := sudoWriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
 	}
 
 	// Broker display override — broker starts before login, needs DISPLAY
 	brokerOverrideDir := filepath.Join(rootfsPath, "usr", "lib", "systemd", "user",
 		"microsoft-identity-broker.service.d")
-	if err := os.MkdirAll(brokerOverrideDir, 0755); err != nil {
+	if err := sudoMkdirAll(r, brokerOverrideDir); err != nil {
 		return fmt.Errorf("mkdir broker override dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(brokerOverrideDir, "display.conf"),
+	if err := sudoWriteFile(r, filepath.Join(brokerOverrideDir, "display.conf"),
 		[]byte("[Service]\nEnvironment=\"DISPLAY=:0\"\n"), 0644); err != nil {
 		return fmt.Errorf("write broker display override: %w", err)
 	}
@@ -262,10 +307,10 @@ func InstallPackages(r runner.Runner, rootfsPath string) error {
 	// Add the Edge apt repo (uses same Microsoft GPG key already in the image)
 	edgeRepo := "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft-edge.gpg] https://packages.microsoft.com/repos/edge stable main\n"
 	edgeListPath := filepath.Join(rootfsPath, "etc", "apt", "sources.list.d", "microsoft-edge.list")
-	if err := os.MkdirAll(filepath.Dir(edgeListPath), 0755); err != nil {
+	if err := sudoMkdirAll(r, filepath.Dir(edgeListPath)); err != nil {
 		return fmt.Errorf("mkdir edge apt sources dir: %w", err)
 	}
-	if err := os.WriteFile(edgeListPath, []byte(edgeRepo), 0644); err != nil {
+	if err := sudoWriteFile(r, edgeListPath, []byte(edgeRepo), 0644); err != nil {
 		return fmt.Errorf("write edge repo: %w", err)
 	}
 
@@ -273,10 +318,22 @@ func InstallPackages(r runner.Runner, rootfsPath string) error {
 	// The frostyard image doesn't have curl/gpg so we fetch from the host side.
 	keyPath := filepath.Join(rootfsPath, "etc", "apt", "keyrings", "microsoft-edge.gpg")
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		if err := sudoMkdirAll(r, filepath.Dir(keyPath)); err != nil {
+			return fmt.Errorf("mkdir keyrings dir: %w", err)
+		}
+		tmpKey, err := os.CreateTemp("", "intuneme-gpg-*")
+		if err != nil {
+			return fmt.Errorf("create temp gpg file: %w", err)
+		}
+		defer func() { _ = os.Remove(tmpKey.Name()) }()
+		_ = tmpKey.Close()
 		out, err := r.Run("bash", "-c",
-			fmt.Sprintf("curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o %s", keyPath))
+			fmt.Sprintf("curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o %s", tmpKey.Name()))
 		if err != nil {
 			return fmt.Errorf("download edge GPG key: %w\n%s", err, out)
+		}
+		if _, err := r.Run("sudo", "cp", tmpKey.Name(), keyPath); err != nil {
+			return fmt.Errorf("install edge GPG key: %w", err)
 		}
 	}
 

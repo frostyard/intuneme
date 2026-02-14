@@ -1,7 +1,6 @@
 package provision
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,73 +45,68 @@ func TestPullImage(t *testing.T) {
 
 func TestExtractRootfs(t *testing.T) {
 	r := &mockRunner{}
-	err := ExtractRootfs(r, "ghcr.io/frostyard/ubuntu-intune:latest", "/tmp/test-rootfs")
+	rootfs := filepath.Join(t.TempDir(), "rootfs")
+	err := ExtractRootfs(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
 	if err != nil {
 		t.Fatalf("ExtractRootfs error: %v", err)
 	}
-	// Should run: podman rm (cleanup), podman create, podman cp, podman rm
-	if len(r.commands) != 4 {
-		t.Fatalf("expected 4 commands, got %d: %v", len(r.commands), r.commands)
+	// Should run: podman rm (cleanup), podman create, podman export, sudo tar, podman rm
+	if len(r.commands) != 5 {
+		t.Fatalf("expected 5 commands, got %d: %v", len(r.commands), r.commands)
+	}
+	if !strings.Contains(r.commands[2], "podman export") {
+		t.Errorf("expected podman export, got: %s", r.commands[2])
+	}
+	if !strings.Contains(r.commands[3], "sudo tar") {
+		t.Errorf("expected sudo tar, got: %s", r.commands[3])
 	}
 }
 
 func TestWriteFixups(t *testing.T) {
-	tmp := t.TempDir()
-	rootfs := filepath.Join(tmp, "rootfs")
-	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(rootfs, "etc", "systemd", "system"), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(rootfs, "etc", "pam.d"), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
+	r := &mockRunner{}
+	rootfs := "/tmp/test-rootfs"
 
-	err := WriteFixups(rootfs, "testuser", 1000, 1000, "testhost")
+	err := WriteFixups(r, rootfs, "testuser", 1000, 1000, "testhost")
 	if err != nil {
 		t.Fatalf("WriteFixups error: %v", err)
 	}
 
-	// Check hostname
-	data, _ := os.ReadFile(filepath.Join(rootfs, "etc", "hostname"))
-	if strings.TrimSpace(string(data)) != "testhost" {
-		t.Errorf("hostname = %q, want %q", strings.TrimSpace(string(data)), "testhost")
+	// Verify sudo commands were issued for key files
+	allCmds := strings.Join(r.commands, "\n")
+
+	for _, want := range []string{
+		"etc/hostname",
+		"etc/hosts",
+		"etc/environment",
+		"pam-configs/pwquality",
+		"pwquality.conf",
+		"fix-home-ownership.service",
+		"microsoft-edge",
+		"intuneme.sh",
+		"sudoers.d/intuneme",
+		"display.conf",
+	} {
+		if !strings.Contains(allCmds, want) {
+			t.Errorf("expected command referencing %q, not found in:\n%s", want, allCmds)
+		}
 	}
 
-	// Check environment file exists
-	if _, err := os.Stat(filepath.Join(rootfs, "etc", "environment")); err != nil {
-		t.Errorf("expected etc/environment to exist: %v", err)
-	}
-
-	// Check fix-home-ownership.service exists
-	svcPath := filepath.Join(rootfs, "etc", "systemd", "system", "fix-home-ownership.service")
-	if _, err := os.Stat(svcPath); err != nil {
-		t.Errorf("expected fix-home-ownership.service to exist: %v", err)
-	}
-
-	// v2: Check profile.d/intuneme.sh exists
-	profilePath := filepath.Join(rootfs, "etc", "profile.d", "intuneme.sh")
-	if _, err := os.Stat(profilePath); err != nil {
-		t.Errorf("expected profile.d/intuneme.sh to exist: %v", err)
-	}
-
-	// v2: Check broker display override exists
-	brokerOverride := filepath.Join(rootfs, "usr", "lib", "systemd", "user",
-		"microsoft-identity-broker.service.d", "display.conf")
-	if _, err := os.Stat(brokerOverride); err != nil {
-		t.Errorf("expected broker display override to exist: %v", err)
-	}
-
-	// v2: Keyring dir should NOT be pre-created (handled at runtime by profile script)
-	keyringDir := filepath.Join(rootfs, "home", "testuser", ".local", "share", "keyrings")
-	if _, err := os.Stat(keyringDir); err == nil {
-		t.Errorf("keyring dir should not be pre-created in v2")
-	}
-
-	// v2: start-intune.sh should NOT exist
-	if _, err := os.Stat(filepath.Join(rootfs, "opt", "intuneme", "start-intune.sh")); err == nil {
-		t.Errorf("start-intune.sh should not exist in v2")
+	// Verify symlinks were created
+	for _, want := range []string{
+		"intune-agent.timer",
+		"fix-home-ownership.service",
+		"microsoft-identity-device-broker.service",
+	} {
+		found := false
+		for _, cmd := range r.commands {
+			if strings.Contains(cmd, "ln -sf") && strings.Contains(cmd, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected symlink command for %q", want)
+		}
 	}
 }
 
