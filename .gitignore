@@ -4,3 +4,7 @@
 /noahs-setup.sh
 /.claude
 /intuneme
+.envrc
+/completions
+/manpages
+/dist
