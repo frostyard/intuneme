@@ -84,3 +84,21 @@ inside the container.
 - intune-portal launches and authenticates
 - machinectl shell provides real user session with D-Bus, keyring, XDG_RUNTIME_DIR
 - ~/Intune persists state across container restarts
+
+## 2026-02-13: Audio support + module rename + bug fixes
+
+### Audio support
+Added PulseAudio socket forwarding so Edge has full-duplex audio (playback + mic for Teams calls):
+- Detect host PulseAudio socket (`/run/user/{uid}/pulse/native`) in `DetectHostSockets()`
+- Bind-mount to `/run/host-pulse` in container
+- Set `PULSE_SERVER=unix:/run/host-pulse` in profile.d script
+- Install `libpulse0` (PulseAudio client library) during provisioning
+- PipeWire socket forwarding was already in place; PulseAudio socket is the one Edge actually uses
+
+### Module rename
+Changed Go module from `github.com/bjk/intuneme` to `github.com/frostyard/intune` for public push.
+
+### Bug fixes found during reprovision
+1. **Device broker not starting on boot** — `microsoft-identity-device-broker.service` is a "static" unit (no `[Install]` section), so `systemctl enable` was a silent no-op. Fixed by creating the `multi-user.target.wants` symlink directly during provisioning.
+
+2. **Keyring collection never created** — `printf ''` sends 0 bytes to `gnome-keyring-daemon --unlock`, but it needs a newline to create the login collection. Changed to `echo ""`. Also added broker restart after keyring init — the broker starts before first login and fails with `storage_keyring_write_failure`, then never retries.
