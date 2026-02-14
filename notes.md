@@ -133,5 +133,8 @@ Rewrote `.github/workflows/test.yml` — removed igloo-specific jobs (docker bui
 ### Lint fixes
 Fixed all 18 errcheck violations across 6 files. Added `CLAUDE.md` with `make fmt` / `make lint` reminder.
 
-### CI status
-All 4 jobs pass: Lint, Test, Verify, Build.
+### Module rename
+Renamed Go module from `github.com/frostyard/intune` to `github.com/frostyard/intuneme` to match the actual repo name. The mismatch caused goreleaser's `gomod.proxy` to fail — it tried to fetch the module via the Go proxy and couldn't resolve `frostyard/intune` since that repo doesn't exist.
+
+### v0.1.0 released
+First tagged release. GoReleaser pipeline passes: builds binary, generates completions + man page, packages deb/rpm/apk, publishes to frostyard repo.
