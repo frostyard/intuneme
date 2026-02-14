@@ -100,7 +100,7 @@ ykman
 4. Extracts the rootfs into `~/.local/share/intuneme/rootfs/`
 5. Creates a container user matching your host UID/GID
 6. Enables the system identity device broker service
-7. Applies configuration: hostname, password policy, PAM modules, intune-agent timer, display environment, Edge Wayland wrapper, broker display override, login profile script
+7. Applies configuration: hostname, intune-agent timer, display environment, Edge Wayland wrapper, broker display override, login profile script
 8. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
 9. Saves configuration to `~/.local/share/intuneme/config.toml`
 
