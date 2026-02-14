@@ -102,3 +102,36 @@ Changed Go module from `github.com/bjk/intuneme` to `github.com/frostyard/intune
 1. **Device broker not starting on boot** — `microsoft-identity-device-broker.service` is a "static" unit (no `[Install]` section), so `systemctl enable` was a silent no-op. Fixed by creating the `multi-user.target.wants` symlink directly during provisioning.
 
 2. **Keyring collection never created** — `printf ''` sends 0 bytes to `gnome-keyring-daemon --unlock`, but it needs a newline to create the login collection. Changed to `echo ""`. Also added broker restart after keyring init — the broker starts before first login and fails with `storage_keyring_write_failure`, then never retries.
+
+## 2026-02-13: Release pipeline — fang, goreleaser, CI
+
+### charmbracelet/fang integration
+Replaced `cmd.Execute()` with `fang.Execute()` to get batteries-included CLI features:
+- Styled help pages and error messages
+- `--version` flag with build metadata (version/commit/date/builtBy via ldflags)
+- Hidden `man` command (mango-powered single man page)
+- Hidden `completion` command (bash/zsh/fish/powershell)
+- Signal handling via `signal.NotifyContext` + `fang.WithNotifySignal`
+
+Refactored `cmd/root.go` to export `RootCmd()` — subcommand files unchanged.
+
+### Goreleaser scripts
+Created `scripts/completions.sh` and `scripts/manpages.sh` for goreleaser `before.hooks`. Use `go run .` to invoke fang's hidden commands before the binary is built.
+
+### Goreleaser config cleanup
+Adapted `.goreleaser.yaml` from igloo reference:
+- Removed `pkg/dracut/95etc-overlay/` references from nfpms (not applicable)
+- Fixed release footer URL (`frostyard/` not `bketelsen/`)
+
+### Makefile updates
+- Replaced broken `docs` target (referenced nonexistent `gendocs` command)
+- Added `completions`, `manpages`, `docs` targets using fang commands
+
+### CI cleanup
+Rewrote `.github/workflows/test.yml` — removed igloo-specific jobs (docker build, integration tests with loop devices, `nbc` binary references, `./pkg/...` test paths). Simplified to 4 jobs: lint, test, verify, build.
+
+### Lint fixes
+Fixed all 18 errcheck violations across 6 files. Added `CLAUDE.md` with `make fmt` / `make lint` reminder.
+
+### CI status
+All 4 jobs pass: Lint, Test, Verify, Build.
