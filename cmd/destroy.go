@@ -42,7 +42,7 @@ var destroyCmd = &cobra.Command{
 		}
 
 		// Remove config
-		os.Remove(fmt.Sprintf("%s/config.toml", root))
+		_ = os.Remove(fmt.Sprintf("%s/config.toml", root))
 
 		// Clean intune state from ~/Intune (persists via bind mount)
 		home, _ := os.UserHomeDir()
@@ -58,7 +58,7 @@ var destroyCmd = &cobra.Command{
 		for _, dir := range staleStateDirs {
 			if _, err := os.Stat(dir); err == nil {
 				fmt.Printf("Cleaning %s...\n", dir)
-				os.RemoveAll(dir)
+				_ = os.RemoveAll(dir)
 			}
 		}
 

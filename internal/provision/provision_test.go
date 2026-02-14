@@ -59,9 +59,15 @@ func TestExtractRootfs(t *testing.T) {
 func TestWriteFixups(t *testing.T) {
 	tmp := t.TempDir()
 	rootfs := filepath.Join(tmp, "rootfs")
-	os.MkdirAll(filepath.Join(rootfs, "etc"), 0755)
-	os.MkdirAll(filepath.Join(rootfs, "etc", "systemd", "system"), 0755)
-	os.MkdirAll(filepath.Join(rootfs, "etc", "pam.d"), 0755)
+	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rootfs, "etc", "systemd", "system"), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(rootfs, "etc", "pam.d"), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 
 	err := WriteFixups(rootfs, "testuser", 1000, 1000, "testhost")
 	if err != nil {

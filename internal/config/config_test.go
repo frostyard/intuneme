@@ -32,7 +32,9 @@ func TestLoadCreatesDefault(t *testing.T) {
 func TestLoadReadsExisting(t *testing.T) {
 	tmp := t.TempDir()
 	toml := `machine_name = "myintune"` + "\n"
-	os.WriteFile(filepath.Join(tmp, "config.toml"), []byte(toml), 0644)
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte(toml), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 
 	cfg, err := Load(tmp)
 	if err != nil {

@@ -23,7 +23,7 @@ func PullImage(r runner.Runner, image string) error {
 
 func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
 	// Remove any leftover extract container from a previous failed run
-	r.Run("podman", "rm", "intuneme-extract")
+	_, _ = r.Run("podman", "rm", "intuneme-extract")
 
 	// Create temporary container
 	out, err := r.Run("podman", "create", "--name", "intuneme-extract", image)
@@ -35,7 +35,7 @@ func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
 	out, err = r.Run("podman", "cp", "intuneme-extract:/", rootfsPath)
 	if err != nil {
 		// Clean up on failure
-		r.Run("podman", "rm", "intuneme-extract")
+		_, _ = r.Run("podman", "rm", "intuneme-extract")
 		return fmt.Errorf("podman cp failed: %w\n%s", err, out)
 	}
 
@@ -91,7 +91,9 @@ Password-Initial:
 	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
 `
 	pamConfigsDir := filepath.Join(rootfsPath, "usr", "share", "pam-configs")
-	os.MkdirAll(pamConfigsDir, 0755)
+	if err := os.MkdirAll(pamConfigsDir, 0755); err != nil {
+		return fmt.Errorf("mkdir pam-configs: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(pamConfigsDir, "pwquality"), []byte(pwqualityProfile), 0644); err != nil {
 		return fmt.Errorf("write pam-configs/pwquality: %w", err)
 	}
@@ -108,7 +110,9 @@ dictcheck = 1
 usercheck = 1
 `
 	pwqDir := filepath.Join(rootfsPath, "etc", "security")
-	os.MkdirAll(pwqDir, 0755)
+	if err := os.MkdirAll(pwqDir, 0755); err != nil {
+		return fmt.Errorf("mkdir security: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(pwqDir, "pwquality.conf"), []byte(pwqualityConf), 0644); err != nil {
 		return fmt.Errorf("write pwquality.conf: %w", err)
 	}
@@ -117,7 +121,9 @@ usercheck = 1
 	// graphical-session.target (which is never reached in a headless nspawn container).
 	// Without this, the agent never runs and never reports compliance status.
 	agentTimerOverride := filepath.Join(rootfsPath, "etc", "systemd", "user", "intune-agent.timer.d")
-	os.MkdirAll(agentTimerOverride, 0755)
+	if err := os.MkdirAll(agentTimerOverride, 0755); err != nil {
+		return fmt.Errorf("mkdir intune-agent timer override: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(agentTimerOverride, "override.conf"), []byte(`[Unit]
 PartOf=default.target
 After=default.target
@@ -129,8 +135,12 @@ WantedBy=default.target
 	}
 	// Enable the timer for default.target
 	userWantsDir := filepath.Join(rootfsPath, "etc", "systemd", "user", "default.target.wants")
-	os.MkdirAll(userWantsDir, 0755)
-	os.Symlink("/usr/lib/systemd/user/intune-agent.timer", filepath.Join(userWantsDir, "intune-agent.timer"))
+	if err := os.MkdirAll(userWantsDir, 0755); err != nil {
+		return fmt.Errorf("mkdir user wants dir: %w", err)
+	}
+	if err := os.Symlink("/usr/lib/systemd/user/intune-agent.timer", filepath.Join(userWantsDir, "intune-agent.timer")); err != nil {
+		return fmt.Errorf("symlink intune-agent.timer: %w", err)
+	}
 
 	// fix-home-ownership.service
 	svc := fmt.Sprintf(`[Unit]
@@ -154,15 +164,21 @@ WantedBy=multi-user.target
 
 	// Enable the service (symlink)
 	wantsDir := filepath.Join(rootfsPath, "etc", "systemd", "system", "multi-user.target.wants")
-	os.MkdirAll(wantsDir, 0755)
-	os.Symlink(svcPath, filepath.Join(wantsDir, "fix-home-ownership.service"))
+	if err := os.MkdirAll(wantsDir, 0755); err != nil {
+		return fmt.Errorf("mkdir multi-user wants dir: %w", err)
+	}
+	if err := os.Symlink(svcPath, filepath.Join(wantsDir, "fix-home-ownership.service")); err != nil {
+		return fmt.Errorf("symlink fix-home-ownership.service: %w", err)
+	}
 
 	// Enable device broker — unit is "static" so systemctl enable is a no-op;
 	// create the symlink directly.
-	os.Symlink(
+	if err := os.Symlink(
 		"/usr/lib/systemd/system/microsoft-identity-device-broker.service",
 		filepath.Join(wantsDir, "microsoft-identity-device-broker.service"),
-	)
+	); err != nil {
+		return fmt.Errorf("symlink microsoft-identity-device-broker.service: %w", err)
+	}
 
 	// /usr/local/bin/microsoft-edge — wrapper that enables Wayland/Ozone on Wayland sessions
 	edgeWrapper := `#!/bin/sh -e
@@ -179,21 +195,27 @@ fi
 /usr/bin/microsoft-edge "$@"
 `
 	edgePath := filepath.Join(rootfsPath, "usr", "local", "bin", "microsoft-edge")
-	os.MkdirAll(filepath.Dir(edgePath), 0755)
+	if err := os.MkdirAll(filepath.Dir(edgePath), 0755); err != nil {
+		return fmt.Errorf("mkdir edge wrapper dir: %w", err)
+	}
 	if err := os.WriteFile(edgePath, []byte(edgeWrapper), 0755); err != nil {
 		return fmt.Errorf("write microsoft-edge wrapper: %w", err)
 	}
 
 	// Install profile.d/intuneme.sh — sets display/audio env on login
 	profileDir := filepath.Join(rootfsPath, "etc", "profile.d")
-	os.MkdirAll(profileDir, 0755)
+	if err := os.MkdirAll(profileDir, 0755); err != nil {
+		return fmt.Errorf("mkdir profile.d: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
 		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
 	}
 
 	// Passwordless sudo for the container user
 	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
-	os.MkdirAll(sudoersDir, 0755)
+	if err := os.MkdirAll(sudoersDir, 0755); err != nil {
+		return fmt.Errorf("mkdir sudoers.d: %w", err)
+	}
 	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
 	if err := os.WriteFile(filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
@@ -202,7 +224,9 @@ fi
 	// Broker display override — broker starts before login, needs DISPLAY
 	brokerOverrideDir := filepath.Join(rootfsPath, "usr", "lib", "systemd", "user",
 		"microsoft-identity-broker.service.d")
-	os.MkdirAll(brokerOverrideDir, 0755)
+	if err := os.MkdirAll(brokerOverrideDir, 0755); err != nil {
+		return fmt.Errorf("mkdir broker override dir: %w", err)
+	}
 	if err := os.WriteFile(filepath.Join(brokerOverrideDir, "display.conf"),
 		[]byte("[Service]\nEnvironment=\"DISPLAY=:0\"\n"), 0644); err != nil {
 		return fmt.Errorf("write broker display override: %w", err)
@@ -238,7 +262,9 @@ func InstallPackages(r runner.Runner, rootfsPath string) error {
 	// Add the Edge apt repo (uses same Microsoft GPG key already in the image)
 	edgeRepo := "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft-edge.gpg] https://packages.microsoft.com/repos/edge stable main\n"
 	edgeListPath := filepath.Join(rootfsPath, "etc", "apt", "sources.list.d", "microsoft-edge.list")
-	os.MkdirAll(filepath.Dir(edgeListPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(edgeListPath), 0755); err != nil {
+		return fmt.Errorf("mkdir edge apt sources dir: %w", err)
+	}
 	if err := os.WriteFile(edgeListPath, []byte(edgeRepo), 0644); err != nil {
 		return fmt.Errorf("write edge repo: %w", err)
 	}
@@ -368,13 +394,15 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(rule); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("write temp file: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
 
 	// Create directory with sudo
 	if err := r.RunAttached("sudo", "mkdir", "-p", rulesDir); err != nil {
@@ -388,4 +416,3 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	}
 	return nil
 }
-

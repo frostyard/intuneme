@@ -52,7 +52,9 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Println("Extracting rootfs...")
-		os.MkdirAll(root, 0755)
+		if err := os.MkdirAll(root, 0755); err != nil {
+			return fmt.Errorf("create root dir: %w", err)
+		}
 		if err := provision.ExtractRootfs(r, cfg.Image, cfg.RootfsPath); err != nil {
 			return err
 		}
