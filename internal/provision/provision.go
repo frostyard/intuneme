@@ -191,6 +191,14 @@ fi
 		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
 	}
 
+	// Passwordless sudo for the container user
+	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
+	os.MkdirAll(sudoersDir, 0755)
+	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
+	if err := os.WriteFile(filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
+		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
+	}
+
 	// Broker display override — broker starts before login, needs DISPLAY
 	brokerOverrideDir := filepath.Join(rootfsPath, "usr", "lib", "systemd", "user",
 		"microsoft-identity-broker.service.d")
@@ -206,7 +214,27 @@ fi
 // InstallPackages installs additional packages inside the container rootfs.
 // The frostyard OCI image includes intune-portal and the identity broker but
 // not Microsoft Edge or libsecret-tools, which we need for SSO and keyring init.
+// Packages already present in the image are skipped.
 func InstallPackages(r runner.Runner, rootfsPath string) error {
+	packages := []string{"microsoft-edge-stable", "libsecret-tools", "sudo", "libpulse0"}
+
+	// Check which packages are already installed
+	var missing []string
+	for _, pkg := range packages {
+		_, err := r.Run("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"dpkg", "-s", pkg)
+		if err != nil {
+			missing = append(missing, pkg)
+		}
+	}
+
+	if len(missing) == 0 {
+		fmt.Println("  All packages already installed, skipping.")
+		return nil
+	}
+
+	fmt.Printf("  Installing packages: %s\n", strings.Join(missing, ", "))
+
 	// Add the Edge apt repo (uses same Microsoft GPG key already in the image)
 	edgeRepo := "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft-edge.gpg] https://packages.microsoft.com/repos/edge stable main\n"
 	edgeListPath := filepath.Join(rootfsPath, "etc", "apt", "sources.list.d", "microsoft-edge.list")
@@ -215,17 +243,20 @@ func InstallPackages(r runner.Runner, rootfsPath string) error {
 		return fmt.Errorf("write edge repo: %w", err)
 	}
 
-	// Download the Edge GPG key on the host and install it into the rootfs.
+	// Download the Edge GPG key on the host if not already present.
 	// The frostyard image doesn't have curl/gpg so we fetch from the host side.
 	keyPath := filepath.Join(rootfsPath, "etc", "apt", "keyrings", "microsoft-edge.gpg")
-	out, err := r.Run("bash", "-c",
-		fmt.Sprintf("curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o %s", keyPath))
-	if err != nil {
-		return fmt.Errorf("download edge GPG key: %w\n%s", err, out)
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		out, err := r.Run("bash", "-c",
+			fmt.Sprintf("curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o %s", keyPath))
+		if err != nil {
+			return fmt.Errorf("download edge GPG key: %w\n%s", err, out)
+		}
 	}
 
+	installCmd := "apt-get update && apt-get install -y " + strings.Join(missing, " ")
 	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-		"bash", "-c", "apt-get update && apt-get install -y microsoft-edge-stable libsecret-tools sudo libpulse0",
+		"bash", "-c", installCmd,
 	)
 }
 
