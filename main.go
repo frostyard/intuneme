@@ -7,7 +7,7 @@ import (
 	"os/signal"
 
 	"github.com/charmbracelet/fang"
-	"github.com/frostyard/intune/cmd"
+	"github.com/frostyard/intuneme/cmd"
 )
 
 var version = "dev"

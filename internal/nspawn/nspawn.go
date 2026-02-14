@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/frostyard/intune/internal/runner"
+	"github.com/frostyard/intuneme/internal/runner"
 )
 
 // BindMount represents a host:container bind mount pair.

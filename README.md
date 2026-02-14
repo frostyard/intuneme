@@ -43,13 +43,13 @@ sudo apt install systemd-container podman
 ## Install
 
 ```bash
-go install github.com/frostyard/intune@latest
+go install github.com/frostyard/intuneme@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/frostyard/intune.git
+git clone https://github.com/frostyard/intuneme.git
 cd intuneme
 go build -o intuneme .
 ```

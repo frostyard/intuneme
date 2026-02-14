@@ -1,4 +1,4 @@
-module github.com/frostyard/intune
+module github.com/frostyard/intuneme
 
 go 1.25.0
 

@@ -3,7 +3,7 @@ package prereq
 import (
 	"fmt"
 
-	"github.com/frostyard/intune/internal/runner"
+	"github.com/frostyard/intuneme/internal/runner"
 )
 
 type requirement struct {
