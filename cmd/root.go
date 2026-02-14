@@ -1,11 +1,6 @@
 package cmd
 
-import (
-	"fmt"
-	"os"
-
-	"github.com/spf13/cobra"
-)
+import "github.com/spf13/cobra"
 
 var rootDir string
 
@@ -14,11 +9,8 @@ var rootCmd = &cobra.Command{
 	Short: "Manage an Intune container on an immutable Linux host",
 }
 
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func RootCmd() *cobra.Command {
+	return rootCmd
 }
 
 func init() {
