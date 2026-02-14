@@ -45,7 +45,7 @@ if [ ! -f "$_keyring_init_marker" ]; then
     if [ ! -f "$_keyring_dir/default" ]; then
         echo "login" > "$_keyring_dir/default"
     fi
-    printf '' | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 -d 2>/dev/null
+    echo "" | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 -d 2>/dev/null
     sleep 1
     # Store a test secret to force creation of the default collection.
     # Without this, ReadAlias("default") returns "/" and the broker can't store credentials.
@@ -53,6 +53,9 @@ if [ ! -f "$_keyring_init_marker" ]; then
         echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
     fi
     touch "$_keyring_init_marker"
+    # Restart broker so it picks up the now-initialized keyring.
+    # It starts before login and fails with storage_keyring_write_failure.
+    systemctl --user restart microsoft-identity-broker.service 2>/dev/null
 fi
 
 # Start intune agent timer if not running
