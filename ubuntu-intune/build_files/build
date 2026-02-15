@@ -1,0 +1,75 @@
+#!/bin/bash
+set -ouex pipefail
+
+# Initial update
+apt update -y
+
+# Required repositories & supporting packages
+apt install -y \
+  curl \
+  gpg \
+  lsb-release
+
+curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings
+rm microsoft.gpg
+
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/microsoft-ubuntu-$(lsb_release -cs)-prod.list
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge.list
+apt update -y
+
+# Remove no longer needed packages
+apt remove -y \
+  curl \
+  gpg \
+  lsb-release
+apt autoremove -y
+
+# Required packages
+apt install -y \
+  unattended-upgrades \
+  microsoft-identity-broker \
+  microsoft-edge-stable \
+  pipewire-audio-client-libraries \
+  xdg-desktop-portal-gtk \
+  pcscd \
+  yubikey-manager \
+  opensc \
+  libnss3-tools \
+  openssl \
+  libsecret-tools \
+  libpulse0 \
+  sudo
+
+# Intune needs fixes to install properly
+# Install its dependencies first
+apt-get install -y --no-install-recommends \
+    $(apt-cache depends intune-portal | awk '/Depends:/{print $2}')
+
+# Download and extract the Intune package
+apt download intune-portal
+mv intune-portal_*.deb /tmp/
+dpkg-deb -R /tmp/intune-portal_*.deb /tmp/intune-unpacked/
+
+# Remove the postinst step that causes it to break when installing inside the container
+sed -i '/systemctl restart polkit\.service 2>\/dev\/null/d' /tmp/intune-unpacked/DEBIAN/postinst
+dpkg-deb -b /tmp/intune-unpacked/ /tmp/intune-portal-fixed.deb
+
+# Install patched Intune
+dpkg -i /tmp/intune-portal-fixed.deb
+
+# Update password requirements
+pam-auth-update --force
+
+# Enable automatic updates for more than security patches
+sed -i 's|^[[:space:]]*//[[:space:]]*"\${distro_id}:\${distro_codename}-updates";|\t"${distro_id}:${distro_codename}-updates";|' /etc/apt/apt.conf.d/50unattended-upgrades
+sed -i '/Unattended-Upgrade::Allowed-Origins\s*{/{
+    :a
+    n
+    /^};/{
+        i\ \t"microsoft-${distro_id}-${distro_codename}-prod:${distro_codename}";
+        i\ \t"edge:stable";
+        b
+    }
+    ba
+}' /etc/apt/apt.conf.d/50unattended-upgrades

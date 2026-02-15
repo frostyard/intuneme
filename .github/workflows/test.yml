@@ -3,8 +3,12 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "ubuntu-intune/**"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "ubuntu-intune/**"
 
 jobs:
   lint:
