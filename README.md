@@ -71,6 +71,9 @@ intune-portal
 
 # 5. Inside the container — browse corporate resources
 microsoft-edge
+
+# 6. Inside the container - manage Yubikeys
+ykman
 ```
 
 ## Commands
@@ -96,11 +99,10 @@ microsoft-edge
 3. Pulls `ghcr.io/frostyard/ubuntu-intune:latest`
 4. Extracts the rootfs into `~/.local/share/intuneme/rootfs/`
 5. Creates a container user matching your host UID/GID
-6. Adds the Microsoft Edge apt repo and installs `microsoft-edge-stable`, `libsecret-tools`, and `sudo`
-7. Enables the system identity device broker service
-8. Applies configuration: hostname, password policy, PAM modules, intune-agent timer, display environment, Edge Wayland wrapper, broker display override, login profile script
-9. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
-10. Saves configuration to `~/.local/share/intuneme/config.toml`
+6. Enables the system identity device broker service
+7. Applies configuration: hostname, intune-agent timer, display environment, Edge Wayland wrapper, broker display override, login profile script
+8. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
+9. Saves configuration to `~/.local/share/intuneme/config.toml`
 
 ## Storage
 
