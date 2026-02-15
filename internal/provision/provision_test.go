@@ -77,11 +77,7 @@ func TestWriteFixups(t *testing.T) {
 	for _, want := range []string{
 		"etc/hostname",
 		"etc/hosts",
-		"etc/environment",
-		"pam-configs/pwquality",
-		"pwquality.conf",
 		"fix-home-ownership.service",
-		"microsoft-edge",
 		"intuneme.sh",
 		"sudoers.d/intuneme",
 		"display.conf",
@@ -93,9 +89,7 @@ func TestWriteFixups(t *testing.T) {
 
 	// Verify symlinks were created
 	for _, want := range []string{
-		"intune-agent.timer",
 		"fix-home-ownership.service",
-		"microsoft-identity-device-broker.service",
 	} {
 		found := false
 		for _, cmd := range r.commands {

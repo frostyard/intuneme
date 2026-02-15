@@ -24,6 +24,7 @@ apt remove -y \
   gpg \
   lsb-release
 apt autoremove -y
+apt upgrade -y
 
 # Required packages
 apt install -y \
@@ -59,7 +60,7 @@ dpkg-deb -b /tmp/intune-unpacked/ /tmp/intune-portal-fixed.deb
 dpkg -i /tmp/intune-portal-fixed.deb
 
 # Update password requirements
-pam-auth-update --force
+pam-auth-update --enable pwquality mkhomedir gnome-keyring intune unix --force
 
 # Enable automatic updates for more than security patches
 sed -i 's|^[[:space:]]*//[[:space:]]*"\${distro_id}:\${distro_codename}-updates";|\t"${distro_id}:${distro_codename}-updates";|' /etc/apt/apt.conf.d/50unattended-upgrades
@@ -73,3 +74,6 @@ sed -i '/Unattended-Upgrade::Allowed-Origins\s*{/{
     }
     ba
 }' /etc/apt/apt.conf.d/50unattended-upgrades
+
+# Enable required services
+systemctl enable microsoft-identity-device-broker.service

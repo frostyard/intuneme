@@ -72,24 +72,9 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("set password failed: %w", err)
 		}
 
-		fmt.Println("Installing additional packages (Edge, libsecret-tools)...")
-		if err := provision.InstallPackages(r, cfg.RootfsPath); err != nil {
-			return fmt.Errorf("install packages failed: %w", err)
-		}
-
-		fmt.Println("Enabling services...")
-		if err := provision.EnableServices(r, cfg.RootfsPath); err != nil {
-			return fmt.Errorf("enable services failed: %w", err)
-		}
-
 		fmt.Println("Applying fixups...")
 		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
 			return err
-		}
-
-		fmt.Println("Configuring PAM modules...")
-		if err := provision.ConfigurePAM(r, cfg.RootfsPath); err != nil {
-			return fmt.Errorf("configure PAM failed: %w", err)
 		}
 
 		fmt.Println("Installing polkit rules...")
