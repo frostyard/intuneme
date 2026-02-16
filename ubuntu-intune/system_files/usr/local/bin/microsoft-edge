@@ -1,0 +1,12 @@
+#!/bin/sh -e
+
+if [ -n "$WAYLAND_DISPLAY" ]
+then
+    set -- \
+        '--enable-features=UseOzonePlatform' \
+        '--enable-features=WebRTCPipeWireCapturer' \
+        '--ozone-platform=wayland' \
+        "$@"
+fi
+
+/usr/bin/microsoft-edge "$@"
