@@ -100,7 +100,7 @@ ykman
 4. Extracts the rootfs into `~/.local/share/intuneme/rootfs/`
 5. Creates a container user matching your host UID/GID
 6. Enables the system identity device broker service
-7. Applies configuration: hostname, intune-agent timer, display environment, Edge Wayland wrapper, broker display override, login profile script
+7. Applies configuration: hostname, broker display override, login profile script
 8. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
 9. Saves configuration to `~/.local/share/intuneme/config.toml`
 
@@ -157,7 +157,7 @@ Check that PipeWire is forwarded. The host needs a PipeWire socket at `/run/user
 
 ## How it differs from mkosi-intune
 
-[mkosi-intune](https://github.com/4nd3r/mkosi-intune) builds the entire rootfs from scratch with mkosi and debootstrap. `intuneme` uses a pre-built OCI image and installs Edge on top, which is faster to set up. Both approaches run a booted nspawn container with Edge inside.
+[mkosi-intune](https://github.com/4nd3r/mkosi-intune) builds the entire rootfs from scratch with mkosi and debootstrap. `intuneme` uses a pre-built OCI image which is faster to set up. Both approaches run a booted nspawn container with Edge inside.
 
 ## License
 
