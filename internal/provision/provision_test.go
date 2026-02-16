@@ -80,7 +80,6 @@ func TestWriteFixups(t *testing.T) {
 		"fix-home-ownership.service",
 		"intuneme.sh",
 		"sudoers.d/intuneme",
-		"display.conf",
 	} {
 		if !strings.Contains(allCmds, want) {
 			t.Errorf("expected command referencing %q, not found in:\n%s", want, allCmds)

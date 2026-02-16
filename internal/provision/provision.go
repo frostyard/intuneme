@@ -159,17 +159,6 @@ WantedBy=multi-user.target
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
 	}
 
-	// Broker display override — broker starts before login, needs DISPLAY
-	brokerOverrideDir := filepath.Join(rootfsPath, "usr", "lib", "systemd", "user",
-		"microsoft-identity-broker.service.d")
-	if err := sudoMkdirAll(r, brokerOverrideDir); err != nil {
-		return fmt.Errorf("mkdir broker override dir: %w", err)
-	}
-	if err := sudoWriteFile(r, filepath.Join(brokerOverrideDir, "display.conf"),
-		[]byte("[Service]\nEnvironment=\"DISPLAY=:0\"\n"), 0644); err != nil {
-		return fmt.Errorf("write broker display override: %w", err)
-	}
-
 	return nil
 }
 
