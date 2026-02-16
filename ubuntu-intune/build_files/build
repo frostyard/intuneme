@@ -60,6 +60,19 @@ dpkg-deb -b /tmp/intune-unpacked/ /tmp/intune-portal-fixed.deb
 dpkg -i /tmp/intune-portal-fixed.deb
 
 # Update password requirements
+tee /etc/security/pwquality.conf > /dev/null << 'EOF'
+# Intune compliance password policy
+minlen = 12
+dcredit = -1
+ucredit = -1
+lcredit = -1
+ocredit = -1
+enforcing = 1
+retry = 3
+dictcheck = 1
+usercheck = 1
+EOF
+
 pam-auth-update --enable pwquality mkhomedir gnome-keyring intune unix --force
 
 # Enable automatic updates for more than security patches
