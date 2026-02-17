@@ -31,7 +31,7 @@ apt install -y \
   unattended-upgrades \
   microsoft-identity-broker \
   microsoft-edge-stable \
-  pipewire-audio-client-libraries \
+  pipewire \
   xdg-desktop-portal-gtk \
   pcscd \
   yubikey-manager \
