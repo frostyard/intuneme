@@ -60,6 +60,9 @@ func TestBuildShellArgs(t *testing.T) {
 	if !strings.Contains(joined, "testuser@intuneme") {
 		t.Errorf("missing user@machine in: %s", joined)
 	}
+	if !strings.Contains(joined, "/bin/bash --login") {
+		t.Errorf("missing login shell in: %s", joined)
+	}
 }
 
 func TestDetectHostSockets_PulseAudio(t *testing.T) {

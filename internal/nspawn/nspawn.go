@@ -91,8 +91,9 @@ func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []
 }
 
 // BuildShellArgs returns the machinectl shell arguments for an interactive session.
+// Uses a login shell so /etc/profile.d scripts run (sets XAUTHORITY, audio, etc).
 func BuildShellArgs(machine, user string) []string {
-	return []string{"shell", fmt.Sprintf("%s@%s", user, machine)}
+	return []string{"shell", fmt.Sprintf("%s@%s", user, machine), "/bin/bash", "--login"}
 }
 
 // Boot starts the nspawn container in the background using sudo.

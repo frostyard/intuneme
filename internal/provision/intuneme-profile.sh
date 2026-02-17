@@ -37,8 +37,10 @@ fi
 
 # Initialize gnome-keyring once per boot.
 # The keyring must be unlocked for microsoft-identity-broker to store credentials.
+# Marker lives in /tmp (tmpfs) so it resets on every container boot — the keyring
+# dir is on the persistent bind-mounted home and would survive reboots.
 _keyring_dir="$HOME/.local/share/keyrings"
-_keyring_init_marker="$_keyring_dir/.init_done"
+_keyring_init_marker="/tmp/.intuneme-keyring-init-done"
 
 if [ ! -f "$_keyring_init_marker" ]; then
     mkdir -p "$_keyring_dir"
@@ -53,9 +55,10 @@ if [ ! -f "$_keyring_init_marker" ]; then
         echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
     fi
     touch "$_keyring_init_marker"
-    # Restart broker so it picks up the now-initialized keyring.
-    # It starts before login and fails with storage_keyring_write_failure.
+    # Restart brokers so they pick up the now-initialized keyring.
+    # They start before login and fail with storage_keyring_write_failure.
     systemctl --user restart microsoft-identity-broker.service 2>/dev/null
+    sudo systemctl restart microsoft-identity-device-broker.service 2>/dev/null
 fi
 
 # Start intune agent timer if not running
