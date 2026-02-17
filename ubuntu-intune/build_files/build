@@ -40,7 +40,8 @@ apt install -y \
   openssl \
   libsecret-tools \
   libpulse0 \
-  sudo
+  sudo \
+  cracklib-runtime
 
 # Intune needs fixes to install properly
 # Install its dependencies first
