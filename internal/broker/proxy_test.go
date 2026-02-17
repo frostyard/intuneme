@@ -33,19 +33,10 @@ func TestBrokerMethods(t *testing.T) {
 }
 
 func TestContainerBusAddress(t *testing.T) {
-	addr := ContainerBusAddress("/var/lib/machines/intuneme", 1000)
-	if addr != "unix:path=/var/lib/machines/intuneme/run/user/1000/bus" {
-		t.Errorf("unexpected address: %s", addr)
-	}
-}
-
-func TestContainerBusAddressDifferentUID(t *testing.T) {
-	addr := ContainerBusAddress("/tmp/rootfs", 5001)
-	if !strings.Contains(addr, "unix:path=") {
-		t.Errorf("missing unix:path= prefix in: %s", addr)
-	}
-	if !strings.Contains(addr, "/tmp/rootfs/run/user/5001/bus") {
-		t.Errorf("unexpected path in: %s", addr)
+	addr := ContainerBusAddress("/tmp/intuneme")
+	want := "unix:path=/tmp/intuneme/runtime/bus"
+	if addr != want {
+		t.Errorf("ContainerBusAddress() = %q, want %q", addr, want)
 	}
 }
 

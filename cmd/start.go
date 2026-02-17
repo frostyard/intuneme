@@ -54,6 +54,18 @@ var startCmd = &cobra.Command{
 			fmt.Println("No webcams detected")
 		}
 
+		// When broker proxy is enabled, bind-mount a host directory to
+		// /run/user/<uid> inside the container so the session bus socket
+		// is accessible from the host.
+		if cfg.BrokerProxy {
+			runtimeDir := broker.RuntimeDir(root)
+			if err := os.MkdirAll(runtimeDir, 0700); err != nil {
+				return fmt.Errorf("create runtime dir: %w", err)
+			}
+			hostDir, containerDir := broker.RuntimeBindMount(root, cfg.HostUID)
+			sockets = append(sockets, nspawn.BindMount{Host: hostDir, Container: containerDir})
+		}
+
 		fmt.Println("Checking sudo credentials...")
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
@@ -88,7 +100,7 @@ var startCmd = &cobra.Command{
 			}
 
 			fmt.Println("Waiting for container session bus...")
-			busPath := broker.SessionBusSocketPath(cfg.RootfsPath, cfg.HostUID)
+			busPath := broker.SessionBusSocketPath(root)
 			busReady := false
 			for range 30 {
 				if _, err := os.Stat(busPath); err == nil {

@@ -90,9 +90,10 @@ func BrokerMethods() []string {
 	}
 }
 
-// ContainerBusAddress returns the D-Bus unix socket address inside a container rootfs.
-func ContainerBusAddress(rootfsPath string, uid int) string {
-	return "unix:path=" + SessionBusSocketPath(rootfsPath, uid)
+// ContainerBusAddress returns the D-Bus address for the container's session bus,
+// accessible from the host via the bind-mounted runtime directory.
+func ContainerBusAddress(root string) string {
+	return "unix:path=" + SessionBusSocketPath(root)
 }
 
 // DBusServiceFileContent returns the content of a D-Bus service activation file
@@ -218,8 +219,8 @@ func (f *forwarder) GetLinuxBrokerVersion(protocolVersion, correlationID, reques
 
 // Run connects to the container's D-Bus and the host session bus, exports the
 // forwarder, claims the broker bus name, and blocks until ctx is cancelled.
-func Run(ctx context.Context, rootfsPath string, uid int) error {
-	addr := ContainerBusAddress(rootfsPath, uid)
+func Run(ctx context.Context, root string) error {
+	addr := ContainerBusAddress(root)
 	containerConn, err := dbus.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("dial container bus at %s: %w", addr, err)

@@ -5,11 +5,29 @@ import (
 	"testing"
 )
 
+func TestRuntimeDir(t *testing.T) {
+	got := RuntimeDir("/tmp/intuneme")
+	want := "/tmp/intuneme/runtime"
+	if got != want {
+		t.Errorf("RuntimeDir() = %q, want %q", got, want)
+	}
+}
+
 func TestSessionBusSocketPath(t *testing.T) {
-	got := SessionBusSocketPath("/tmp/rootfs", 1000)
-	want := "/tmp/rootfs/run/user/1000/bus"
+	got := SessionBusSocketPath("/tmp/intuneme")
+	want := "/tmp/intuneme/runtime/bus"
 	if got != want {
 		t.Errorf("SessionBusSocketPath() = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeBindMount(t *testing.T) {
+	host, container := RuntimeBindMount("/tmp/intuneme", 1000)
+	if host != "/tmp/intuneme/runtime" {
+		t.Errorf("host = %q, want /tmp/intuneme/runtime", host)
+	}
+	if container != "/run/user/1000" {
+		t.Errorf("container = %q, want /run/user/1000", container)
 	}
 }
 

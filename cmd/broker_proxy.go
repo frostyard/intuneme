@@ -35,7 +35,7 @@ var brokerProxyCmd = &cobra.Command{
 		}
 		defer func() { _ = os.Remove(pidPath) }()
 
-		return broker.Run(cmd.Context(), cfg.RootfsPath, cfg.HostUID)
+		return broker.Run(cmd.Context(), root)
 	},
 }
 
