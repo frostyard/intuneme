@@ -3,6 +3,7 @@ package broker
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // SessionBusSocketPath returns the filesystem path to the container's session bus socket.
@@ -21,9 +22,11 @@ func EnableLingerArgs(machine, user string) []string {
 // UnlockKeyringArgs returns machinectl args to create a login session and unlock the keyring.
 // The returned command runs in the foreground — caller should run it in the background.
 func UnlockKeyringArgs(machine, user, password string) []string {
+	// Escape single quotes to prevent shell injection.
+	escaped := strings.ReplaceAll(password, "'", `'\''`)
 	script := fmt.Sprintf(
-		`echo '%s' | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 && exec sleep infinity`,
-		password,
+		`printf '%%s' '%s' | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 && exec sleep infinity`,
+		escaped,
 	)
 	return []string{
 		"shell", fmt.Sprintf("%s@%s", user, machine),

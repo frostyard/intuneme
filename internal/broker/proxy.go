@@ -3,11 +3,13 @@ package broker
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -90,7 +92,7 @@ func BrokerMethods() []string {
 
 // ContainerBusAddress returns the D-Bus unix socket address inside a container rootfs.
 func ContainerBusAddress(rootfsPath string, uid int) string {
-	return fmt.Sprintf("unix:path=%s/run/user/%d/bus", rootfsPath, uid)
+	return "unix:path=" + SessionBusSocketPath(rootfsPath, uid)
 }
 
 // DBusServiceFileContent returns the content of a D-Bus service activation file
@@ -133,8 +135,8 @@ func IsRunningByPIDFile(pidPath string) (int, bool) {
 	return pid, err == nil
 }
 
-// StopByPIDFile reads a PID from the file, sends SIGINT, and removes the file.
-// Best-effort: errors are silently ignored.
+// StopByPIDFile reads a PID from the file, sends SIGINT, waits briefly for exit,
+// and removes the file. Best-effort: errors are silently ignored.
 func StopByPIDFile(pidPath string) {
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
@@ -147,6 +149,13 @@ func StopByPIDFile(pidPath string) {
 	proc, err := os.FindProcess(pid)
 	if err == nil {
 		_ = proc.Signal(syscall.SIGINT)
+		// Wait up to 5 seconds for the process to exit.
+		for range 50 {
+			if err := proc.Signal(syscall.Signal(0)); err != nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	_ = os.Remove(pidPath)
 }
@@ -247,6 +256,9 @@ func Run(ctx context.Context, rootfsPath string, uid int) error {
 		return fmt.Errorf("bus name %s already owned", BusName)
 	}
 
+	log.Printf("Broker proxy running: forwarding %s to %s", BusName, addr)
+
 	<-ctx.Done()
+	log.Println("Broker proxy shutting down")
 	return nil
 }
