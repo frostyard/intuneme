@@ -41,6 +41,18 @@ var startCmd = &cobra.Command{
 		containerHome := fmt.Sprintf("/home/%s", cfg.HostUser)
 		sockets := nspawn.DetectHostSockets(cfg.HostUID)
 
+		videoDev := nspawn.DetectVideoDevices()
+		if len(videoDev) > 0 {
+			for _, d := range videoDev {
+				if d.Name != "" {
+					fmt.Printf("Detected webcam: %s (%s)\n", d.Mount.Host, d.Name)
+				}
+				sockets = append(sockets, d.Mount)
+			}
+		} else {
+			fmt.Println("No webcams detected")
+		}
+
 		fmt.Println("Checking sudo credentials...")
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
