@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
@@ -72,6 +73,50 @@ func DetectHostSockets(uid int) []BindMount {
 	}
 
 	return mounts
+}
+
+// VideoDevice represents a detected video device with its bind mount and display name.
+type VideoDevice struct {
+	Mount BindMount
+	Name  string // human-readable name from sysfs, e.g. "Integrated Camera"
+}
+
+// DetectVideoDevices scans for V4L2 video and media controller devices.
+// Returns an empty slice if no devices are found (cameras are optional).
+func DetectVideoDevices() []VideoDevice {
+	var devices []VideoDevice
+
+	// Detect /dev/video* devices
+	videoMatches, _ := filepath.Glob("/dev/video*")
+	for _, dev := range videoMatches {
+		name := readSysfsName(dev)
+		devices = append(devices, VideoDevice{
+			Mount: BindMount{dev, dev},
+			Name:  name,
+		})
+	}
+
+	// Detect /dev/media* devices (media controller nodes associated with cameras)
+	mediaMatches, _ := filepath.Glob("/dev/media*")
+	for _, dev := range mediaMatches {
+		devices = append(devices, VideoDevice{
+			Mount: BindMount{dev, dev},
+			Name:  "", // media controller nodes have no user-facing sysfs name
+		})
+	}
+
+	return devices
+}
+
+// readSysfsName reads the human-readable device name from sysfs.
+// Returns the base device name if sysfs is unavailable.
+func readSysfsName(devPath string) string {
+	base := filepath.Base(devPath)
+	data, err := os.ReadFile(filepath.Join("/sys/class/video4linux", base, "name"))
+	if err != nil {
+		return base
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
