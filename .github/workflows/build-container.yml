@@ -3,6 +3,8 @@ on:
   pull_request:
     branches:
       - main
+    tags:
+      - "*"
     paths:
       - "ubuntu-intune/**"
   schedule:
@@ -47,6 +49,14 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout latest stable tag on schedule
+        if: github.event_name == 'schedule'
+        run: |
+          git fetch --tags
+          LATEST_TAG=$(git tag -l --sort=-v:refname | head -n 1)
+          git checkout "$LATEST_TAG"
+          echo "CHECKED_OUT_TAG=$LATEST_TAG" >> $GITHUB_ENV
+
       - name: Build hash
         run: |
           # Grab commit hash
@@ -64,9 +74,13 @@ jobs:
           tags: |
             type=raw,value=${{ env.DEFAULT_TAG }}
             type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
+            type=raw,value=${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' }}
+            type=raw,value=${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' }}
             type=raw,value={{date 'YYYYMMDD'}}
             type=sha,enable=${{ github.event_name == 'pull_request' }}
             type=ref,event=pr
+            type=ref,event=tag
+            type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/') }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ github.sha }}/ubuntu-intune/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
@@ -76,7 +90,7 @@ jobs:
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/tree/${{ github.sha }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
+            org.opencontainers.image.version=${{ env.CHECKED_OUT_TAG || env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
             io.artifacthub.package.deprecated=false
             io.artifacthub.package.keywords=${{ env.IMAGE_KEYWORDS }}
             io.artifacthub.package.license=MIT
