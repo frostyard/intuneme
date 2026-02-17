@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -75,7 +76,48 @@ var startCmd = &cobra.Command{
 			return fmt.Errorf("container failed to start within 30 seconds")
 		}
 
-		fmt.Println("Container is running. Use 'intuneme shell' to connect.")
+		if cfg.BrokerProxy {
+			fmt.Println("Enabling linger for container user...")
+			if _, err := r.Run("machinectl", broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+				return fmt.Errorf("failed to enable linger: %w", err)
+			}
+
+			fmt.Println("Creating login session and unlocking keyring...")
+			if err := r.RunBackground("machinectl", broker.UnlockKeyringArgs(cfg.MachineName, cfg.HostUser, broker.ContainerPassword)...); err != nil {
+				return fmt.Errorf("failed to start keyring unlock: %w", err)
+			}
+
+			fmt.Println("Waiting for container session bus...")
+			busPath := broker.SessionBusSocketPath(cfg.RootfsPath, cfg.HostUID)
+			busReady := false
+			for range 30 {
+				if _, err := os.Stat(busPath); err == nil {
+					busReady = true
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
+			if !busReady {
+				return fmt.Errorf("container session bus not available after 30 seconds")
+			}
+
+			fmt.Println("Starting broker proxy...")
+			execPath, err := os.Executable()
+			if err != nil {
+				return fmt.Errorf("failed to determine executable path: %w", err)
+			}
+			if err := r.RunBackground(execPath, "broker-proxy", "--root", root); err != nil {
+				return fmt.Errorf("failed to start broker proxy: %w", err)
+			}
+			time.Sleep(2 * time.Second)
+			fmt.Println("Broker proxy started.")
+
+			fmt.Println("Container and broker proxy running.")
+			fmt.Println("Host apps can now use SSO via com.microsoft.identity.broker1.")
+		} else {
+			fmt.Println("Container is running. Use 'intuneme shell' to connect.")
+		}
+
 		return nil
 	},
 }
