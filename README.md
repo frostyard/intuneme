@@ -17,6 +17,8 @@ Host                              Container (systemd-nspawn)
 /run/user/$UID/pipewire-0 bind─→ /run/host-pipewire
 Xauthority file ────────bind──→  /run/host-xauthority
 /dev/dri ───────────────bind──→  /dev/dri
+/dev/video* ────────────bind──→  /dev/video*  (if present)
+/dev/media* ────────────bind──→  /dev/media*  (if present)
 
 intuneme CLI                      systemd (PID 1)
                                    ├─ microsoft-identity-broker
@@ -154,6 +156,9 @@ systemctl --user start intune-agent.timer
 
 **No sound in Edge**
 Check that PipeWire is forwarded. The host needs a PipeWire socket at `/run/user/$UID/pipewire-0`. Inside the container, verify `$PIPEWIRE_REMOTE` is set.
+
+**Webcam not available in Teams/Edge**
+Video devices are detected at `intuneme start` and are not hot-plugged. If you connect a USB webcam after the container is already running, restart it with `intuneme stop && intuneme start` to pick up the new device.
 
 ## How it differs from mkosi-intune
 
