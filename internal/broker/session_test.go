@@ -45,13 +45,16 @@ func TestEnableLingerArgs(t *testing.T) {
 	}
 }
 
-func TestUnlockKeyringArgs(t *testing.T) {
-	args := UnlockKeyringArgs("intuneme", "testuser", "testpass")
+func TestLoginSessionArgs(t *testing.T) {
+	args := LoginSessionArgs("intuneme", "testuser")
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "testuser@intuneme") {
 		t.Errorf("missing user@machine in: %s", joined)
 	}
-	if !strings.Contains(joined, "gnome-keyring-daemon") {
-		t.Errorf("missing gnome-keyring-daemon in: %s", joined)
+	if !strings.Contains(joined, "--login") {
+		t.Errorf("missing --login in: %s", joined)
+	}
+	if !strings.Contains(joined, "sleep infinity") {
+		t.Errorf("missing sleep infinity in: %s", joined)
 	}
 }

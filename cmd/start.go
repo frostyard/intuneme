@@ -94,9 +94,9 @@ var startCmd = &cobra.Command{
 				return fmt.Errorf("failed to enable linger: %w", err)
 			}
 
-			fmt.Println("Creating login session and unlocking keyring...")
-			if err := r.RunBackground("machinectl", broker.UnlockKeyringArgs(cfg.MachineName, cfg.HostUser, broker.ContainerPassword)...); err != nil {
-				return fmt.Errorf("failed to start keyring unlock: %w", err)
+			fmt.Println("Creating login session...")
+			if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+				return fmt.Errorf("failed to create login session: %w", err)
 			}
 
 			fmt.Println("Waiting for container session bus...")

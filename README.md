@@ -21,12 +21,32 @@ Xauthority file ────────bind──→  /run/host-xauthority
 /dev/media* ────────────bind──→  /dev/media*  (if present)
 
 intuneme CLI                      systemd (PID 1)
-                                   ├─ microsoft-identity-broker
+  └─ broker-proxy (opt-in) ─D-Bus─→ ├─ microsoft-identity-broker
                                    ├─ microsoft-identity-device-broker
                                    ├─ intune-agent (timer)
                                    ├─ gnome-keyring-daemon
                                    └─ intune-portal / microsoft-edge
 ```
+
+## Broker proxy (host-side SSO)
+
+By default, the identity broker only runs inside the container. If you want host-side apps like Microsoft Edge or VS Code to authenticate via your Intune enrollment, enable the broker proxy:
+
+```bash
+intuneme config broker-proxy enable
+intuneme stop && intuneme start
+```
+
+This starts a D-Bus forwarding proxy on the host session bus that relays `com.microsoft.identity.broker1` calls to the container's broker. Host apps using MSAL (Edge, VS Code, etc.) will transparently use the container's enrollment for SSO and conditional access — no changes needed on the app side.
+
+To disable:
+
+```bash
+intuneme config broker-proxy disable
+intuneme stop && intuneme start
+```
+
+When enabled, `intuneme start` also creates a login session inside the container (for gnome-keyring and the broker's user services) and `intuneme status` shows the proxy state.
 
 ## Prerequisites
 
@@ -88,6 +108,8 @@ ykman
 | `intuneme stop` | Shut down the container |
 | `intuneme status` | Show whether the container is initialized and running |
 | `intuneme destroy` | Stop the container, remove the rootfs, clean enrollment state |
+| `intuneme config broker-proxy enable` | Enable the host-side broker proxy for SSO |
+| `intuneme config broker-proxy disable` | Disable the broker proxy |
 
 ### Flags
 
@@ -111,7 +133,8 @@ ykman
 ```
 ~/.local/share/intuneme/
 ├── rootfs/          # Ubuntu 24.04 rootfs with Intune + Edge
-└── config.toml      # machine name, rootfs path, host UID
+├── runtime/         # Bind-mounted as /run/user/<uid> in container (broker proxy)
+└── config.toml      # machine name, rootfs path, host UID, broker_proxy flag
 
 ~/Intune/            # Container user's home (persists across rebuilds)
 ├── .config/intune/  # Enrollment state

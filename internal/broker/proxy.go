@@ -242,7 +242,20 @@ func Run(ctx context.Context, root string) error {
 
 	fwd := &forwarder{containerConn: containerConn}
 
-	if err := hostConn.Export(fwd, dbus.ObjectPath(ObjectPath), InterfaceName); err != nil {
+	// godbus dispatches by exact method name. The Broker1 D-Bus interface uses
+	// camelCase (e.g. "getLinuxBrokerVersion") but Go requires exported methods
+	// to be PascalCase. ExportWithMap bridges the two.
+	methodMap := map[string]string{
+		"AcquireTokenInteractively": "acquireTokenInteractively",
+		"AcquireTokenSilently":      "acquireTokenSilently",
+		"GetAccounts":               "getAccounts",
+		"RemoveAccount":             "removeAccount",
+		"AcquirePrtSsoCookie":       "acquirePrtSsoCookie",
+		"GenerateSignedHttpRequest": "generateSignedHttpRequest",
+		"CancelInteractiveFlow":     "cancelInteractiveFlow",
+		"GetLinuxBrokerVersion":     "getLinuxBrokerVersion",
+	}
+	if err := hostConn.ExportWithMap(fwd, methodMap, dbus.ObjectPath(ObjectPath), InterfaceName); err != nil {
 		return fmt.Errorf("export forwarder: %w", err)
 	}
 	if err := hostConn.Export(introspect.Introspectable(introspectXML), dbus.ObjectPath(ObjectPath), "org.freedesktop.DBus.Introspectable"); err != nil {

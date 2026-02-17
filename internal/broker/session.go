@@ -3,7 +3,6 @@ package broker
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 )
 
 // RuntimeDir returns the host-side directory that is bind-mounted into the
@@ -34,20 +33,13 @@ func EnableLingerArgs(machine, user string) []string {
 	}
 }
 
-// UnlockKeyringArgs returns machinectl args to create a login session and unlock the keyring.
-// The returned command runs in the foreground — caller should run it in the background.
-func UnlockKeyringArgs(machine, user, password string) []string {
-	// Escape single quotes to prevent shell injection.
-	escaped := strings.ReplaceAll(password, "'", `'\''`)
-	script := fmt.Sprintf(
-		`printf '%%s' '%s' | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 && exec sleep infinity`,
-		escaped,
-	)
+// LoginSessionArgs returns machinectl args to create a persistent login session
+// inside the container. The login shell sources /etc/profile.d/intuneme.sh which
+// handles DISPLAY import, gnome-keyring initialization, and broker restarts.
+// The session stays alive via sleep infinity so the keyring daemon persists.
+func LoginSessionArgs(machine, user string) []string {
 	return []string{
 		"shell", fmt.Sprintf("%s@%s", user, machine),
-		"/bin/bash", "--login", "-c", script,
+		"/bin/bash", "--login", "-c", "exec sleep infinity",
 	}
 }
-
-// ContainerPassword is the hardcoded password set during intuneme init.
-const ContainerPassword = "Intuneme2024!"
