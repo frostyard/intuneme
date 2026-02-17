@@ -13,6 +13,7 @@ type Config struct {
 	Image       string `toml:"image"`
 	HostUID     int    `toml:"host_uid"`
 	HostUser    string `toml:"host_user"`
+	BrokerProxy bool   `toml:"broker_proxy"`
 }
 
 func DefaultRoot() string {
