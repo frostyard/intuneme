@@ -2,6 +2,7 @@
 
 if [ -n "$WAYLAND_DISPLAY" ]
 then
+    unset -v DISPLAY
     set -- \
         '--enable-features=UseOzonePlatform' \
         '--enable-features=WebRTCPipeWireCapturer' \
