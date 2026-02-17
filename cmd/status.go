@@ -3,7 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -40,6 +42,15 @@ var statusCmd = &cobra.Command{
 			fmt.Println("Container: running")
 		} else {
 			fmt.Println("Container: stopped")
+		}
+
+		if cfg.BrokerProxy {
+			pidPath := filepath.Join(root, "broker-proxy.pid")
+			if pid, running := broker.IsRunningByPIDFile(pidPath); running {
+				fmt.Printf("Broker proxy: running (PID %d)\n", pid)
+			} else {
+				fmt.Println("Broker proxy: not running")
+			}
 		}
 
 		return nil

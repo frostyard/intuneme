@@ -44,3 +44,30 @@ func TestLoadReadsExisting(t *testing.T) {
 		t.Errorf("MachineName = %q, want %q", cfg.MachineName, "myintune")
 	}
 }
+
+func TestLoadBrokerProxy(t *testing.T) {
+	tmp := t.TempDir()
+	toml := "broker_proxy = true\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte(toml), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !cfg.BrokerProxy {
+		t.Error("BrokerProxy should be true")
+	}
+}
+
+func TestLoadBrokerProxyDefault(t *testing.T) {
+	tmp := t.TempDir()
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.BrokerProxy {
+		t.Error("BrokerProxy should default to false")
+	}
+}

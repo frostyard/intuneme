@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
+	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -27,6 +29,13 @@ var stopCmd = &cobra.Command{
 		if !nspawn.IsRunning(r, cfg.MachineName) {
 			fmt.Println("Container is not running.")
 			return nil
+		}
+
+		// Stop broker proxy first so host apps get clean errors
+		if cfg.BrokerProxy {
+			pidPath := filepath.Join(root, "broker-proxy.pid")
+			broker.StopByPIDFile(pidPath)
+			fmt.Println("Broker proxy stopped.")
 		}
 
 		fmt.Println("Stopping container...")
