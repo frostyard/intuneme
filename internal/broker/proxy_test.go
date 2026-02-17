@@ -3,6 +3,7 @@ package broker
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,14 +26,7 @@ func TestBrokerMethods(t *testing.T) {
 		"getLinuxBrokerVersion",
 	}
 	for _, e := range expected {
-		found := false
-		for _, m := range methods {
-			if m == e {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.Contains(methods, e) {
 			t.Errorf("missing method %q in BrokerMethods()", e)
 		}
 	}
