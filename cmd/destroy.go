@@ -51,8 +51,8 @@ var destroyCmd = &cobra.Command{
 			filepath.Join(intuneHome, ".config", "intune"),
 			filepath.Join(intuneHome, ".local", "share", "intune"),
 			filepath.Join(intuneHome, ".local", "share", "intune-portal"),
-			filepath.Join(intuneHome, ".local", "share", "microsoft-identity-broker"),
 			filepath.Join(intuneHome, ".local", "share", "keyrings"),
+			filepath.Join(intuneHome, ".local", "state", "microsoft-identity-broker"),
 			filepath.Join(intuneHome, ".cache", "intune-portal"),
 		}
 		for _, dir := range staleStateDirs {
