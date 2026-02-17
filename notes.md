@@ -138,3 +138,46 @@ Renamed Go module from `github.com/frostyard/intune` to `github.com/frostyard/in
 
 ### v0.1.0 released
 First tagged release. GoReleaser pipeline passes: builds binary, generates completions + man page, packages deb/rpm/apk, publishes to frostyard repo.
+
+## 2026-02-15: Consolidation — move static config into container image
+
+### Motivation
+After merging the `ubuntu-intune/` container build into the repo, consolidated responsibilities: the container image handles everything static (packages, PAM, pwquality, systemd overrides, Edge wrapper), the Go CLI handles only host-specific setup (user, hostname, polkit) and lifecycle.
+
+### What moved
+- `/etc/environment` → `system_files/etc/environment`
+- PAM pwquality profile → `system_files/usr/share/pam-configs/pwquality`
+- intune-agent.timer override → `system_files/etc/systemd/user/intune-agent.timer.d/override.conf`
+- intune-agent.timer enable symlink → `system_files/etc/systemd/user/default.target.wants/`
+- device-broker override → `system_files/etc/systemd/system/microsoft-identity-device-broker.service.d/override.conf`
+- broker display override → `system_files/etc/systemd/user/microsoft-identity-broker.service.d/override.conf`
+- Edge wrapper → `system_files/usr/local/bin/microsoft-edge`
+- Package installation (Edge, libsecret-tools, sudo, libpulse0) → `build_files/build`
+- `pam-auth-update` → `build_files/build`
+- `systemctl enable microsoft-identity-device-broker` → `build_files/build`
+- `pwquality.conf` → generated inline in `build_files/build`
+
+~210 lines removed from `internal/provision/provision.go`, ~15 from `cmd/init.go`.
+
+## 2026-02-17: Post-consolidation debugging — three bugs found and fixed
+
+### Bug 1: Missing cracklib dictionaries (compliance failure)
+**Symptom**: Password enforcement non-compliant in Intune. `chpasswd` during init showed `cracklib_dict.pwd: No such file or directory`.
+**Root cause**: Two problems:
+1. `cracklib-runtime` package was never installed — only `libcrack2` (the library) was present
+2. Containerfile used `--mount=type=cache,dst=/var/cache` which swallowed any files written to `/var/cache/` during build (including cracklib dictionaries)
+**Fix**: Added `cracklib-runtime` to package list in build script. Narrowed cache mount from `/var/cache` to `/var/cache/apt` so cracklib dictionary files persist in the final image.
+
+### Bug 2: PAM pwquality profile overwritten by package install
+**Symptom**: `/etc/pam.d/common-password` had `pam_pwquality.so retry=3` instead of the full parameter line with `dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12`.
+**Root cause**: `COPY system_files /` runs before `RUN /ctx/build`. The `libpam-pwquality` package install overwrites the custom `/usr/share/pam-configs/pwquality` with its default.
+**Fix**: Added a `tee` command in the build script to re-write the custom PAM profile after package installation, before `pam-auth-update`.
+
+### Bug 3: Destroy missed broker state directory
+**Symptom**: Decryption errors (`Failed to decrypt with key:LinuxBrokerRegularUserSecretKey`, `WorkplaceJoinFailure: [-100]`) after destroy + re-init.
+**Root cause**: `cmd/destroy.go` cleaned `~/Intune/.local/share/microsoft-identity-broker` but the broker actually stores state in `~/Intune/.local/state/microsoft-identity-broker` (via `StateDirectory=`).
+**Fix**: Changed destroy to clean `.local/state/microsoft-identity-broker` instead of `.local/share/microsoft-identity-broker`.
+
+### Status: WORKING
+- Enrollment succeeds
+- All three fixes verified on fresh destroy → init → start → shell → enroll cycle
