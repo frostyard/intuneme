@@ -95,7 +95,6 @@ sed -i '/Unattended-Upgrade::Allowed-Origins\s*{/{
     :a
     n
     /^};/{
-        i\ \t"microsoft-${distro_id}-${distro_codename}-prod:${distro_codename}";
         i\ \t"edge:stable";
         b
     }
