@@ -181,3 +181,15 @@ After merging the `ubuntu-intune/` container build into the repo, consolidated r
 ### Status: WORKING
 - Enrollment succeeds
 - All three fixes verified on fresh destroy → init → start → shell → enroll cycle
+
+## 2026-02-17: Post-reboot failures — two bugs in shell and keyring init
+
+### Bug 1: `intuneme shell` gave non-login shell
+**Symptom**: `intune-portal` failed with `Authorization required, but no authorization protocol specified` / `Unable to initialize GTK+` after host reboot.
+**Root cause**: `BuildShellArgs` ran `machinectl shell user@machine` which starts a non-login shell. `/etc/profile.d/intuneme.sh` never executed, so `XAUTHORITY` was never set — X11 auth failure.
+**Fix**: Pass `/bin/bash --login` to `machinectl shell` so profile.d scripts run.
+
+### Bug 2: Keyring init marker survived reboots
+**Symptom**: After host reboot, brokers failed with `storage_keyring_write_failure` and intune-portal showed "Get the app" (credential invalid, default account not found).
+**Root cause**: The `.init_done` marker was stored in `~/.local/share/keyrings/` on the persistent bind-mounted home dir. After reboot, profile.d saw the stale marker and skipped keyring initialization entirely — gnome-keyring never unlocked.
+**Fix**: Moved marker to `/tmp/.intuneme-keyring-init-done` (tmpfs, resets every boot). Also added restart of the system-level `microsoft-identity-device-broker` service after keyring init — it was only restarting the user-level broker before.
