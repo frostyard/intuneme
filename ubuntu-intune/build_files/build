@@ -60,6 +60,19 @@ dpkg-deb -b /tmp/intune-unpacked/ /tmp/intune-portal-fixed.deb
 # Install patched Intune
 dpkg -i /tmp/intune-portal-fixed.deb
 
+# Restore custom pwquality PAM profile (package install overwrites the one from system_files)
+tee /usr/share/pam-configs/pwquality > /dev/null << 'PAMEOF'
+Name: Pwquality password strength checking
+Default: yes
+Priority: 1024
+Conflicts: cracklib
+Password-Type: Primary
+Password:
+	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
+Password-Initial:
+	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
+PAMEOF
+
 # Update password requirements
 tee /etc/security/pwquality.conf > /dev/null << 'EOF'
 # Intune compliance password policy
