@@ -19,7 +19,7 @@ import (
 )
 
 var forceInit bool
-var passwordFile string //nolint:unused // wired up in Task 4 (readPassword call + flag registration)
+var passwordFile string
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -37,6 +37,15 @@ var initCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "  -", e)
 			}
 			return fmt.Errorf("missing prerequisites")
+		}
+
+		// Resolve host user early — needed for password validation.
+		u, _ := user.Current()
+
+		// Acquire and validate password before doing any container work.
+		password, err := readPassword(u.Username, passwordFile)
+		if err != nil {
+			return err
 		}
 
 		// Create ~/Intune directory
@@ -67,7 +76,6 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		u, _ := user.Current()
 		hostname, _ := os.Hostname()
 
 		fmt.Println("Creating container user...")
@@ -76,7 +84,7 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Println("Setting container user password...")
-		if err := provision.SetContainerPassword(r, cfg.RootfsPath, u.Username, "Intuneme2024!"); err != nil {
+		if err := provision.SetContainerPassword(r, cfg.RootfsPath, u.Username, password); err != nil {
 			return fmt.Errorf("set password failed: %w", err)
 		}
 
@@ -193,5 +201,6 @@ func readPassword(username, passwordFile string) (string, error) {
 
 func init() {
 	initCmd.Flags().BoolVar(&forceInit, "force", false, "reinitialize even if already set up")
+	initCmd.Flags().StringVar(&passwordFile, "password-file", "", "path to file containing the container user password (first line used)")
 	rootCmd.AddCommand(initCmd)
 }
