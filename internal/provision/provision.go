@@ -13,58 +13,6 @@ import (
 //go:embed intuneme-profile.sh
 var intuneProfileScript []byte
 
-func PullImage(r runner.Runner, image string) error {
-	out, err := r.Run("podman", "pull", image)
-	if err != nil {
-		return fmt.Errorf("podman pull failed: %w\n%s", err, out)
-	}
-	return nil
-}
-
-func ExtractRootfs(r runner.Runner, image string, rootfsPath string) error {
-	// Remove any leftover extract container from a previous failed run
-	_, _ = r.Run("podman", "rm", "intuneme-extract")
-
-	// Create temporary container
-	out, err := r.Run("podman", "create", "--name", "intuneme-extract", image)
-	if err != nil {
-		return fmt.Errorf("podman create failed: %w\n%s", err, out)
-	}
-
-	// Export the container filesystem to a tar, then extract with sudo to
-	// preserve correct UIDs. Rootless podman cp remaps through the user
-	// namespace, making ALL files (including /etc/sudo.conf, /usr/bin/sudo)
-	// owned by the calling user. podman export preserves container-internal
-	// UIDs where root-owned files stay uid 0.
-	tmpTar := filepath.Join(os.TempDir(), "intuneme-rootfs.tar")
-	out, err = r.Run("podman", "export", "-o", tmpTar, "intuneme-extract")
-	if err != nil {
-		_, _ = r.Run("podman", "rm", "intuneme-extract")
-		return fmt.Errorf("podman export failed: %w\n%s", err, out)
-	}
-	defer func() { _ = os.Remove(tmpTar) }()
-
-	if err := os.MkdirAll(rootfsPath, 0755); err != nil {
-		_, _ = r.Run("podman", "rm", "intuneme-extract")
-		return fmt.Errorf("mkdir rootfs: %w", err)
-	}
-
-	// RunAttached so sudo can prompt for password if needed (this is the
-	// first sudo command in the init flow).
-	if err := r.RunAttached("sudo", "tar", "-xf", tmpTar, "-C", rootfsPath); err != nil {
-		_, _ = r.Run("podman", "rm", "intuneme-extract")
-		return fmt.Errorf("extract rootfs failed: %w", err)
-	}
-
-	// Remove temporary container
-	out, err = r.Run("podman", "rm", "intuneme-extract")
-	if err != nil {
-		return fmt.Errorf("podman rm failed: %w\n%s", err, out)
-	}
-
-	return nil
-}
-
 // sudoWriteFile writes data to path via a temp file + sudo install.
 func sudoWriteFile(r runner.Runner, path string, data []byte, perm os.FileMode) error {
 	tmp, err := os.CreateTemp("", "intuneme-fixup-*")
