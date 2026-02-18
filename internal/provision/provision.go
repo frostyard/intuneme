@@ -112,9 +112,26 @@ WantedBy=multi-user.target
 
 // SetContainerPassword sets the user's password inside the container via chpasswd.
 // Without a password, the account is locked and machinectl shell/login won't work interactively.
+// The password is passed via a temp file bound read-only into the container to avoid shell injection.
 func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) error {
-	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-		"bash", "-c", fmt.Sprintf("echo '%s:%s' | chpasswd", user, password),
+	tmp, err := os.CreateTemp("", "intuneme-chpasswd-*")
+	if err != nil {
+		return fmt.Errorf("create chpasswd temp file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+
+	if _, err := fmt.Fprintf(tmp, "%s:%s\n", user, password); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write chpasswd input: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close chpasswd temp file: %w", err)
+	}
+
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe",
+		"--bind-ro="+tmp.Name()+":/run/chpasswd-input",
+		"-D", rootfsPath,
+		"bash", "-c", "chpasswd < /run/chpasswd-input",
 	)
 }
 
