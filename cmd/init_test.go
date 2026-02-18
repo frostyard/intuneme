@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -113,4 +114,83 @@ func TestValidatePassword(t *testing.T) {
 // contains is a helper to check substring membership.
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestReadPasswordFromFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		username string
+		wantPass string
+		wantErr  bool
+		errMsg   string
+	}{
+		{
+			name:     "valid password from file",
+			content:  "Correct3Horse!\n",
+			username: "alice",
+			wantPass: "Correct3Horse!",
+			wantErr:  false,
+		},
+		{
+			name:     "trims trailing newline",
+			content:  "Correct3Horse!\n\n",
+			username: "alice",
+			wantPass: "Correct3Horse!",
+			wantErr:  false,
+		},
+		{
+			name:     "uses only first line",
+			content:  "Correct3Horse!\nignored line",
+			username: "alice",
+			wantPass: "Correct3Horse!",
+			wantErr:  false,
+		},
+		{
+			name:     "invalid password rejected",
+			content:  "weak\n",
+			username: "alice",
+			wantErr:  true,
+			errMsg:   "password requirements not met",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "pwfile-*")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.WriteString(tt.content); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := readPassword(tt.username, f.Name())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got: %v", tt.errMsg, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.wantPass {
+				t.Errorf("got %q, want %q", got, tt.wantPass)
+			}
+		})
+	}
+}
+
+func TestReadPasswordFileNotFound(t *testing.T) {
+	_, err := readPassword("alice", "/nonexistent/path/to/pwfile")
+	if err == nil {
+		t.Fatal("expected error for missing file, got nil")
+	}
 }

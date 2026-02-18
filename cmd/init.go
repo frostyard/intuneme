@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/prereq"
 	"github.com/frostyard/intuneme/internal/provision"
@@ -18,6 +19,7 @@ import (
 )
 
 var forceInit bool
+var passwordFile string //nolint:unused // registered as --password-file flag in init()
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -140,6 +142,53 @@ func validatePassword(username, password string) error {
 		return fmt.Errorf("password requirements not met:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// readPassword acquires and validates the container user password.
+// If passwordFile is non-empty, it reads the first line of that file.
+// Otherwise it prompts the user interactively (without echo), asking twice
+// for confirmation. Up to 3 mismatch attempts are allowed.
+func readPassword(username, passwordFile string) (string, error) {
+	if passwordFile != "" {
+		data, err := os.ReadFile(passwordFile)
+		if err != nil {
+			return "", fmt.Errorf("read password file: %w", err)
+		}
+		// Use only the first line; trim surrounding whitespace.
+		first := strings.SplitN(strings.TrimRight(string(data), "\r\n"), "\n", 2)[0]
+		password := strings.TrimSpace(first)
+		if err := validatePassword(username, password); err != nil {
+			return "", err
+		}
+		return password, nil
+	}
+
+	for range 3 {
+		fmt.Print("Enter container user password: ")
+		p1, err := term.ReadPassword(os.Stdin.Fd())
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("read password: %w", err)
+		}
+
+		fmt.Print("Confirm password: ")
+		p2, err := term.ReadPassword(os.Stdin.Fd())
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("read password: %w", err)
+		}
+
+		if string(p1) != string(p2) {
+			fmt.Fprintln(os.Stderr, "Passwords do not match, please try again.")
+			continue
+		}
+
+		if err := validatePassword(username, string(p1)); err != nil {
+			return "", err
+		}
+		return string(p1), nil
+	}
+	return "", fmt.Errorf("passwords did not match after 3 attempts")
 }
 
 func init() {
