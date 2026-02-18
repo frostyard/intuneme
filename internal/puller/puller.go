@@ -2,6 +2,8 @@ package puller
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
@@ -37,7 +39,42 @@ type PodmanPuller struct{}
 func (p *PodmanPuller) Name() string { return "podman" }
 
 func (p *PodmanPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string) error {
-	return fmt.Errorf("not implemented")
+	// Clean up any leftover extract container from a previous failed run
+	_, _ = r.Run("podman", "rm", "intuneme-extract")
+
+	// Pull the image
+	out, err := r.Run("podman", "pull", image)
+	if err != nil {
+		return fmt.Errorf("podman pull failed: %w\n%s", err, out)
+	}
+
+	// Create a temporary container to export
+	out, err = r.Run("podman", "create", "--name", "intuneme-extract", image)
+	if err != nil {
+		return fmt.Errorf("podman create failed: %w\n%s", err, out)
+	}
+
+	// Export to tar, then extract with sudo to preserve container-internal UIDs
+	tmpTar := filepath.Join(os.TempDir(), "intuneme-rootfs.tar")
+	out, err = r.Run("podman", "export", "-o", tmpTar, "intuneme-extract")
+	if err != nil {
+		_, _ = r.Run("podman", "rm", "intuneme-extract")
+		return fmt.Errorf("podman export failed: %w\n%s", err, out)
+	}
+	defer func() { _ = os.Remove(tmpTar) }()
+
+	// RunAttached so sudo can prompt for password
+	if err := r.RunAttached("sudo", "tar", "-xf", tmpTar, "-C", rootfsPath); err != nil {
+		_, _ = r.Run("podman", "rm", "intuneme-extract")
+		return fmt.Errorf("extract rootfs failed: %w", err)
+	}
+
+	// Remove temporary container
+	out, err = r.Run("podman", "rm", "intuneme-extract")
+	if err != nil {
+		return fmt.Errorf("podman rm failed: %w\n%s", err, out)
+	}
+	return nil
 }
 
 // SkopeoPuller pulls and extracts using skopeo + umoci.

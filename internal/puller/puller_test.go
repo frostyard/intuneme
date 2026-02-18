@@ -85,6 +85,43 @@ func TestDetectFallsBackToDocker(t *testing.T) {
 	}
 }
 
+func TestPodmanPullAndExtract(t *testing.T) {
+	r := &mockRunner{available: map[string]bool{"podman": true}}
+	p := &PodmanPuller{}
+	rootfs := t.TempDir()
+
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	if err != nil {
+		t.Fatalf("PullAndExtract error: %v", err)
+	}
+
+	// Expected commands:
+	// 1. podman rm intuneme-extract (cleanup)
+	// 2. podman pull <image>
+	// 3. podman create --name intuneme-extract <image>
+	// 4. podman export -o <tmp> intuneme-extract
+	// 5. sudo tar -xf <tmp> -C <rootfs>
+	// 6. podman rm intuneme-extract
+	if len(r.commands) != 6 {
+		t.Fatalf("expected 6 commands, got %d: %v", len(r.commands), r.commands)
+	}
+	if !strings.Contains(r.commands[1], "podman pull") {
+		t.Errorf("cmd[1]: expected podman pull, got: %s", r.commands[1])
+	}
+	if !strings.Contains(r.commands[2], "podman create") {
+		t.Errorf("cmd[2]: expected podman create, got: %s", r.commands[2])
+	}
+	if !strings.Contains(r.commands[3], "podman export") {
+		t.Errorf("cmd[3]: expected podman export, got: %s", r.commands[3])
+	}
+	if !strings.Contains(r.commands[4], "sudo tar") {
+		t.Errorf("cmd[4]: expected sudo tar, got: %s", r.commands[4])
+	}
+	if !strings.Contains(r.commands[5], "podman rm") {
+		t.Errorf("cmd[5]: expected podman rm, got: %s", r.commands[5])
+	}
+}
+
 func TestDetectErrorsWhenNoneAvailable(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{}}
 	_, err := Detect(r)
