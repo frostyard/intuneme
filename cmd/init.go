@@ -19,7 +19,7 @@ import (
 )
 
 var forceInit bool
-var passwordFile string //nolint:unused // registered as --password-file flag in init()
+var passwordFile string //nolint:unused // wired up in Task 4 (readPassword call + flag registration)
 
 var initCmd = &cobra.Command{
 	Use:   "init",
