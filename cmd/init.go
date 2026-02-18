@@ -56,8 +56,8 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Pulling and extracting OCI image %s (via %s)...\n", image, p.Name())
-		if err := os.MkdirAll(root, 0755); err != nil {
-			return fmt.Errorf("create root dir: %w", err)
+		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
+			return fmt.Errorf("create rootfs dir: %w", err)
 		}
 		if err := p.PullAndExtract(r, image, cfg.RootfsPath); err != nil {
 			return err
