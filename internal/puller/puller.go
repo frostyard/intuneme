@@ -83,7 +83,27 @@ type SkopeoPuller struct{}
 func (p *SkopeoPuller) Name() string { return "skopeo+umoci" }
 
 func (p *SkopeoPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string) error {
-	return fmt.Errorf("not implemented")
+	// Create a temp directory for the OCI layout
+	tmpDir, err := os.MkdirTemp("", "intuneme-oci-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	ociDest := tmpDir + ":latest"
+
+	// Pull image to OCI layout
+	out, err := r.Run("skopeo", "copy", "docker://"+image, "oci:"+ociDest)
+	if err != nil {
+		return fmt.Errorf("skopeo copy failed: %w\n%s", err, out)
+	}
+
+	// Unpack OCI layout to rootfs with sudo to preserve UIDs
+	if err := r.RunAttached("sudo", "umoci", "raw", "unpack", "--image", ociDest, rootfsPath); err != nil {
+		return fmt.Errorf("umoci unpack failed: %w", err)
+	}
+
+	return nil
 }
 
 // DockerPuller pulls and extracts using docker.

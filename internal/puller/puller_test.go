@@ -122,6 +122,33 @@ func TestPodmanPullAndExtract(t *testing.T) {
 	}
 }
 
+func TestSkopeoPullAndExtract(t *testing.T) {
+	r := &mockRunner{available: map[string]bool{"skopeo": true, "umoci": true}}
+	p := &SkopeoPuller{}
+	rootfs := t.TempDir()
+
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	if err != nil {
+		t.Fatalf("PullAndExtract error: %v", err)
+	}
+
+	// Expected commands:
+	// 1. skopeo copy docker://<image> oci:<tmpDir>:latest
+	// 2. sudo umoci raw unpack --image <tmpDir>:latest <rootfs>
+	if len(r.commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d: %v", len(r.commands), r.commands)
+	}
+	if !strings.Contains(r.commands[0], "skopeo copy docker://ghcr.io/frostyard/ubuntu-intune:latest oci:") {
+		t.Errorf("cmd[0]: expected skopeo copy, got: %s", r.commands[0])
+	}
+	if !strings.Contains(r.commands[1], "sudo umoci raw unpack --image") {
+		t.Errorf("cmd[1]: expected sudo umoci raw unpack, got: %s", r.commands[1])
+	}
+	if !strings.Contains(r.commands[1], rootfs) {
+		t.Errorf("cmd[1]: expected rootfs path %s, got: %s", rootfs, r.commands[1])
+	}
+}
+
 func TestDetectErrorsWhenNoneAvailable(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{}}
 	_, err := Detect(r)
