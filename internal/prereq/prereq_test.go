@@ -31,7 +31,7 @@ func (m *mockRunner) LookPath(name string) (string, error) {
 
 func TestCheckAllPresent(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{
-		"systemd-nspawn": true, "machinectl": true, "podman": true,
+		"systemd-nspawn": true, "machinectl": true,
 	}}
 	errs := Check(r)
 	if len(errs) != 0 {
@@ -44,13 +44,10 @@ func TestCheckMissing(t *testing.T) {
 		"machinectl": true,
 	}}
 	errs := Check(r)
-	if len(errs) != 2 {
-		t.Fatalf("expected 2 errors, got %d: %v", len(errs), errs)
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errs), errs)
 	}
 	if !strings.Contains(errs[0].Error(), "systemd-nspawn") {
 		t.Errorf("expected systemd-nspawn error, got: %v", errs[0])
-	}
-	if !strings.Contains(errs[1].Error(), "podman") {
-		t.Errorf("expected podman error, got: %v", errs[1])
 	}
 }

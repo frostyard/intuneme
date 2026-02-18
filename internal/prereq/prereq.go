@@ -14,7 +14,6 @@ type requirement struct {
 var requirements = []requirement{
 	{"systemd-nspawn", "systemd-container"},
 	{"machinectl", "systemd-container"},
-	{"podman", "podman"},
 }
 
 // Check verifies all required binaries are available.

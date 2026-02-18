@@ -29,39 +29,6 @@ func (m *mockRunner) LookPath(name string) (string, error) {
 	return "/usr/bin/" + name, nil
 }
 
-func TestPullImage(t *testing.T) {
-	r := &mockRunner{}
-	err := PullImage(r, "ghcr.io/frostyard/ubuntu-intune:latest")
-	if err != nil {
-		t.Fatalf("PullImage error: %v", err)
-	}
-	if len(r.commands) != 1 {
-		t.Fatalf("expected 1 command, got %d", len(r.commands))
-	}
-	if !strings.Contains(r.commands[0], "podman pull") {
-		t.Errorf("expected podman pull, got: %s", r.commands[0])
-	}
-}
-
-func TestExtractRootfs(t *testing.T) {
-	r := &mockRunner{}
-	rootfs := filepath.Join(t.TempDir(), "rootfs")
-	err := ExtractRootfs(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
-	if err != nil {
-		t.Fatalf("ExtractRootfs error: %v", err)
-	}
-	// Should run: podman rm (cleanup), podman create, podman export, sudo tar, podman rm
-	if len(r.commands) != 5 {
-		t.Fatalf("expected 5 commands, got %d: %v", len(r.commands), r.commands)
-	}
-	if !strings.Contains(r.commands[2], "podman export") {
-		t.Errorf("expected podman export, got: %s", r.commands[2])
-	}
-	if !strings.Contains(r.commands[3], "sudo tar") {
-		t.Errorf("expected sudo tar, got: %s", r.commands[3])
-	}
-}
-
 func TestWriteFixups(t *testing.T) {
 	r := &mockRunner{}
 	rootfs := "/tmp/test-rootfs"
