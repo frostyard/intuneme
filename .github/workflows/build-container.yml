@@ -72,8 +72,8 @@ jobs:
         id: metadata
         with:
           tags: |
-            type=raw,value=${{ env.DEFAULT_TAG }}
-            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
+            type=raw,value=${{ env.DEFAULT_TAG }},enable=${{ github.event_name != 'schedule' }}
+            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}},enable=${{ github.event_name != 'schedule' }}
             type=raw,value=${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' }}
             type=raw,value=${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' }}
             type=raw,value={{date 'YYYYMMDD'}}
