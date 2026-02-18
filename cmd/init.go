@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/prereq"
@@ -96,6 +98,48 @@ var initCmd = &cobra.Command{
 		fmt.Printf("Initialized intuneme at %s\n", root)
 		return nil
 	},
+}
+
+// validatePassword checks the password against the same rules enforced by the
+// container's pam_pwquality.so configuration (minlen=12, dcredit/ucredit/lcredit/ocredit=-1,
+// usercheck=1). All failures are collected and returned together.
+func validatePassword(username, password string) error {
+	var errs []string
+	if len(password) < 12 {
+		errs = append(errs, "must be at least 12 characters")
+	}
+	var hasDigit, hasUpper, hasLower, hasSpecial bool
+	for _, r := range password {
+		switch {
+		case unicode.IsDigit(r):
+			hasDigit = true
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case !unicode.IsLetter(r) && !unicode.IsDigit(r):
+			hasSpecial = true
+		}
+	}
+	if !hasDigit {
+		errs = append(errs, "must contain at least one digit")
+	}
+	if !hasUpper {
+		errs = append(errs, "must contain at least one uppercase letter")
+	}
+	if !hasLower {
+		errs = append(errs, "must contain at least one lowercase letter")
+	}
+	if !hasSpecial {
+		errs = append(errs, "must contain at least one special character")
+	}
+	if strings.Contains(strings.ToLower(password), strings.ToLower(username)) {
+		errs = append(errs, "must not contain your username")
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("password requirements not met:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
 }
 
 func init() {
