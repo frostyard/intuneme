@@ -10,7 +10,6 @@ import (
 type Config struct {
 	MachineName string `toml:"machine_name"`
 	RootfsPath  string `toml:"rootfs_path"`
-	Image       string `toml:"image"`
 	HostUID     int    `toml:"host_uid"`
 	HostUser    string `toml:"host_user"`
 	BrokerProxy bool   `toml:"broker_proxy"`
@@ -25,7 +24,6 @@ func Load(root string) (*Config, error) {
 	cfg := &Config{
 		MachineName: "intuneme",
 		RootfsPath:  filepath.Join(root, "rootfs"),
-		Image:       "ghcr.io/frostyard/ubuntu-intune:latest",
 		HostUID:     os.Getuid(),
 		HostUser:    os.Getenv("USER"),
 	}

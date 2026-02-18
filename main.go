@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/fang"
 	"github.com/frostyard/intuneme/cmd"
+	pkgversion "github.com/frostyard/intuneme/internal/version"
 )
 
 var version = "dev"
@@ -20,6 +21,8 @@ func makeVersionString() string {
 }
 
 func main() {
+	pkgversion.Version = version
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
