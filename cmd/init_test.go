@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ func TestValidatePassword(t *testing.T) {
 		username string
 		password string
 		wantErr  bool
-		errMsg   string
+		errMsgs  []string
 	}{
 		{
 			name:     "valid password",
@@ -23,7 +24,7 @@ func TestValidatePassword(t *testing.T) {
 			username: "alice",
 			password: "Short1!A",
 			wantErr:  true,
-			errMsg:   "at least 12 characters",
+			errMsgs:  []string{"at least 12 characters"},
 		},
 		{
 			name:     "exactly 12 chars valid",
@@ -36,49 +37,55 @@ func TestValidatePassword(t *testing.T) {
 			username: "alice",
 			password: "NoDigitsHere!A",
 			wantErr:  true,
-			errMsg:   "at least one digit",
+			errMsgs:  []string{"at least one digit"},
 		},
 		{
 			name:     "missing uppercase",
 			username: "alice",
 			password: "nouppercase1!aa",
 			wantErr:  true,
-			errMsg:   "at least one uppercase",
+			errMsgs:  []string{"at least one uppercase"},
 		},
 		{
 			name:     "missing lowercase",
 			username: "alice",
 			password: "NOLOWERCASE1!AA",
 			wantErr:  true,
-			errMsg:   "at least one lowercase",
+			errMsgs:  []string{"at least one lowercase"},
 		},
 		{
 			name:     "missing special character",
 			username: "alice",
 			password: "NoSpecialChar1A",
 			wantErr:  true,
-			errMsg:   "at least one special character",
+			errMsgs:  []string{"at least one special character"},
 		},
 		{
 			name:     "contains username (exact)",
 			username: "alice",
 			password: "alice-Passw0rd!",
 			wantErr:  true,
-			errMsg:   "must not contain your username",
+			errMsgs:  []string{"must not contain your username"},
 		},
 		{
 			name:     "contains username (case insensitive)",
 			username: "alice",
 			password: "ALICE-Passw0rd!",
 			wantErr:  true,
-			errMsg:   "must not contain your username",
+			errMsgs:  []string{"must not contain your username"},
 		},
 		{
 			name:     "multiple failures reported together",
 			username: "alice",
 			password: "short",
 			wantErr:  true,
-			errMsg:   "at least 12 characters",
+			errMsgs:  []string{"at least 12 characters", "at least one digit", "at least one uppercase"},
+		},
+		{
+			name:     "empty username skips usercheck",
+			username: "",
+			password: "Correct3Horse!",
+			wantErr:  false,
 		},
 	}
 
@@ -89,8 +96,10 @@ func TestValidatePassword(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf("expected error containing %q, got: %v", tt.errMsg, err)
+				for _, msg := range tt.errMsgs {
+					if !contains(err.Error(), msg) {
+						t.Errorf("expected error containing %q, got: %v", msg, err)
+					}
 				}
 			} else {
 				if err != nil {
@@ -103,12 +112,5 @@ func TestValidatePassword(t *testing.T) {
 
 // contains is a helper to check substring membership.
 func contains(s, substr string) bool {
-	return len(substr) == 0 || (len(s) >= len(substr) && func() bool {
-		for i := 0; i <= len(s)-len(substr); i++ {
-			if s[i:i+len(substr)] == substr {
-				return true
-			}
-		}
-		return false
-	}())
+	return strings.Contains(s, substr)
 }

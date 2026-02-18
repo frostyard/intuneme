@@ -105,7 +105,7 @@ var initCmd = &cobra.Command{
 // usercheck=1). All failures are collected and returned together.
 func validatePassword(username, password string) error {
 	var errs []string
-	if len(password) < 12 {
+	if len([]rune(password)) < 12 {
 		errs = append(errs, "must be at least 12 characters")
 	}
 	var hasDigit, hasUpper, hasLower, hasSpecial bool
@@ -133,7 +133,7 @@ func validatePassword(username, password string) error {
 	if !hasSpecial {
 		errs = append(errs, "must contain at least one special character")
 	}
-	if strings.Contains(strings.ToLower(password), strings.ToLower(username)) {
+	if username != "" && strings.Contains(strings.ToLower(password), strings.ToLower(username)) {
 		errs = append(errs, "must not contain your username")
 	}
 	if len(errs) > 0 {
