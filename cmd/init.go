@@ -40,7 +40,10 @@ var initCmd = &cobra.Command{
 		}
 
 		// Resolve host user early — needed for password validation.
-		u, _ := user.Current()
+		u, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("get current user: %w", err)
+		}
 
 		// Acquire and validate password before doing any container work.
 		password, err := readPassword(u.Username, passwordFile)
