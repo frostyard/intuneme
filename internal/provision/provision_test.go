@@ -70,6 +70,43 @@ func TestWriteFixups(t *testing.T) {
 	}
 }
 
+func TestSetContainerPassword(t *testing.T) {
+	r := &mockRunner{}
+	err := SetContainerPassword(r, "/rootfs", "alice", "H@rdPa$$w0rd!")
+	if err != nil {
+		t.Fatalf("SetContainerPassword error: %v", err)
+	}
+	if len(r.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
+	}
+	cmd := r.commands[0]
+
+	// The password must NOT appear in the command string (no shell interpolation).
+	if strings.Contains(cmd, "H@rdPa$$w0rd!") {
+		t.Errorf("password must not appear in command args, got: %s", cmd)
+	}
+	// Must use bind-ro to pass the file into the container.
+	if !strings.Contains(cmd, "--bind-ro=") {
+		t.Errorf("expected --bind-ro= in command, got: %s", cmd)
+	}
+	// Must redirect the file into chpasswd inside the container.
+	if !strings.Contains(cmd, "chpasswd < /run/chpasswd-input") {
+		t.Errorf("expected 'chpasswd < /run/chpasswd-input' in command, got: %s", cmd)
+	}
+}
+
+func TestSetContainerPasswordSpecialChars(t *testing.T) {
+	// A password with a single-quote would break the old shell interpolation approach.
+	r := &mockRunner{}
+	err := SetContainerPassword(r, "/rootfs", "alice", "It'sAGr8Pass!")
+	if err != nil {
+		t.Fatalf("SetContainerPassword error: %v", err)
+	}
+	if strings.Contains(r.commands[0], "It'sAGr8Pass!") {
+		t.Errorf("password must not appear literally in command, got: %s", r.commands[0])
+	}
+}
+
 func TestWritePolkitRule(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, "etc", "polkit-1", "rules.d")
