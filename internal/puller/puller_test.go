@@ -149,6 +149,43 @@ func TestSkopeoPullAndExtract(t *testing.T) {
 	}
 }
 
+func TestDockerPullAndExtract(t *testing.T) {
+	r := &mockRunner{available: map[string]bool{"docker": true}}
+	p := &DockerPuller{}
+	rootfs := t.TempDir()
+
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	if err != nil {
+		t.Fatalf("PullAndExtract error: %v", err)
+	}
+
+	// Expected commands:
+	// 1. docker rm intuneme-extract (cleanup)
+	// 2. docker pull <image>
+	// 3. docker create --name intuneme-extract <image>
+	// 4. docker export -o <tmp> intuneme-extract
+	// 5. sudo tar -xf <tmp> -C <rootfs>
+	// 6. docker rm intuneme-extract
+	if len(r.commands) != 6 {
+		t.Fatalf("expected 6 commands, got %d: %v", len(r.commands), r.commands)
+	}
+	if !strings.Contains(r.commands[1], "docker pull") {
+		t.Errorf("cmd[1]: expected docker pull, got: %s", r.commands[1])
+	}
+	if !strings.Contains(r.commands[2], "docker create") {
+		t.Errorf("cmd[2]: expected docker create, got: %s", r.commands[2])
+	}
+	if !strings.Contains(r.commands[3], "docker export") {
+		t.Errorf("cmd[3]: expected docker export, got: %s", r.commands[3])
+	}
+	if !strings.Contains(r.commands[4], "sudo tar") {
+		t.Errorf("cmd[4]: expected sudo tar, got: %s", r.commands[4])
+	}
+	if !strings.Contains(r.commands[5], "docker rm") {
+		t.Errorf("cmd[5]: expected docker rm, got: %s", r.commands[5])
+	}
+}
+
 func TestDetectErrorsWhenNoneAvailable(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{}}
 	_, err := Detect(r)

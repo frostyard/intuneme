@@ -112,5 +112,40 @@ type DockerPuller struct{}
 func (p *DockerPuller) Name() string { return "docker" }
 
 func (p *DockerPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string) error {
-	return fmt.Errorf("not implemented")
+	// Clean up any leftover extract container from a previous failed run
+	_, _ = r.Run("docker", "rm", "intuneme-extract")
+
+	// Pull the image
+	out, err := r.Run("docker", "pull", image)
+	if err != nil {
+		return fmt.Errorf("docker pull failed: %w\n%s", err, out)
+	}
+
+	// Create a temporary container to export
+	out, err = r.Run("docker", "create", "--name", "intuneme-extract", image)
+	if err != nil {
+		return fmt.Errorf("docker create failed: %w\n%s", err, out)
+	}
+
+	// Export to tar, then extract with sudo to preserve container-internal UIDs
+	tmpTar := filepath.Join(os.TempDir(), "intuneme-rootfs.tar")
+	out, err = r.Run("docker", "export", "-o", tmpTar, "intuneme-extract")
+	if err != nil {
+		_, _ = r.Run("docker", "rm", "intuneme-extract")
+		return fmt.Errorf("docker export failed: %w\n%s", err, out)
+	}
+	defer func() { _ = os.Remove(tmpTar) }()
+
+	// RunAttached so sudo can prompt for password
+	if err := r.RunAttached("sudo", "tar", "-xf", tmpTar, "-C", rootfsPath); err != nil {
+		_, _ = r.Run("docker", "rm", "intuneme-extract")
+		return fmt.Errorf("extract rootfs failed: %w", err)
+	}
+
+	// Remove temporary container
+	out, err = r.Run("docker", "rm", "intuneme-extract")
+	if err != nil {
+		return fmt.Errorf("docker rm failed: %w\n%s", err, out)
+	}
+	return nil
 }
