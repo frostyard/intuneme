@@ -10,6 +10,7 @@ import (
 	"github.com/frostyard/intuneme/internal/prereq"
 	"github.com/frostyard/intuneme/internal/provision"
 	"github.com/frostyard/intuneme/internal/runner"
+	pkgversion "github.com/frostyard/intuneme/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -46,8 +47,9 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("already initialized at %s — use --force to reinitialize", root)
 		}
 
-		fmt.Println("Pulling OCI image...")
-		if err := provision.PullImage(r, cfg.Image); err != nil {
+		image := pkgversion.ImageRef()
+		fmt.Printf("Pulling OCI image %s...\n", image)
+		if err := provision.PullImage(r, image); err != nil {
 			return err
 		}
 
@@ -55,7 +57,7 @@ var initCmd = &cobra.Command{
 		if err := os.MkdirAll(root, 0755); err != nil {
 			return fmt.Errorf("create root dir: %w", err)
 		}
-		if err := provision.ExtractRootfs(r, cfg.Image, cfg.RootfsPath); err != nil {
+		if err := provision.ExtractRootfs(r, image, cfg.RootfsPath); err != nil {
 			return err
 		}
 
