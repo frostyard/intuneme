@@ -60,6 +60,11 @@ export const ContainerManager = GObject.registerClass({
             GObject.ParamFlags.READABLE,
             false,
         ),
+        'error': GObject.ParamSpec.boolean(
+            'error', '', '',
+            GObject.ParamFlags.READABLE,
+            false,
+        ),
     },
 }, class ContainerManager extends GObject.Object {
     _init() {
@@ -68,6 +73,8 @@ export const ContainerManager = GObject.registerClass({
         this._containerRunning = false;
         this._brokerRunning = false;
         this._transitioning = false;
+        this._error = false;
+        this._errorTimeoutId = null;
 
         this._setupDBusWatch();
         this._startPolling();
@@ -85,6 +92,10 @@ export const ContainerManager = GObject.registerClass({
 
     get transitioning() {
         return this._transitioning;
+    }
+
+    get error() {
+        return this._error;
     }
 
     _setContainerRunning(value) {
@@ -106,6 +117,26 @@ export const ContainerManager = GObject.registerClass({
             this._transitioning = value;
             this.notify('transitioning');
         }
+    }
+
+    _setError(value) {
+        if (this._error !== value) {
+            this._error = value;
+            this.notify('error');
+        }
+    }
+
+    _showErrorBriefly() {
+        this._setError(true);
+        if (this._errorTimeoutId)
+            GLib.source_remove(this._errorTimeoutId);
+        this._errorTimeoutId = GLib.timeout_add_seconds(
+            GLib.PRIORITY_DEFAULT, 3, () => {
+                this._setError(false);
+                this._errorTimeoutId = null;
+                return GLib.SOURCE_REMOVE;
+            },
+        );
     }
 
     /**
@@ -176,8 +207,8 @@ export const ContainerManager = GObject.registerClass({
                 this._setContainerRunning(running);
         }
 
-        const brokerMatch = stdout.match(/^Broker proxy:\s+(\w+)/m);
-        this._setBrokerRunning(brokerMatch ? brokerMatch[1] === 'running' : false);
+        const brokerRunning = /^Broker proxy:\s+running\b/m.test(stdout);
+        this._setBrokerRunning(brokerRunning);
     }
 
     /**
@@ -192,7 +223,7 @@ export const ContainerManager = GObject.registerClass({
         if (!ok) {
             console.warn(`[intuneme] start failed: ${stderr}`);
             this._setTransitioning(false);
-            // Poll to reconcile state
+            this._showErrorBriefly();
             this._pollStatus();
         }
         // On success, D-Bus MachineNew signal will flip state
@@ -210,6 +241,7 @@ export const ContainerManager = GObject.registerClass({
         if (!ok) {
             console.warn(`[intuneme] stop failed: ${stderr}`);
             this._setTransitioning(false);
+            this._showErrorBriefly();
             this._pollStatus();
         }
         // On success, D-Bus MachineRemoved signal will flip state
@@ -238,6 +270,10 @@ export const ContainerManager = GObject.registerClass({
     }
 
     destroy() {
+        if (this._errorTimeoutId) {
+            GLib.source_remove(this._errorTimeoutId);
+            this._errorTimeoutId = null;
+        }
         if (this._pollSourceId) {
             GLib.source_remove(this._pollSourceId);
             this._pollSourceId = null;

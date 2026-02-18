@@ -52,6 +52,11 @@ var extensionInstallCmd = &cobra.Command{
 				return os.MkdirAll(dest, 0755)
 			}
 
+			// Skip the polkit policy — it's installed separately to /usr/share/polkit-1/actions/
+			if filepath.Ext(path) == ".policy" {
+				return nil
+			}
+
 			data, err := extensionFS.ReadFile(path)
 			if err != nil {
 				return err

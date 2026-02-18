@@ -52,6 +52,9 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         this._managerSignals.push(
             this._manager.connect('notify::transitioning', () => this._sync()),
         );
+        this._managerSignals.push(
+            this._manager.connect('notify::error', () => this._sync()),
+        );
 
         // Handle toggle clicks
         this.connect('clicked', () => {
@@ -71,22 +74,26 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
     _sync() {
         const running = this._manager.container_running;
         const transitioning = this._manager.transitioning;
+        const error = this._manager.error;
 
         // Toggle state
         this.checked = running;
         this.reactive = !transitioning;
 
         // Subtitle
-        if (transitioning)
+        if (error)
+            this.subtitle = 'Error';
+        else if (transitioning)
             this.subtitle = running ? 'Stopping\u2026' : 'Starting\u2026';
         else
             this.subtitle = running ? 'Running' : 'Stopped';
 
         // Menu items
         this._containerStatusItem.label.text = `Container: ${
-            transitioning
-                ? (running ? 'Stopping\u2026' : 'Starting\u2026')
-                : (running ? 'Running' : 'Stopped')
+            error ? 'Error'
+                : transitioning
+                    ? (running ? 'Stopping\u2026' : 'Starting\u2026')
+                    : (running ? 'Running' : 'Stopped')
         }`;
 
         this._brokerStatusItem.label.text = `Broker Proxy: ${
