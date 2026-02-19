@@ -127,3 +127,68 @@ func TestRestoreShadowEntry(t *testing.T) {
 		})
 	}
 }
+
+func TestBackupDeviceBrokerState(t *testing.T) {
+	rootfs := t.TempDir()
+	brokerDir := filepath.Join(rootfs, "var", "lib", "microsoft-identity-device-broker")
+	if err := os.MkdirAll(brokerDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &mockRunner{}
+	tmpDir, err := BackupDeviceBrokerState(r, rootfs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	if len(r.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
+	}
+	cmd := r.commands[0]
+	if !strings.Contains(cmd, "cp -a") {
+		t.Errorf("expected 'cp -a' in command, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "microsoft-identity-device-broker") {
+		t.Errorf("expected broker path in command, got: %s", cmd)
+	}
+}
+
+func TestBackupDeviceBrokerStateNoBrokerDir(t *testing.T) {
+	rootfs := t.TempDir()
+	// No broker dir exists
+
+	r := &mockRunner{}
+	tmpDir, err := BackupDeviceBrokerState(r, rootfs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tmpDir != "" {
+		t.Errorf("expected empty tmpDir when broker dir missing, got %q", tmpDir)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("expected no commands when broker dir missing, got: %v", r.commands)
+	}
+}
+
+func TestRestoreDeviceBrokerState(t *testing.T) {
+	rootfs := t.TempDir()
+	backupDir := t.TempDir()
+
+	r := &mockRunner{}
+	err := RestoreDeviceBrokerState(r, rootfs, backupDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(r.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
+	}
+	cmd := r.commands[0]
+	if !strings.Contains(cmd, "cp -a") {
+		t.Errorf("expected 'cp -a' in command, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "microsoft-identity-device-broker") {
+		t.Errorf("expected broker dest path in command, got: %s", cmd)
+	}
+}

@@ -9,6 +9,43 @@ import (
 	"github.com/frostyard/intuneme/internal/runner"
 )
 
+const deviceBrokerRelPath = "var/lib/microsoft-identity-device-broker"
+
+// BackupDeviceBrokerState copies the device broker state directory from the
+// rootfs to a temporary directory. Returns the temp directory path, or ""
+// if the broker directory doesn't exist (no enrollment to preserve).
+// The caller is responsible for cleaning up the temp directory.
+func BackupDeviceBrokerState(r runner.Runner, rootfs string) (string, error) {
+	brokerDir := filepath.Join(rootfs, deviceBrokerRelPath)
+	if _, err := os.Stat(brokerDir); os.IsNotExist(err) {
+		return "", nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "intuneme-broker-backup-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+
+	dest := filepath.Join(tmpDir, "microsoft-identity-device-broker")
+	if _, err := r.Run("sudo", "cp", "-a", brokerDir, dest); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("backup device broker state: %w", err)
+	}
+	return tmpDir, nil
+}
+
+// RestoreDeviceBrokerState copies the backed-up device broker state back
+// into the new rootfs. The backupDir should be the path returned by
+// BackupDeviceBrokerState.
+func RestoreDeviceBrokerState(r runner.Runner, rootfs, backupDir string) error {
+	src := filepath.Join(backupDir, "microsoft-identity-device-broker")
+	dest := filepath.Join(rootfs, deviceBrokerRelPath)
+	if _, err := r.Run("sudo", "cp", "-a", src, dest); err != nil {
+		return fmt.Errorf("restore device broker state: %w", err)
+	}
+	return nil
+}
+
 // BackupShadowEntry reads the shadow file from the rootfs and returns the
 // full line for the given username. This preserves the password hash so it
 // can be restored after re-provisioning.
