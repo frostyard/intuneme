@@ -136,6 +136,19 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 	)
 }
 
+const baseGroups = "adm,sudo,video,audio"
+
+// userGroups returns the group list for the container user.
+// Includes "render" if a render group exists in the container.
+func userGroups(rootfsPath string) string {
+	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
+	gid, _ := findGroupGID(containerGroupPath, "render")
+	if gid >= 0 {
+		return baseGroups + ",render"
+	}
+	return baseGroups
+}
+
 // CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
 // If a user with the target UID already exists (e.g., "ubuntu" from the OCI image),
 // it is renamed and reconfigured. Otherwise a new user is created.
@@ -157,7 +170,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 		}
 		// Ensure correct groups
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w", err)
 		}
@@ -168,7 +181,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 			"--uid", fmt.Sprintf("%d", uid),
 			"--create-home",
 			"--shell", "/bin/bash",
-			"--groups", "adm,sudo,video,audio",
+			"--groups", userGroups(rootfsPath),
 			user,
 		); err != nil {
 			return fmt.Errorf("useradd in container failed: %w", err)
@@ -176,7 +189,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 	} else {
 		// User already exists with the right name — just ensure groups
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w", err)
 		}

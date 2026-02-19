@@ -227,6 +227,56 @@ func TestEnsureRenderGroup(t *testing.T) {
 	})
 }
 
+func TestCreateContainerUserIncludesRender(t *testing.T) {
+	tmp := t.TempDir()
+	etcDir := filepath.Join(tmp, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("root:x:0:0:root:/root:/bin/bash\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "group"), []byte("root:x:0:\nrender:x:991:\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	r := &mockRunner{}
+	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	if err != nil {
+		t.Fatalf("CreateContainerUser error: %v", err)
+	}
+
+	allCmds := strings.Join(r.commands, "\n")
+	if !strings.Contains(allCmds, "render") {
+		t.Errorf("expected 'render' in group list, commands:\n%s", allCmds)
+	}
+}
+
+func TestCreateContainerUserNoRenderGroupSkipsIt(t *testing.T) {
+	tmp := t.TempDir()
+	etcDir := filepath.Join(tmp, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("root:x:0:0:root:/root:/bin/bash\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "group"), []byte("root:x:0:\nvideo:x:44:\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	r := &mockRunner{}
+	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	if err != nil {
+		t.Fatalf("CreateContainerUser error: %v", err)
+	}
+
+	allCmds := strings.Join(r.commands, "\n")
+	if strings.Contains(allCmds, "render") {
+		t.Errorf("expected no 'render' when group absent, commands:\n%s", allCmds)
+	}
+}
+
 func TestWritePolkitRule(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, "etc", "polkit-1", "rules.d")
