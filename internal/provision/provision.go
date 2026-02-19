@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
@@ -135,6 +136,19 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 	)
 }
 
+const baseGroups = "adm,sudo,video,audio"
+
+// userGroups returns the group list for the container user.
+// Includes "render" if a render group exists in the container.
+func userGroups(rootfsPath string) string {
+	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
+	gid, _ := findGroupGID(containerGroupPath, "render")
+	if gid >= 0 {
+		return baseGroups + ",render"
+	}
+	return baseGroups
+}
+
 // CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
 // If a user with the target UID already exists (e.g., "ubuntu" from the OCI image),
 // it is renamed and reconfigured. Otherwise a new user is created.
@@ -156,7 +170,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 		}
 		// Ensure correct groups
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w", err)
 		}
@@ -167,7 +181,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 			"--uid", fmt.Sprintf("%d", uid),
 			"--create-home",
 			"--shell", "/bin/bash",
-			"--groups", "adm,sudo,video,audio",
+			"--groups", userGroups(rootfsPath),
 			user,
 		); err != nil {
 			return fmt.Errorf("useradd in container failed: %w", err)
@@ -175,7 +189,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 	} else {
 		// User already exists with the right name — just ensure groups
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
-			"usermod", "--groups", "adm,sudo,video,audio", "--append", user,
+			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w", err)
 		}
@@ -197,6 +211,53 @@ func findUserByUID(passwdPath string, uid int) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// findGroupGID reads a group file and returns the GID for a given group name.
+// Returns -1 if the group is not found.
+func findGroupGID(groupPath, name string) (int, error) {
+	data, err := os.ReadFile(groupPath)
+	if err != nil {
+		return -1, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[0] == name {
+			gid, err := strconv.Atoi(fields[2])
+			if err != nil {
+				return -1, fmt.Errorf("parse GID for %s: %w", name, err)
+			}
+			return gid, nil
+		}
+	}
+	return -1, nil
+}
+
+// FindHostRenderGID returns the GID of the host's "render" group, or -1 if not found.
+func FindHostRenderGID() (int, error) {
+	return findGroupGID("/etc/group", "render")
+}
+
+// EnsureRenderGroup ensures a "render" group with the given GID exists in the container.
+// If the group is missing it is created; if it exists with a different GID it is modified.
+func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
+	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
+	existingGID, err := findGroupGID(containerGroupPath, "render")
+	if err != nil {
+		return fmt.Errorf("check container render group: %w", err)
+	}
+
+	if existingGID == gid {
+		return nil
+	}
+
+	gidStr := fmt.Sprintf("%d", gid)
+	if existingGID >= 0 {
+		return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"groupmod", "--gid", gidStr, "render")
+	}
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"groupadd", "--gid", gidStr, "render")
 }
 
 // InstallPolkitRule installs the polkit rule on the host using sudo.

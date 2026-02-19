@@ -136,11 +136,12 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 2. Creates `~/Intune` on the host
 3. Pulls `ghcr.io/frostyard/ubuntu-intune:latest`
 4. Extracts the rootfs into `~/.local/share/intuneme/rootfs/`
-5. Creates a container user matching your host UID/GID
-6. Enables the system identity device broker service
-7. Applies configuration: hostname, broker display override, login profile script
-8. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
-9. Saves configuration to `~/.local/share/intuneme/config.toml`
+5. Configures a `render` group matching the host for GPU access
+6. Creates a container user matching your host UID/GID
+7. Enables the system identity device broker service
+8. Applies configuration: hostname, broker display override, login profile script, Edge wrapper
+9. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
+10. Saves configuration to `~/.local/share/intuneme/config.toml`
 
 ## Storage
 
@@ -201,6 +202,9 @@ The intune-agent timer may not be running. Inside the container:
 systemctl --user start intune-agent.timer
 /opt/microsoft/intune/bin/intune-agent
 ```
+
+**Edge crashes with "Trace/breakpoint trap"**
+Try launching with a fresh profile first: `microsoft-edge --user-data-dir=/tmp/edge-test`. If that works, the issue is a corrupted profile — move `~/.config/microsoft-edge/` aside and restart Edge.
 
 **No sound in Edge**
 Check that PipeWire is forwarded. The host needs a PipeWire socket at `/run/user/$UID/pipewire-0`. Inside the container, verify `$PIPEWIRE_REMOTE` is set.

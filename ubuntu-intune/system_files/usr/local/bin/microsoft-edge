@@ -1,5 +1,9 @@
 #!/bin/sh -e
 
+# Container-safe: disable the GPU process sandbox which fails inside nspawn
+# (cannot create nested user namespaces). The renderer sandbox stays active.
+set -- '--disable-gpu-sandbox' "$@"
+
 if [ -n "$WAYLAND_DISPLAY" ]
 then
     unset -v DISPLAY

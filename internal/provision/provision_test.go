@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,6 +111,181 @@ func TestSetContainerPasswordSpecialChars(t *testing.T) {
 	}
 	if strings.Contains(r.commands[0], "It'sAGr8Pass!") {
 		t.Errorf("password must not appear literally in command, got: %s", r.commands[0])
+	}
+}
+
+func TestFindGroupGID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		group   string
+		want    int
+	}{
+		{
+			name:    "found",
+			content: "root:x:0:\nvideo:x:44:\nrender:x:991:\n",
+			group:   "render",
+			want:    991,
+		},
+		{
+			name:    "not found",
+			content: "root:x:0:\nvideo:x:44:\n",
+			group:   "render",
+			want:    -1,
+		},
+		{
+			name:    "empty file",
+			content: "",
+			group:   "render",
+			want:    -1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := filepath.Join(t.TempDir(), "group")
+			if err := os.WriteFile(tmp, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write temp group file: %v", err)
+			}
+			got, err := findGroupGID(tmp, tc.group)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("findGroupGID(%q) = %d, want %d", tc.group, got, tc.want)
+			}
+		})
+	}
+
+	// Malformed GID should return an error
+	t.Run("malformed GID", func(t *testing.T) {
+		tmp := filepath.Join(t.TempDir(), "group")
+		if err := os.WriteFile(tmp, []byte("render:x:notanumber:\n"), 0644); err != nil {
+			t.Fatalf("write temp group file: %v", err)
+		}
+		_, err := findGroupGID(tmp, "render")
+		if err == nil {
+			t.Error("expected error for malformed GID, got nil")
+		}
+	})
+}
+
+func TestEnsureRenderGroup(t *testing.T) {
+	t.Run("group missing creates it", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nvideo:x:44:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 991)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 1 {
+			t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
+		}
+		cmd := r.commands[0]
+		if !strings.Contains(cmd, "groupadd") || !strings.Contains(cmd, "991") {
+			t.Errorf("expected groupadd with GID 991, got: %s", cmd)
+		}
+	})
+
+	t.Run("group exists with correct GID is noop", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nrender:x:991:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 991)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 0 {
+			t.Errorf("expected no commands for matching GID, got: %v", r.commands)
+		}
+	})
+
+	t.Run("group exists with wrong GID modifies it", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nrender:x:500:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 991)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 1 {
+			t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
+		}
+		cmd := r.commands[0]
+		if !strings.Contains(cmd, "groupmod") || !strings.Contains(cmd, "991") {
+			t.Errorf("expected groupmod with GID 991, got: %s", cmd)
+		}
+	})
+}
+
+func TestCreateContainerUserIncludesRender(t *testing.T) {
+	tmp := t.TempDir()
+	etcDir := filepath.Join(tmp, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("root:x:0:0:root:/root:/bin/bash\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "group"), []byte("root:x:0:\nrender:x:991:\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	r := &mockRunner{}
+	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	if err != nil {
+		t.Fatalf("CreateContainerUser error: %v", err)
+	}
+
+	allCmds := strings.Join(r.commands, "\n")
+	if !strings.Contains(allCmds, "render") {
+		t.Errorf("expected 'render' in group list, commands:\n%s", allCmds)
+	}
+}
+
+func TestCreateContainerUserNoRenderGroupSkipsIt(t *testing.T) {
+	tmp := t.TempDir()
+	etcDir := filepath.Join(tmp, "etc")
+	if err := os.MkdirAll(etcDir, 0755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte("root:x:0:0:root:/root:/bin/bash\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(etcDir, "group"), []byte("root:x:0:\nvideo:x:44:\n"), 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	r := &mockRunner{}
+	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	if err != nil {
+		t.Fatalf("CreateContainerUser error: %v", err)
+	}
+
+	allCmds := strings.Join(r.commands, "\n")
+	if strings.Contains(allCmds, "render") {
+		t.Errorf("expected no 'render' when group absent, commands:\n%s", allCmds)
 	}
 }
 
