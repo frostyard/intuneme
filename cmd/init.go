@@ -81,6 +81,15 @@ var initCmd = &cobra.Command{
 
 		hostname, _ := os.Hostname()
 
+		// Ensure container has a render group matching the host for GPU access
+		renderGID, err := provision.FindHostRenderGID()
+		if err == nil && renderGID >= 0 {
+			fmt.Println("Configuring GPU render group...")
+			if err := provision.EnsureRenderGroup(r, cfg.RootfsPath, renderGID); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: render group setup failed: %v\n", err)
+			}
+		}
+
 		fmt.Println("Creating container user...")
 		if err := provision.CreateContainerUser(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid()); err != nil {
 			return err

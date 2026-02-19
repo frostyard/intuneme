@@ -233,6 +233,11 @@ func findGroupGID(groupPath, name string) (int, error) {
 	return -1, nil
 }
 
+// FindHostRenderGID returns the GID of the host's "render" group, or -1 if not found.
+func FindHostRenderGID() (int, error) {
+	return findGroupGID("/etc/group", "render")
+}
+
 // EnsureRenderGroup ensures a "render" group with the given GID exists in the container.
 // If the group is missing it is created; if it exists with a different GID it is modified.
 func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
