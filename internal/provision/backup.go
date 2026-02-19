@@ -48,13 +48,14 @@ func RestoreDeviceBrokerState(r runner.Runner, rootfs, backupDir string) error {
 
 // BackupShadowEntry reads the shadow file from the rootfs and returns the
 // full line for the given username. This preserves the password hash so it
-// can be restored after re-provisioning.
-func BackupShadowEntry(rootfs, username string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(rootfs, "etc", "shadow"))
+// can be restored after re-provisioning. Uses sudo because the rootfs shadow
+// file is owned by root after nspawn use.
+func BackupShadowEntry(r runner.Runner, rootfs, username string) (string, error) {
+	data, err := r.Run("sudo", "cat", filepath.Join(rootfs, "etc", "shadow"))
 	if err != nil {
 		return "", fmt.Errorf("read shadow: %w", err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
 		if line == "" {
 			continue
 		}
@@ -72,7 +73,7 @@ func RestoreShadowEntry(r runner.Runner, rootfs, shadowLine string) error {
 	username := strings.SplitN(shadowLine, ":", 2)[0]
 
 	shadowPath := filepath.Join(rootfs, "etc", "shadow")
-	data, err := os.ReadFile(shadowPath)
+	data, err := r.Run("sudo", "cat", shadowPath)
 	if err != nil {
 		return fmt.Errorf("read shadow: %w", err)
 	}

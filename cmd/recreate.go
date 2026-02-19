@@ -63,7 +63,7 @@ var recreateCmd = &cobra.Command{
 
 		// Backup state
 		fmt.Println("Backing up shadow entry...")
-		shadowLine, err := provision.BackupShadowEntry(cfg.RootfsPath, u.Username)
+		shadowLine, err := provision.BackupShadowEntry(r, cfg.RootfsPath, u.Username)
 		if err != nil {
 			return fmt.Errorf("backup shadow entry: %w", err)
 		}

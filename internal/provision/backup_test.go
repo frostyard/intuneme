@@ -40,16 +40,8 @@ func TestBackupShadowEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rootfs := t.TempDir()
-			shadowDir := filepath.Join(rootfs, "etc")
-			if err := os.MkdirAll(shadowDir, 0755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(shadowDir, "shadow"), []byte(tt.shadow), 0640); err != nil {
-				t.Fatal(err)
-			}
-
-			got, err := BackupShadowEntry(rootfs, tt.username)
+			r := &mockRunner{outputs: [][]byte{[]byte(tt.shadow)}}
+			got, err := BackupShadowEntry(r, "/fake/rootfs", tt.username)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -95,17 +87,8 @@ func TestRestoreShadowEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rootfs := t.TempDir()
-			shadowDir := filepath.Join(rootfs, "etc")
-			if err := os.MkdirAll(shadowDir, 0755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(shadowDir, "shadow"), []byte(tt.shadow), 0640); err != nil {
-				t.Fatal(err)
-			}
-
-			r := &mockRunner{}
-			err := RestoreShadowEntry(r, rootfs, tt.shadowLine)
+			r := &mockRunner{outputs: [][]byte{[]byte(tt.shadow)}}
+			err := RestoreShadowEntry(r, "/fake/rootfs", tt.shadowLine)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -121,7 +104,7 @@ func TestRestoreShadowEntry(t *testing.T) {
 				t.Fatal("expected sudo commands, got none")
 			}
 			allCmds := strings.Join(r.commands, "\n")
-			if !strings.Contains(allCmds, filepath.Join(rootfs, "etc", "shadow")) {
+			if !strings.Contains(allCmds, "/fake/rootfs/etc/shadow") {
 				t.Errorf("expected command targeting shadow file, got:\n%s", allCmds)
 			}
 		})
