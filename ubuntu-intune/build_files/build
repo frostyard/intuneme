@@ -30,6 +30,7 @@ apt upgrade -y
 apt install -y \
   unattended-upgrades \
   microsoft-identity-broker \
+  microsoft-azurevpnclient \
   microsoft-edge-stable \
   pipewire-audio-client-libraries \
   xdg-desktop-portal-gtk \
