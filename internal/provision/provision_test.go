@@ -155,6 +155,18 @@ func TestFindGroupGID(t *testing.T) {
 			}
 		})
 	}
+
+	// Malformed GID should return an error
+	t.Run("malformed GID", func(t *testing.T) {
+		tmp := filepath.Join(t.TempDir(), "group")
+		if err := os.WriteFile(tmp, []byte("render:x:notanumber:\n"), 0644); err != nil {
+			t.Fatalf("write temp group file: %v", err)
+		}
+		_, err := findGroupGID(tmp, "render")
+		if err == nil {
+			t.Error("expected error for malformed GID, got nil")
+		}
+	})
 }
 
 func TestEnsureRenderGroup(t *testing.T) {
