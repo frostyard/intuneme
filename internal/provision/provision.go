@@ -220,6 +220,28 @@ func findGroupGID(groupPath, name string) (int, error) {
 	return -1, nil
 }
 
+// EnsureRenderGroup ensures a "render" group with the given GID exists in the container.
+// If the group is missing it is created; if it exists with a different GID it is modified.
+func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
+	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
+	existingGID, err := findGroupGID(containerGroupPath, "render")
+	if err != nil {
+		return fmt.Errorf("check container render group: %w", err)
+	}
+
+	if existingGID == gid {
+		return nil
+	}
+
+	gidStr := fmt.Sprintf("%d", gid)
+	if existingGID >= 0 {
+		return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"groupmod", "--gid", gidStr, "render")
+	}
+	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		"groupadd", "--gid", gidStr, "render")
+}
+
 // InstallPolkitRule installs the polkit rule on the host using sudo.
 func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	rule := `polkit.addRule(function(action, subject) {
