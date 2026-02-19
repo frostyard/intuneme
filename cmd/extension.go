@@ -88,13 +88,13 @@ var extensionInstallCmd = &cobra.Command{
 		_ = tmpFile.Close()
 
 		policyDest := "/usr/share/polkit-1/actions/org.frostyard.intuneme.policy"
-		if _, err := r.Run("sudo", "cp", tmpFile.Name(), policyDest); err != nil {
+		if err := r.RunAttached("sudo", "cp", tmpFile.Name(), policyDest); err != nil {
 			return fmt.Errorf("install polkit policy (sudo cp): %w", err)
 		}
 		fmt.Printf("Polkit policy installed to %s\n", policyDest)
 
 		// Enable the extension
-		if _, err := r.Run("gnome-extensions", "enable", extensionUUID); err != nil {
+		if err := r.RunAttached("gnome-extensions", "enable", extensionUUID); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not enable extension: %v\n", err)
 			fmt.Println("You may need to enable it manually via GNOME Extensions app.")
 		} else {
