@@ -14,3 +14,7 @@ The repository has two main components:
 ## Before committing
 
 Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
+
+## Documentation
+
+Update `README.md` when adding new commands, flags, or changing existing functionality. The README contains a commands table and feature sections that must stay in sync with the code.
