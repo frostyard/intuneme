@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,6 +111,49 @@ func TestSetContainerPasswordSpecialChars(t *testing.T) {
 	}
 	if strings.Contains(r.commands[0], "It'sAGr8Pass!") {
 		t.Errorf("password must not appear literally in command, got: %s", r.commands[0])
+	}
+}
+
+func TestFindGroupGID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		group   string
+		want    int
+	}{
+		{
+			name:    "found",
+			content: "root:x:0:\nvideo:x:44:\nrender:x:991:\n",
+			group:   "render",
+			want:    991,
+		},
+		{
+			name:    "not found",
+			content: "root:x:0:\nvideo:x:44:\n",
+			group:   "render",
+			want:    -1,
+		},
+		{
+			name:    "empty file",
+			content: "",
+			group:   "render",
+			want:    -1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := filepath.Join(t.TempDir(), "group")
+			if err := os.WriteFile(tmp, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write temp group file: %v", err)
+			}
+			got, err := findGroupGID(tmp, tc.group)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("findGroupGID(%q) = %d, want %d", tc.group, got, tc.want)
+			}
+		})
 	}
 }
 

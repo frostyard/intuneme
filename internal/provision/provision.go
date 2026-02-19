@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
@@ -197,6 +198,26 @@ func findUserByUID(passwdPath string, uid int) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// findGroupGID reads a group file and returns the GID for a given group name.
+// Returns -1 if the group is not found.
+func findGroupGID(groupPath, name string) (int, error) {
+	data, err := os.ReadFile(groupPath)
+	if err != nil {
+		return -1, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[0] == name {
+			gid, err := strconv.Atoi(fields[2])
+			if err != nil {
+				return -1, fmt.Errorf("parse GID for %s: %w", name, err)
+			}
+			return gid, nil
+		}
+	}
+	return -1, nil
 }
 
 // InstallPolkitRule installs the polkit rule on the host using sudo.
