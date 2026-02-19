@@ -118,7 +118,9 @@ var startCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("failed to determine executable path: %w", err)
 			}
-			if err := r.RunBackground(execPath, "broker-proxy", "--root", root); err != nil {
+			// Use setsid so the broker proxy gets its own session and survives
+			// terminal closure (e.g. when started from the GNOME extension).
+			if err := r.RunBackground("setsid", execPath, "broker-proxy", "--root", root); err != nil {
 				return fmt.Errorf("failed to start broker proxy: %w", err)
 			}
 			time.Sleep(2 * time.Second)
