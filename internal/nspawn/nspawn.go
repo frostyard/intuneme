@@ -127,6 +127,8 @@ func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
 		"--bind=/dev/dri",
+		"--capability=CAP_NET_ADMIN",
+		"--bind=/dev/net/tun",
 	}
 	for _, s := range sockets {
 		args = append(args, fmt.Sprintf("--bind=%s:%s", s.Host, s.Container))
