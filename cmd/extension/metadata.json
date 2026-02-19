@@ -1,0 +1,8 @@
+{
+    "uuid": "intuneme@frostyard.org",
+    "name": "Intuneme",
+    "description": "Manage the Intune container from Quick Settings",
+    "shell-version": ["47", "48"],
+    "version": 1,
+    "url": "https://github.com/frostyard/intuneme"
+}

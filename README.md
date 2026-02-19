@@ -98,6 +98,18 @@ microsoft-edge
 ykman
 ```
 
+## GNOME extension
+
+A Quick Settings toggle lets you start/stop the container and open a shell without touching the terminal.
+
+```bash
+intuneme extension install
+```
+
+Log out and back in to activate. The toggle appears in Quick Settings with the container's current state. Clicking it starts or stops the container, and the popup menu shows status details and an "Open Shell" shortcut.
+
+The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback. Requires GNOME Shell 47+.
+
 ## Commands
 
 | Command | Description |
@@ -110,6 +122,7 @@ ykman
 | `intuneme destroy` | Stop the container, remove the rootfs, clean enrollment state |
 | `intuneme config broker-proxy enable` | Enable the host-side broker proxy for SSO |
 | `intuneme config broker-proxy disable` | Disable the broker proxy |
+| `intuneme extension install` | Install the GNOME Shell Quick Settings extension |
 
 ### Flags
 
