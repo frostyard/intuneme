@@ -87,7 +87,10 @@ var extensionInstallCmd = &cobra.Command{
 		}
 		_ = tmpFile.Close()
 
-		policyDest := "/usr/share/polkit-1/actions/org.frostyard.intuneme.policy"
+		policyDest := "/etc/polkit-1/actions/org.frostyard.intuneme.policy"
+		if err := r.RunAttached("sudo", "mkdir", "-p", "/etc/polkit-1/actions"); err != nil {
+			return fmt.Errorf("create polkit actions dir: %w", err)
+		}
 		if err := r.RunAttached("sudo", "cp", tmpFile.Name(), policyDest); err != nil {
 			return fmt.Errorf("install polkit policy (sudo cp): %w", err)
 		}
