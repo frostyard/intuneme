@@ -9,9 +9,8 @@ then
     unset -v DISPLAY
     set -- \
         '--enable-features=UseOzonePlatform' \
-        '--enable-features=WebRTCPipeWireCapturer' \
         '--ozone-platform=wayland' \
         "$@"
 fi
 
-/usr/bin/microsoft-edge "$@"
+/opt/microsoft/microsoft-azurevpnclient/microsoft-azurevpnclient "$@"

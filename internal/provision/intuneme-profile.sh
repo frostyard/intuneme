@@ -7,7 +7,7 @@
 export DISPLAY=:0
 export NO_AT_BRIDGE=1
 export GTK_A11Y=none
-export PATH="/opt/microsoft/intune/bin:$PATH"
+export PATH="/opt/microsoft/intune/bin:/opt/microsoft/microsoft-azurevpnclient:$PATH"
 
 # X11 auth — bind-mounted from host at /run/host-xauthority
 if [ -f /run/host-xauthority ]; then
