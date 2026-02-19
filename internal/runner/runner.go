@@ -3,6 +3,7 @@ package runner
 import (
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 // Runner executes system commands. Mockable for tests.
@@ -35,6 +36,7 @@ func (r *SystemRunner) RunAttached(name string, args ...string) error {
 
 func (r *SystemRunner) RunBackground(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
 }
 
