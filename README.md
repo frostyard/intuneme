@@ -119,6 +119,7 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 | `intuneme shell` | Open an interactive shell (real logind session with D-Bus and keyring) |
 | `intuneme stop` | Shut down the container |
 | `intuneme status` | Show whether the container is initialized and running |
+| `intuneme recreate` | Upgrade the container image, preserving enrollment state |
 | `intuneme destroy` | Stop the container, remove the rootfs, clean enrollment state |
 | `intuneme config broker-proxy enable` | Enable the host-side broker proxy for SSO |
 | `intuneme config broker-proxy disable` | Disable the broker proxy |
@@ -156,6 +157,17 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 ├── Downloads/       # Downloads, file exchange with host
 └── ...
 ```
+
+## Upgrading the container
+
+When a new container image is released, use `recreate` to upgrade without losing your Intune enrollment:
+
+```bash
+intuneme recreate
+intuneme start
+```
+
+This stops the running container, backs up the password hash and device enrollment database, pulls the new image, re-provisions, and restores the backed-up state. No re-enrollment needed.
 
 ## Re-enrollment
 

@@ -8,10 +8,16 @@ import (
 
 type mockRunner struct {
 	commands []string
+	outputs  [][]byte // if non-empty, popped in order for Run calls
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	if len(m.outputs) > 0 {
+		out := m.outputs[0]
+		m.outputs = m.outputs[1:]
+		return out, nil
+	}
 	return nil, nil
 }
 
