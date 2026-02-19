@@ -24,12 +24,6 @@ func TestBuildBootArgs(t *testing.T) {
 	if !strings.Contains(joined, "--bind=/dev/dri") {
 		t.Errorf("missing /dev/dri bind in: %s", joined)
 	}
-	if !strings.Contains(joined, "--capability=CAP_NET_ADMIN") {
-		t.Errorf("missing CAP_NET_ADMIN capability in: %s", joined)
-	}
-	if !strings.Contains(joined, "--bind=/dev/net/tun") {
-		t.Errorf("missing /dev/net/tun bind in: %s", joined)
-	}
 	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
 		t.Errorf("missing wayland socket bind in: %s", joined)
 	}

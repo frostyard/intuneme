@@ -15,8 +15,6 @@ install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings
 rm microsoft.gpg
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/microsoft-ubuntu-$(lsb_release -cs)-prod.list
-# FIXME: Remove when the Azure VPN Client is available to 24.04
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" > /etc/apt/sources.list.d/microsoft-ubuntu-jammy-prod.list
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/edge stable main" > /etc/apt/sources.list.d/microsoft-edge.list
 apt update -y
 
@@ -32,7 +30,6 @@ apt upgrade -y
 apt install -y \
   unattended-upgrades \
   microsoft-identity-broker \
-  microsoft-azurevpnclient \
   microsoft-edge-stable \
   pipewire-audio-client-libraries \
   xdg-desktop-portal-gtk \
