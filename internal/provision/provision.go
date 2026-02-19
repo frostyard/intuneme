@@ -232,9 +232,10 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 		return fmt.Errorf("create polkit rules dir: %w", err)
 	}
 
-	// Copy temp file into place with sudo
+	// Install with correct permissions — polkitd runs as the polkitd user
+	// and needs read access (644), but sudo cp inherits root's umask (often 077).
 	dest := filepath.Join(rulesDir, "50-intuneme.rules")
-	if err := r.RunAttached("sudo", "cp", tmpFile.Name(), dest); err != nil {
+	if err := r.RunAttached("sudo", "install", "-m", "0644", tmpFile.Name(), dest); err != nil {
 		return fmt.Errorf("install polkit rule failed: %w", err)
 	}
 	return nil

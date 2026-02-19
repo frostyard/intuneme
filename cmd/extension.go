@@ -91,7 +91,7 @@ var extensionInstallCmd = &cobra.Command{
 		if err := r.RunAttached("sudo", "mkdir", "-p", "/etc/polkit-1/actions"); err != nil {
 			return fmt.Errorf("create polkit actions dir: %w", err)
 		}
-		if err := r.RunAttached("sudo", "cp", tmpFile.Name(), policyDest); err != nil {
+		if err := r.RunAttached("sudo", "install", "-m", "0644", tmpFile.Name(), policyDest); err != nil {
 			return fmt.Errorf("install polkit policy (sudo cp): %w", err)
 		}
 		fmt.Printf("Polkit policy installed to %s\n", policyDest)

@@ -5,6 +5,7 @@ import GLib from 'gi://GLib';
 const MACHINE_NAME = 'intuneme';
 const POLL_INTERVAL_SECONDS = 5;
 const INTUNEME_BIN = 'intuneme';
+const INTUNEME_ROOT = `${GLib.get_home_dir()}/.local/share/intuneme`;
 
 // Terminal emulators to try, in order of preference.
 const TERMINALS = ['ptyxis', 'kgx', 'gnome-terminal', 'xterm'];
@@ -212,21 +213,46 @@ export const ContainerManager = GObject.registerClass({
     }
 
     /**
-     * Start the container via pkexec.
+     * Start the container in a terminal window.
+     * Needs a terminal because `intuneme start` prompts for sudo.
      */
-    async start() {
+    start() {
         if (this._containerRunning || this._transitioning)
             return;
 
+        const terminal = findTerminal();
+        if (!terminal) {
+            console.error('[intuneme] No terminal emulator found');
+            return;
+        }
+
         this._setTransitioning(true);
-        const [ok, , stderr] = await execCommand(['pkexec', INTUNEME_BIN, 'start']);
-        if (!ok) {
-            console.warn(`[intuneme] start failed: ${stderr}`);
+        try {
+            const proc = Gio.Subprocess.new(
+                [terminal, '--', INTUNEME_BIN, 'start'],
+                Gio.SubprocessFlags.NONE,
+            );
+            proc.wait_async(null, (_, res) => {
+                try {
+                    proc.wait_finish(res);
+                    if (!proc.get_successful()) {
+                        this._setTransitioning(false);
+                        this._showErrorBriefly();
+                    }
+                } catch (e) {
+                    console.warn(`[intuneme] start failed: ${e.message}`);
+                    this._setTransitioning(false);
+                    this._showErrorBriefly();
+                }
+                // D-Bus MachineNew signal will flip state on success
+                // Poll as fallback
+                this._pollStatus();
+            });
+        } catch (e) {
+            console.error(`[intuneme] Failed to launch terminal: ${e.message}`);
             this._setTransitioning(false);
             this._showErrorBriefly();
-            this._pollStatus();
         }
-        // On success, D-Bus MachineNew signal will flip state
     }
 
     /**
