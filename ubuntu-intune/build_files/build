@@ -90,7 +90,6 @@ EOF
 pam-auth-update --enable pwquality mkhomedir gnome-keyring intune unix --force
 
 # Enable automatic updates for more than security patches
-sed -i 's|^[[:space:]]*//[[:space:]]*"\${distro_id}:\${distro_codename}-updates";|\t"${distro_id}:${distro_codename}-updates";|' /etc/apt/apt.conf.d/50unattended-upgrades
 sed -i '/Unattended-Upgrade::Allowed-Origins\s*{/{
     :a
     n
