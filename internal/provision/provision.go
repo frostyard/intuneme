@@ -204,7 +204,7 @@ func findUserByUID(passwdPath string, uid int) (string, error) {
 		return "", err
 	}
 	uidStr := fmt.Sprintf("%d", uid)
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Split(line, ":")
 		if len(fields) >= 3 && fields[2] == uidStr {
 			return fields[0], nil
@@ -220,7 +220,7 @@ func findGroupGID(groupPath, name string) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Split(line, ":")
 		if len(fields) >= 3 && fields[0] == name {
 			gid, err := strconv.Atoi(fields[2])

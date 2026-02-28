@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -81,7 +83,7 @@ var brokerProxyDisableCmd = &cobra.Command{
 		}
 
 		svcPath := broker.DBusServiceFilePath()
-		if err := os.Remove(svcPath); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(svcPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("remove dbus service file: %w", err)
 		}
 

@@ -1,7 +1,9 @@
 package provision
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +19,7 @@ const deviceBrokerRelPath = "var/lib/microsoft-identity-device-broker"
 // The caller is responsible for cleaning up the temp directory.
 func BackupDeviceBrokerState(r runner.Runner, rootfs string) (string, error) {
 	brokerDir := filepath.Join(rootfs, deviceBrokerRelPath)
-	if _, err := os.Stat(brokerDir); os.IsNotExist(err) {
+	if _, err := os.Stat(brokerDir); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
 
@@ -55,12 +57,12 @@ func BackupShadowEntry(r runner.Runner, rootfs, username string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("read shadow: %w", err)
 	}
-	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(string(data), "\n"), "\n") {
 		if line == "" {
 			continue
 		}
-		fields := strings.SplitN(line, ":", 2)
-		if fields[0] == username {
+		name, _, _ := strings.Cut(line, ":")
+		if name == username {
 			return line, nil
 		}
 	}
@@ -70,7 +72,7 @@ func BackupShadowEntry(r runner.Runner, rootfs, username string) (string, error)
 // RestoreShadowEntry reads the new rootfs shadow file, replaces the line
 // for the user extracted from shadowLine, and writes it back via sudo.
 func RestoreShadowEntry(r runner.Runner, rootfs, shadowLine string) error {
-	username := strings.SplitN(shadowLine, ":", 2)[0]
+	username, _, _ := strings.Cut(shadowLine, ":")
 
 	shadowPath := filepath.Join(rootfs, "etc", "shadow")
 	data, err := r.Run("sudo", "cat", shadowPath)
@@ -81,8 +83,8 @@ func RestoreShadowEntry(r runner.Runner, rootfs, shadowLine string) error {
 	lines := strings.Split(string(data), "\n")
 	found := false
 	for i, line := range lines {
-		fields := strings.SplitN(line, ":", 2)
-		if fields[0] == username {
+		name, _, _ := strings.Cut(line, ":")
+		if name == username {
 			lines[i] = shadowLine
 			found = true
 			break
