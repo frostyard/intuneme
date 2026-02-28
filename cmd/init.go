@@ -109,6 +109,13 @@ var initCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "warning: polkit install failed: %v\n", err)
 		}
 
+		if provision.SELinuxEnabled() {
+			fmt.Println("Applying SELinux policy (required for machinectl shell on SELinux systems)...")
+			if err := provision.InstallSELinuxPolicy(r, cfg.RootfsPath); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: SELinux policy setup failed: %v\n", err)
+			}
+		}
+
 		fmt.Println("Saving config...")
 		cfg.HostUID = os.Getuid()
 		cfg.HostUser = u.Username

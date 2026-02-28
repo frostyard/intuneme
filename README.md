@@ -140,8 +140,9 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 6. Creates a container user matching your host UID/GID
 7. Enables the system identity device broker service
 8. Applies configuration: hostname, broker display override, login profile script, Edge wrapper
-9. Installs a polkit rule so `sudo` group members can use machinectl without repeated password prompts
-10. Saves configuration to `~/.local/share/intuneme/config.toml`
+9. Installs a polkit rule so `sudo` and `wheel` group members can use machinectl without repeated password prompts
+10. On SELinux systems (Fedora, Bazzite): relabels the rootfs as `container_file_t` and installs a policy module granting `systemd-machined` the PTY access needed for `machinectl shell`
+11. Saves configuration to `~/.local/share/intuneme/config.toml`
 
 ## Storage
 
@@ -185,6 +186,9 @@ intuneme shell
 `destroy` removes the rootfs and cleans Intune enrollment state from `~/Intune`. Your other files in `~/Intune` (Downloads, etc.) are preserved.
 
 ## Troubleshooting
+
+**`intuneme shell` fails on Fedora/Bazzite (SELinux)**
+`intuneme init` handles this automatically: it relabels the rootfs and installs a policy module for `systemd-machined`. If you upgraded from an older install and didn't re-run `init`, use the provided script: `bash scripts/fix-selinux.sh`.
 
 **intune-portal crashes with "No authorization protocol specified"**
 The XAUTHORITY file isn't being forwarded. Check that your host has an Xauthority file in `$XAUTHORITY` or `/run/user/$UID/` (patterns: `.mutter-Xwaylandauth.*`, `xauth_*`).
