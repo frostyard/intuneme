@@ -260,6 +260,83 @@ func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 		"groupadd", "--gid", gidStr, "render")
 }
 
+// SELinuxEnabled reports whether SELinux is currently in enforcing or permissive mode.
+func SELinuxEnabled() bool {
+	data, err := os.ReadFile("/sys/fs/selinux/enforce")
+	if err != nil {
+		return false
+	}
+	s := strings.TrimSpace(string(data))
+	return s == "0" || s == "1"
+}
+
+// InstallSELinuxPolicy applies the SELinux configuration needed for systemd-machined
+// to access the rootfs and allocate PTYs — required on SELinux-enforcing systems such
+// as Fedora and Bazzite.
+//
+// Two changes are made:
+//  1. The rootfs tree is relabeled to container_file_t so systemd-machined can read it.
+//  2. A policy module is installed that allows systemd_machined_t to open and use PTY
+//     devices (user_devpts_t), which is required for machinectl shell to work.
+func InstallSELinuxPolicy(r runner.Runner, rootfsPath string) error {
+	// 1. Persist the file context so restorecon knows the target label.
+	if _, err := r.Run("sudo", "semanage", "fcontext", "-a", "-t", "container_file_t",
+		rootfsPath+"(/.*)?"); err != nil {
+		// If the context already exists semanage exits non-zero; treat as non-fatal.
+		_ = err
+	}
+
+	// 2. Relabel the rootfs tree.
+	if err := r.RunAttached("sudo", "restorecon", "-RF", rootfsPath); err != nil {
+		return fmt.Errorf("restorecon failed: %w", err)
+	}
+
+	// 3. Write a minimal type-enforcement policy that grants systemd_machined_t the
+	//    PTY permissions it needs (open/read/write/ioctl on user_devpts_t chr_file,
+	//    and read on user_tmp_t lnk_file for /tmp/ptmx symlink traversal).
+	te := `module intuneme-machined 1.0;
+
+require {
+    type systemd_machined_t;
+    type user_devpts_t;
+    type user_tmp_t;
+    class chr_file { open read write ioctl getattr };
+    class lnk_file { read };
+}
+
+allow systemd_machined_t user_devpts_t:chr_file { open read write ioctl getattr };
+allow systemd_machined_t user_tmp_t:lnk_file { read };
+`
+	// checkmodule requires the output base filename to match the module name
+	// declared in the .te file. Use a temp directory with a fixed filename so
+	// the name is always "intuneme-machined" regardless of OS temp-file randomness.
+	tmpDir, err := os.MkdirTemp("", "intuneme-selinux-*")
+	if err != nil {
+		return fmt.Errorf("create policy temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	teFile := filepath.Join(tmpDir, "intuneme-machined.te")
+	if err := os.WriteFile(teFile, []byte(te), 0600); err != nil {
+		return fmt.Errorf("write policy temp file: %w", err)
+	}
+
+	// Compile and package the policy module.
+	modFile := filepath.Join(tmpDir, "intuneme-machined.mod")
+	ppFile := filepath.Join(tmpDir, "intuneme-machined.pp")
+	if _, err := r.Run("checkmodule", "-M", "-m", "-o", modFile, teFile); err != nil {
+		return fmt.Errorf("checkmodule failed: %w", err)
+	}
+	if _, err := r.Run("semodule_package", "-o", ppFile, "-m", modFile); err != nil {
+		return fmt.Errorf("semodule_package failed: %w", err)
+	}
+	if err := r.RunAttached("sudo", "semodule", "-X", "300", "-i", ppFile); err != nil {
+		return fmt.Errorf("semodule install failed: %w", err)
+	}
+
+	return nil
+}
+
 // InstallPolkitRule installs the polkit rule on the host using sudo.
 func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	rule := `polkit.addRule(function(action, subject) {
@@ -268,7 +345,7 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
          action.id == "org.freedesktop.machine1.login" ||
          action.id == "org.freedesktop.machine1.shell" ||
          action.id == "org.freedesktop.machine1.host-shell") &&
-        subject.isInGroup("sudo")) {
+        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
         return polkit.Result.YES;
     }
 });

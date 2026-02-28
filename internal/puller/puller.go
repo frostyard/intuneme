@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
@@ -42,8 +43,16 @@ func (p *PodmanPuller) PullAndExtract(r runner.Runner, image string, rootfsPath 
 	// Clean up any leftover extract container from a previous failed run
 	_, _ = r.Run("podman", "rm", "intuneme-extract")
 
-	// Pull the image
-	out, err := r.Run("podman", "pull", image)
+	// Pull the image. For locally-built images (localhost/ prefix) use
+	// --policy=missing so podman doesn't try to reach a registry that doesn't
+	// exist. For registry images use the default (always) so stale cached
+	// images are refreshed.
+	pullArgs := []string{"pull"}
+	if strings.HasPrefix(image, "localhost/") {
+		pullArgs = append(pullArgs, "--policy=missing")
+	}
+	pullArgs = append(pullArgs, image)
+	out, err := r.Run("podman", pullArgs...)
 	if err != nil {
 		return fmt.Errorf("podman pull failed: %w\n%s", err, out)
 	}
