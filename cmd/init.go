@@ -174,7 +174,7 @@ func readPassword(username, passwordFile string) (string, error) {
 			return "", fmt.Errorf("read password file: %w", err)
 		}
 		// Use only the first line; trim surrounding whitespace.
-		first := strings.SplitN(strings.TrimRight(string(data), "\r\n"), "\n", 2)[0]
+		first, _, _ := strings.Cut(strings.TrimRight(string(data), "\r\n"), "\n")
 		password := strings.TrimSpace(first)
 		if err := validatePassword(username, password); err != nil {
 			return "", err
