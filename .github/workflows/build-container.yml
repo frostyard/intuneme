@@ -99,6 +99,10 @@ jobs:
           sep-tags: " "
           sep-annotations: " "
 
+      - name: Compute SOURCE_DATE_EPOCH
+        id: epoch
+        run: echo "epoch=$(date -d '${{ github.event.head_commit.timestamp }}' +%s)" >> $GITHUB_OUTPUT
+
       - name: Build Image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
@@ -110,6 +114,8 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           oci: true
           extra-args: --skip-unused-stages=false
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
