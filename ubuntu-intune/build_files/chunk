@@ -1,0 +1,19 @@
+#!/usr/bin/bash
+
+set -eoux pipefail
+
+echo "::group::Executing chunk"
+trap 'echo "::endgroup::"' EXIT
+
+apt install -y attr
+
+dpkg-query -W -f='${Package}\n' | while read -r pkgname; do
+  echo "Setting file attributes for package: $pkgname (chunkah)"
+  dpkg -L "$pkgname" | while read -r filepath; do
+    if [[ -f "$filepath" ]]; then
+      setfattr -n user.component -v "$pkgname" "$filepath" || true
+    fi
+  done
+done
+
+apt remove -y attr

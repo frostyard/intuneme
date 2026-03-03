@@ -110,6 +110,7 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           oci: true
           build-args: BUILD_ID=${{ env.SHORT_SHA }}-${{ github.run_id }}
+          extra-args: --skip-unused-stages=false
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
