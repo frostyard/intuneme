@@ -53,7 +53,7 @@ When enabled, `intuneme start` also creates a login session inside the container
 The host needs:
 
 - **systemd-nspawn** and **machinectl** (package: `systemd-container`)
-- **podman** (used to pull and extract the OCI base image)
+- **podman**, **umoci** or **docker** (used to pull and extract the OCI base image)
 - A graphical session (X11 or Wayland)
 
 On Debian/Ubuntu:
@@ -112,18 +112,18 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `intuneme init` | Pull the OCI image, extract rootfs, install Edge, configure user/PAM/services |
-| `intuneme start` | Boot the container |
-| `intuneme shell` | Open an interactive shell (real logind session with D-Bus and keyring) |
-| `intuneme stop` | Shut down the container |
-| `intuneme status` | Show whether the container is initialized and running |
-| `intuneme recreate` | Upgrade the container image, preserving enrollment state |
-| `intuneme destroy` | Stop the container, remove the rootfs, clean enrollment state |
-| `intuneme config broker-proxy enable` | Enable the host-side broker proxy for SSO |
-| `intuneme config broker-proxy disable` | Disable the broker proxy |
-| `intuneme extension install` | Install the GNOME Shell Quick Settings extension |
+| Command                                | Description                                                                   |
+| -------------------------------------- | ----------------------------------------------------------------------------- |
+| `intuneme init`                        | Pull the OCI image, extract rootfs, install Edge, configure user/PAM/services |
+| `intuneme start`                       | Boot the container                                                            |
+| `intuneme shell`                       | Open an interactive shell (real logind session with D-Bus and keyring)        |
+| `intuneme stop`                        | Shut down the container                                                       |
+| `intuneme status`                      | Show whether the container is initialized and running                         |
+| `intuneme recreate`                    | Upgrade the container image, preserving enrollment state                      |
+| `intuneme destroy`                     | Stop the container, remove the rootfs, clean enrollment state                 |
+| `intuneme config broker-proxy enable`  | Enable the host-side broker proxy for SSO                                     |
+| `intuneme config broker-proxy disable` | Disable the broker proxy                                                      |
+| `intuneme extension install`           | Install the GNOME Shell Quick Settings extension                              |
 
 ### Flags
 
@@ -195,6 +195,7 @@ The XAUTHORITY file isn't being forwarded. Check that your host has an Xauthorit
 
 **intune-portal shows error 1001 or "UI web navigation failed"**
 The identity broker services aren't running. Inside the container:
+
 ```bash
 sudo systemctl status microsoft-identity-device-broker
 systemctl --user status microsoft-identity-broker
@@ -202,6 +203,7 @@ systemctl --user status microsoft-identity-broker
 
 **Compliance check fails**
 The intune-agent timer may not be running. Inside the container:
+
 ```bash
 systemctl --user start intune-agent.timer
 /opt/microsoft/intune/bin/intune-agent

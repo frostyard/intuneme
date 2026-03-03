@@ -233,6 +233,23 @@ func findGroupGID(groupPath, name string) (int, error) {
 	return -1, nil
 }
 
+// findGroupByGID reads a group file and returns the group name that owns the given GID.
+// Returns "" if no group has that GID.
+func findGroupByGID(groupPath string, gid int) (string, error) {
+	data, err := os.ReadFile(groupPath)
+	if err != nil {
+		return "", err
+	}
+	gidStr := fmt.Sprintf("%d", gid)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[2] == gidStr {
+			return fields[0], nil
+		}
+	}
+	return "", nil
+}
+
 // FindHostRenderGID returns the GID of the host's "render" group, or -1 if not found.
 func FindHostRenderGID() (int, error) {
 	return findGroupGID("/etc/group", "render")

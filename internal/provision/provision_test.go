@@ -169,6 +169,55 @@ func TestFindGroupGID(t *testing.T) {
 	})
 }
 
+func TestFindGroupByGID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		gid     int
+		want    string
+	}{
+		{
+			name:    "found",
+			content: "root:x:0:\nvideo:x:44:\nrender:x:991:\n",
+			gid:     991,
+			want:    "render",
+		},
+		{
+			name:    "not found",
+			content: "root:x:0:\nvideo:x:44:\n",
+			gid:     991,
+			want:    "",
+		},
+		{
+			name:    "finds correct group among many",
+			content: "root:x:0:\nsystemd-resolve:x:992:\nrender:x:991:\n",
+			gid:     992,
+			want:    "systemd-resolve",
+		},
+		{
+			name:    "empty file",
+			content: "",
+			gid:     100,
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := filepath.Join(t.TempDir(), "group")
+			if err := os.WriteFile(tmp, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write temp group file: %v", err)
+			}
+			got, err := findGroupByGID(tmp, tc.gid)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("findGroupByGID(%d) = %q, want %q", tc.gid, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestEnsureRenderGroup(t *testing.T) {
 	t.Run("group missing creates it", func(t *testing.T) {
 		tmp := t.TempDir()
