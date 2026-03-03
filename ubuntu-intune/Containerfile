@@ -7,6 +7,7 @@ FROM docker.io/library/ubuntu:24.04@sha256:cd1dba651b3080c3686ecf4e3c4220f026b52
 
 COPY ubuntu-intune/system_files /
 
+# Build ubuntu-intune
 ARG DEBIAN_FRONTEND=noninteractive
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/apt \
@@ -17,9 +18,11 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/build && \
     /ctx/chunk
 
+# Rechunk
 FROM quay.io/jlebon/chunkah AS chunkah
 RUN --mount=from=builder,src=/,target=/chunkah,ro \
     --mount=type=bind,target=/run/src,rw \
     chunkah build > /run/src/out.ociarchive
 
+# Deploy final chunked image
 FROM oci-archive:out.ociarchive
