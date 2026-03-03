@@ -32,6 +32,9 @@ apt install -y \
   microsoft-identity-broker \
   microsoft-edge-stable \
   pipewire-audio-client-libraries \
+  mesa-vulkan-drivers \
+  mesa-va-drivers \
+  intel-media-va-driver \
   xdg-desktop-portal-gtk \
   pcscd \
   yubikey-manager \
