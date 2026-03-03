@@ -141,6 +141,48 @@ func BuildShellArgs(machine, user string) []string {
 	return []string{"shell", fmt.Sprintf("%s@%s", user, machine), "/bin/bash", "--login"}
 }
 
+// LeaderPID returns the PID of the container's init process (Leader) as reported
+// by machinectl, which is used to enter the container's namespaces via nsenter.
+func LeaderPID(r runner.Runner, machine string) (string, error) {
+	out, err := r.Run("machinectl", "show", machine, "-p", "Leader", "--value")
+	if err != nil {
+		return "", fmt.Errorf("machinectl show failed: %w", err)
+	}
+	pid := strings.TrimSpace(string(out))
+	if pid == "" {
+		return "", fmt.Errorf("could not determine container leader PID")
+	}
+	return pid, nil
+}
+
+// Exec runs a command non-interactively inside the container as the given user
+// and returns immediately. Uses nsenter to avoid requiring a PTY.
+func Exec(r runner.Runner, machine, user string, uid int, command string) error {
+	leaderPID, err := LeaderPID(r, machine)
+	if err != nil {
+		return err
+	}
+	uidStr := fmt.Sprintf("%d", uid)
+	script := fmt.Sprintf(
+		`export DISPLAY=:0
+export XAUTHORITY=/run/host-xauthority
+export WAYLAND_DISPLAY=/run/host-wayland
+export PIPEWIRE_REMOTE=/run/host-pipewire
+export PULSE_SERVER=unix:/run/host-pulse
+export XDG_RUNTIME_DIR=/run/user/%s
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
+nohup %s >/dev/null 2>&1 &`,
+		uidStr, uidStr, command,
+	)
+	nsenterArgs := []string{
+		"nsenter",
+		"-t", leaderPID,
+		"-m", "-u", "-i", "-n", "-p",
+		"--", "/bin/su", "-s", "/bin/bash", user, "-c", script,
+	}
+	return r.RunBackground("sudo", nsenterArgs...)
+}
+
 // Boot starts the nspawn container in the background using sudo.
 func Boot(r runner.Runner, rootfs, machine, intuneHome, containerHome string, sockets []BindMount) error {
 	args := append([]string{"systemd-nspawn"}, BuildBootArgs(rootfs, machine, intuneHome, containerHome, sockets)...)

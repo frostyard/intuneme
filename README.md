@@ -106,9 +106,23 @@ A Quick Settings toggle lets you start/stop the container and open a shell witho
 intuneme extension install
 ```
 
-Log out and back in to activate. The toggle appears in Quick Settings with the container's current state. Clicking it starts or stops the container, and the popup menu shows status details and an "Open Shell" shortcut.
+Log out and back in to activate. The toggle appears in Quick Settings with the container's current state. Clicking it starts or stops the container, and the popup menu shows status details and shortcuts to open a shell, launch Edge, or launch Intune Portal.
 
 The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback. Requires GNOME Shell 47+.
+
+## Desktop shortcuts
+
+Install `.desktop` entries for Edge and Intune Portal so they appear in the GNOME application grid:
+
+```bash
+bash scripts/install-desktop-items.sh
+```
+
+Clicking either entry runs `intuneme open edge` or `intuneme open portal` — the container must already be running. To remove the entries:
+
+```bash
+bash scripts/install-desktop-items.sh --uninstall
+```
 
 ## Commands
 
@@ -117,6 +131,8 @@ The extension monitors container state via D-Bus signals from `systemd-machined`
 | `intuneme init` | Pull the OCI image, extract rootfs, install Edge, configure user/PAM/services |
 | `intuneme start` | Boot the container |
 | `intuneme shell` | Open an interactive shell (real logind session with D-Bus and keyring) |
+| `intuneme open edge` | Launch Microsoft Edge inside the container |
+| `intuneme open portal` | Launch Intune Portal inside the container |
 | `intuneme stop` | Shut down the container |
 | `intuneme status` | Show whether the container is initialized and running |
 | `intuneme recreate` | Upgrade the container image, preserving enrollment state |
