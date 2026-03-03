@@ -109,7 +109,6 @@ jobs:
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: true
-          build-args: BUILD_ID=${{ env.SHORT_SHA }}-${{ github.run_id }}
           extra-args: --skip-unused-stages=false
 
       - name: Login to GitHub Container Registry
