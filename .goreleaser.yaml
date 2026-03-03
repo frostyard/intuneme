@@ -95,7 +95,6 @@ nfpms:
       Run Microsoft Intune on an immutable Linux host.
     license: MIT
     dependencies:
-      - podman
       - systemd-container
     contents:
       - src: ./completions/{{ .ProjectName }}.bash
