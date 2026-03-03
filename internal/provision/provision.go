@@ -281,6 +281,8 @@ func FindHostRenderGID() (int, error) {
 
 // EnsureRenderGroup ensures a "render" group with the given GID exists in the container.
 // If the group is missing it is created; if it exists with a different GID it is modified.
+// If the target GID is already occupied by another group, that group is reassigned to a
+// free system GID first.
 func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
 	existingGID, err := findGroupGID(containerGroupPath, "render")
@@ -290,6 +292,23 @@ func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 
 	if existingGID == gid {
 		return nil
+	}
+
+	// Check if the target GID is occupied by another group.
+	conflicting, err := findGroupByGID(containerGroupPath, gid)
+	if err != nil {
+		return fmt.Errorf("check GID conflict: %w", err)
+	}
+	if conflicting != "" && conflicting != "render" {
+		freeGID, err := findFreeSystemGID(containerGroupPath)
+		if err != nil {
+			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
+		}
+		fmt.Printf("  Reassigning group %q from GID %d to %d...\n", conflicting, gid, freeGID)
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
+			return fmt.Errorf("reassign group %s: %w", conflicting, err)
+		}
 	}
 
 	gidStr := fmt.Sprintf("%d", gid)

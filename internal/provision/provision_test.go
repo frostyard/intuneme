@@ -342,6 +342,88 @@ func TestEnsureRenderGroup(t *testing.T) {
 			t.Errorf("expected groupmod with GID 991, got: %s", cmd)
 		}
 	})
+
+	t.Run("GID conflict reassigns conflicting group first", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render exists at GID 500, but target GID 992 is taken by systemd-resolve
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nrender:x:500:\nsystemd-resolve:x:992:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 2 {
+			t.Fatalf("expected 2 commands, got %d: %v", len(r.commands), r.commands)
+		}
+		// First command: reassign systemd-resolve to a free GID
+		if !strings.Contains(r.commands[0], "groupmod") || !strings.Contains(r.commands[0], "systemd-resolve") {
+			t.Errorf("expected first command to reassign systemd-resolve, got: %s", r.commands[0])
+		}
+		// Second command: set render to target GID
+		if !strings.Contains(r.commands[1], "groupmod") || !strings.Contains(r.commands[1], "992") || !strings.Contains(r.commands[1], "render") {
+			t.Errorf("expected second command to set render GID to 992, got: %s", r.commands[1])
+		}
+	})
+
+	t.Run("no conflict when render group is missing and GID is free", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render doesn't exist, target GID 992 is free
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nvideo:x:44:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 1 {
+			t.Fatalf("expected 1 command (groupadd only), got %d: %v", len(r.commands), r.commands)
+		}
+		if !strings.Contains(r.commands[0], "groupadd") {
+			t.Errorf("expected groupadd, got: %s", r.commands[0])
+		}
+	})
+
+	t.Run("GID conflict when render group is missing", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render doesn't exist, but target GID 992 is taken by systemd-resolve
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nsystemd-resolve:x:992:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 2 {
+			t.Fatalf("expected 2 commands, got %d: %v", len(r.commands), r.commands)
+		}
+		// First: reassign conflicting group
+		if !strings.Contains(r.commands[0], "groupmod") || !strings.Contains(r.commands[0], "systemd-resolve") {
+			t.Errorf("expected first command to reassign systemd-resolve, got: %s", r.commands[0])
+		}
+		// Second: groupadd render
+		if !strings.Contains(r.commands[1], "groupadd") || !strings.Contains(r.commands[1], "render") {
+			t.Errorf("expected second command to groupadd render, got: %s", r.commands[1])
+		}
+	})
 }
 
 func TestCreateContainerUserIncludesRender(t *testing.T) {
