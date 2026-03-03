@@ -233,6 +233,47 @@ func findGroupGID(groupPath, name string) (int, error) {
 	return -1, nil
 }
 
+// findGroupByGID reads a group file and returns the group name that owns the given GID.
+// Returns "" if no group has that GID.
+func findGroupByGID(groupPath string, gid int) (string, error) {
+	data, err := os.ReadFile(groupPath)
+	if err != nil {
+		return "", err
+	}
+	gidStr := fmt.Sprintf("%d", gid)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[2] == gidStr {
+			return fields[0], nil
+		}
+	}
+	return "", nil
+}
+
+// findFreeSystemGID scans a group file and returns the first available GID
+// in the system range (999 down to 100).
+func findFreeSystemGID(groupPath string) (int, error) {
+	data, err := os.ReadFile(groupPath)
+	if err != nil {
+		return -1, err
+	}
+	used := make(map[int]bool)
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 {
+			if gid, err := strconv.Atoi(fields[2]); err == nil {
+				used[gid] = true
+			}
+		}
+	}
+	for gid := 999; gid >= 100; gid-- {
+		if !used[gid] {
+			return gid, nil
+		}
+	}
+	return -1, fmt.Errorf("no free system GID in range 100-999")
+}
+
 // FindHostRenderGID returns the GID of the host's "render" group, or -1 if not found.
 func FindHostRenderGID() (int, error) {
 	return findGroupGID("/etc/group", "render")
@@ -240,6 +281,8 @@ func FindHostRenderGID() (int, error) {
 
 // EnsureRenderGroup ensures a "render" group with the given GID exists in the container.
 // If the group is missing it is created; if it exists with a different GID it is modified.
+// If the target GID is already occupied by another group, that group is reassigned to a
+// free system GID first.
 func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
 	existingGID, err := findGroupGID(containerGroupPath, "render")
@@ -249,6 +292,23 @@ func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 
 	if existingGID == gid {
 		return nil
+	}
+
+	// Check if the target GID is occupied by another group.
+	conflicting, err := findGroupByGID(containerGroupPath, gid)
+	if err != nil {
+		return fmt.Errorf("check GID conflict: %w", err)
+	}
+	if conflicting != "" && conflicting != "render" {
+		freeGID, err := findFreeSystemGID(containerGroupPath)
+		if err != nil {
+			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
+		}
+		fmt.Printf("  Reassigning group %q from GID %d to %d...\n", conflicting, gid, freeGID)
+		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
+			return fmt.Errorf("reassign group %s: %w", conflicting, err)
+		}
 	}
 
 	gidStr := fmt.Sprintf("%d", gid)

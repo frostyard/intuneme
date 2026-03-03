@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,6 +170,110 @@ func TestFindGroupGID(t *testing.T) {
 	})
 }
 
+func TestFindGroupByGID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		gid     int
+		want    string
+	}{
+		{
+			name:    "found",
+			content: "root:x:0:\nvideo:x:44:\nrender:x:991:\n",
+			gid:     991,
+			want:    "render",
+		},
+		{
+			name:    "not found",
+			content: "root:x:0:\nvideo:x:44:\n",
+			gid:     991,
+			want:    "",
+		},
+		{
+			name:    "finds correct group among many",
+			content: "root:x:0:\nsystemd-resolve:x:992:\nrender:x:991:\n",
+			gid:     992,
+			want:    "systemd-resolve",
+		},
+		{
+			name:    "empty file",
+			content: "",
+			gid:     100,
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := filepath.Join(t.TempDir(), "group")
+			if err := os.WriteFile(tmp, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write temp group file: %v", err)
+			}
+			got, err := findGroupByGID(tmp, tc.gid)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("findGroupByGID(%d) = %q, want %q", tc.gid, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindFreeSystemGID(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{
+			name:    "sparse file picks 999",
+			content: "root:x:0:\nvideo:x:44:\nrender:x:991:\n",
+			want:    999,
+		},
+		{
+			name:    "999 taken picks 998",
+			content: "root:x:0:\nfoo:x:999:\n",
+			want:    998,
+		},
+		{
+			name:    "empty file picks 999",
+			content: "",
+			want:    999,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := filepath.Join(t.TempDir(), "group")
+			if err := os.WriteFile(tmp, []byte(tc.content), 0644); err != nil {
+				t.Fatalf("write temp group file: %v", err)
+			}
+			got, err := findFreeSystemGID(tmp)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("findFreeSystemGID() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+
+	// Full range should return error
+	t.Run("no free GID", func(t *testing.T) {
+		var lines []string
+		for i := 100; i <= 999; i++ {
+			lines = append(lines, fmt.Sprintf("g%d:x:%d:", i, i))
+		}
+		tmp := filepath.Join(t.TempDir(), "group")
+		if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+			t.Fatalf("write temp group file: %v", err)
+		}
+		_, err := findFreeSystemGID(tmp)
+		if err == nil {
+			t.Error("expected error when no free GID available, got nil")
+		}
+	})
+}
+
 func TestEnsureRenderGroup(t *testing.T) {
 	t.Run("group missing creates it", func(t *testing.T) {
 		tmp := t.TempDir()
@@ -235,6 +340,88 @@ func TestEnsureRenderGroup(t *testing.T) {
 		cmd := r.commands[0]
 		if !strings.Contains(cmd, "groupmod") || !strings.Contains(cmd, "991") {
 			t.Errorf("expected groupmod with GID 991, got: %s", cmd)
+		}
+	})
+
+	t.Run("GID conflict reassigns conflicting group first", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render exists at GID 500, but target GID 992 is taken by systemd-resolve
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nrender:x:500:\nsystemd-resolve:x:992:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 2 {
+			t.Fatalf("expected 2 commands, got %d: %v", len(r.commands), r.commands)
+		}
+		// First command: reassign systemd-resolve to a free GID
+		if !strings.Contains(r.commands[0], "groupmod") || !strings.Contains(r.commands[0], "systemd-resolve") {
+			t.Errorf("expected first command to reassign systemd-resolve, got: %s", r.commands[0])
+		}
+		// Second command: set render to target GID
+		if !strings.Contains(r.commands[1], "groupmod") || !strings.Contains(r.commands[1], "992") || !strings.Contains(r.commands[1], "render") {
+			t.Errorf("expected second command to set render GID to 992, got: %s", r.commands[1])
+		}
+	})
+
+	t.Run("no conflict when render group is missing and GID is free", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render doesn't exist, target GID 992 is free
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nvideo:x:44:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 1 {
+			t.Fatalf("expected 1 command (groupadd only), got %d: %v", len(r.commands), r.commands)
+		}
+		if !strings.Contains(r.commands[0], "groupadd") {
+			t.Errorf("expected groupadd, got: %s", r.commands[0])
+		}
+	})
+
+	t.Run("GID conflict when render group is missing", func(t *testing.T) {
+		tmp := t.TempDir()
+		groupFile := filepath.Join(tmp, "etc", "group")
+		if err := os.MkdirAll(filepath.Dir(groupFile), 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		// render doesn't exist, but target GID 992 is taken by systemd-resolve
+		if err := os.WriteFile(groupFile, []byte("root:x:0:\nsystemd-resolve:x:992:\n"), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		r := &mockRunner{}
+		err := EnsureRenderGroup(r, tmp, 992)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(r.commands) != 2 {
+			t.Fatalf("expected 2 commands, got %d: %v", len(r.commands), r.commands)
+		}
+		// First: reassign conflicting group
+		if !strings.Contains(r.commands[0], "groupmod") || !strings.Contains(r.commands[0], "systemd-resolve") {
+			t.Errorf("expected first command to reassign systemd-resolve, got: %s", r.commands[0])
+		}
+		// Second: groupadd render
+		if !strings.Contains(r.commands[1], "groupadd") || !strings.Contains(r.commands[1], "render") {
+			t.Errorf("expected second command to groupadd render, got: %s", r.commands[1])
 		}
 	})
 }
