@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"fmt"
 	"path/filepath"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -27,7 +27,15 @@ var stopCmd = &cobra.Command{
 		}
 
 		if !nspawn.IsRunning(r, cfg.MachineName) {
-			fmt.Println("Container is not running.")
+			rep.Message("Container is not running.")
+			return nil
+		}
+
+		if clix.DryRun {
+			if cfg.BrokerProxy {
+				rep.Message("[dry-run] Would stop broker proxy")
+			}
+			rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
 			return nil
 		}
 
@@ -35,14 +43,14 @@ var stopCmd = &cobra.Command{
 		if cfg.BrokerProxy {
 			pidPath := filepath.Join(root, "broker-proxy.pid")
 			broker.StopByPIDFile(pidPath)
-			fmt.Println("Broker proxy stopped.")
+			rep.Message("Broker proxy stopped.")
 		}
 
-		fmt.Println("Stopping container...")
+		rep.Message("Stopping container...")
 		if err := nspawn.Stop(r, cfg.MachineName); err != nil {
 			return err
 		}
-		fmt.Println("Container stopped.")
+		rep.Message("Container stopped.")
 		return nil
 	},
 }
