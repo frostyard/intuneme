@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -32,8 +33,8 @@ var startCmd = &cobra.Command{
 		}
 
 		if nspawn.IsRunning(r, cfg.MachineName) {
-			fmt.Printf("Container %s is already running.\n", cfg.MachineName)
-			fmt.Println("Use 'intuneme shell' to connect.")
+			rep.Message("Container %s is already running.", cfg.MachineName)
+			rep.Message("Use 'intuneme shell' to connect.")
 			return nil
 		}
 
@@ -45,13 +46,13 @@ var startCmd = &cobra.Command{
 		videoDev := nspawn.DetectVideoDevices()
 		if len(videoDev) > 0 {
 			for _, d := range videoDev {
-				if d.Name != "" {
-					fmt.Printf("Detected webcam: %s (%s)\n", d.Mount.Host, d.Name)
+				if d.Name != "" && clix.Verbose {
+					rep.Message("Detected webcam: %s (%s)", d.Mount.Host, d.Name)
 				}
 				sockets = append(sockets, d.Mount)
 			}
-		} else {
-			fmt.Println("No webcams detected")
+		} else if clix.Verbose {
+			rep.Message("No webcams detected")
 		}
 
 		// When broker proxy is enabled, bind-mount a host directory to
@@ -66,17 +67,25 @@ var startCmd = &cobra.Command{
 			sockets = append(sockets, nspawn.BindMount{Host: hostDir, Container: containerDir})
 		}
 
-		fmt.Println("Checking sudo credentials...")
+		if clix.DryRun {
+			rep.Message("[dry-run] Would boot container %s", cfg.MachineName)
+			if cfg.BrokerProxy {
+				rep.Message("[dry-run] Would enable linger and start broker proxy")
+			}
+			return nil
+		}
+
+		rep.Message("Checking sudo credentials...")
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
 
-		fmt.Println("Booting container...")
+		rep.Message("Booting container...")
 		if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets); err != nil {
 			return fmt.Errorf("failed to start container: %w", err)
 		}
 
-		fmt.Println("Waiting for container to boot...")
+		rep.Message("Waiting for container to boot...")
 		for range 30 {
 			if nspawn.IsRunning(r, cfg.MachineName) {
 				break
@@ -89,17 +98,19 @@ var startCmd = &cobra.Command{
 		}
 
 		if cfg.BrokerProxy {
-			fmt.Println("Enabling linger for container user...")
+			rep.Message("Enabling linger for container user...")
 			if _, err := r.Run("machinectl", broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
 				return fmt.Errorf("failed to enable linger: %w", err)
 			}
 
-			fmt.Println("Creating login session...")
+			if clix.Verbose {
+				rep.Message("Creating login session...")
+			}
 			if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
 				return fmt.Errorf("failed to create login session: %w", err)
 			}
 
-			fmt.Println("Waiting for container session bus...")
+			rep.Message("Waiting for container session bus...")
 			busPath := broker.SessionBusSocketPath(root)
 			busReady := false
 			for range 30 {
@@ -113,7 +124,9 @@ var startCmd = &cobra.Command{
 				return fmt.Errorf("container session bus not available after 30 seconds")
 			}
 
-			fmt.Println("Starting broker proxy...")
+			if clix.Verbose {
+				rep.Message("Starting broker proxy...")
+			}
 			execPath, err := os.Executable()
 			if err != nil {
 				return fmt.Errorf("failed to determine executable path: %w", err)
@@ -124,12 +137,11 @@ var startCmd = &cobra.Command{
 				return fmt.Errorf("failed to start broker proxy: %w", err)
 			}
 			time.Sleep(2 * time.Second)
-			fmt.Println("Broker proxy started.")
 
-			fmt.Println("Container and broker proxy running.")
-			fmt.Println("Host apps can now use SSO via com.microsoft.identity.broker1.")
+			rep.Message("Container and broker proxy running.")
+			rep.Message("Host apps can now use SSO via com.microsoft.identity.broker1.")
 		} else {
-			fmt.Println("Container is running. Use 'intuneme shell' to connect.")
+			rep.Message("Container is running. Use 'intuneme shell' to connect.")
 		}
 
 		return nil

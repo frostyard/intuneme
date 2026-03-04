@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -29,28 +30,49 @@ var statusCmd = &cobra.Command{
 
 		// Check initialized
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
-			fmt.Println("Status: not initialized")
-			fmt.Println("Run 'intuneme init' to get started.")
+			if clix.OutputJSON(map[string]any{
+				"initialized": false,
+			}) {
+				return nil
+			}
+			rep.Message("Status: not initialized")
+			rep.Message("Run 'intuneme init' to get started.")
 			return nil
 		}
 
-		fmt.Printf("Root:    %s\n", root)
-		fmt.Printf("Rootfs:  %s\n", cfg.RootfsPath)
-		fmt.Printf("Machine: %s\n", cfg.MachineName)
-
+		containerStatus := "stopped"
 		if nspawn.IsRunning(r, cfg.MachineName) {
-			fmt.Println("Container: running")
-		} else {
-			fmt.Println("Container: stopped")
+			containerStatus = "running"
 		}
 
+		brokerStatus := ""
 		if cfg.BrokerProxy {
 			pidPath := filepath.Join(root, "broker-proxy.pid")
 			if pid, running := broker.IsRunningByPIDFile(pidPath); running {
-				fmt.Printf("Broker proxy: running (PID %d)\n", pid)
+				brokerStatus = fmt.Sprintf("running (PID %d)", pid)
 			} else {
-				fmt.Println("Broker proxy: not running")
+				brokerStatus = "not running"
 			}
+		}
+
+		if clix.OutputJSON(map[string]any{
+			"initialized":  true,
+			"root":         root,
+			"rootfs":       cfg.RootfsPath,
+			"machine":      cfg.MachineName,
+			"container":    containerStatus,
+			"broker_proxy": brokerStatus,
+		}) {
+			return nil
+		}
+
+		rep.MessagePlain("Root:    %s", root)
+		rep.MessagePlain("Rootfs:  %s", cfg.RootfsPath)
+		rep.MessagePlain("Machine: %s", cfg.MachineName)
+		rep.MessagePlain("Container: %s", containerStatus)
+
+		if cfg.BrokerProxy {
+			rep.MessagePlain("Broker proxy: %s", brokerStatus)
 		}
 
 		return nil

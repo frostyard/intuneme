@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -26,16 +27,25 @@ var destroyCmd = &cobra.Command{
 			return err
 		}
 
+		if clix.DryRun {
+			if nspawn.IsRunning(r, cfg.MachineName) {
+				rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
+			}
+			rep.Message("[dry-run] Would remove %s", root)
+			rep.Message("[dry-run] Would clean Intune state from ~/Intune")
+			return nil
+		}
+
 		// Stop if running
 		if nspawn.IsRunning(r, cfg.MachineName) {
-			fmt.Println("Stopping running container...")
+			rep.Message("Stopping running container...")
 			if err := nspawn.Stop(r, cfg.MachineName); err != nil {
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
 		}
 
 		// Remove rootfs with sudo (owned by root after nspawn use)
-		fmt.Printf("Removing %s...\n", root)
+		rep.Message("Removing %s...", root)
 		out, err := r.Run("sudo", "rm", "-rf", cfg.RootfsPath)
 		if err != nil {
 			return fmt.Errorf("rm rootfs failed: %w\n%s", err, out)
@@ -57,12 +67,14 @@ var destroyCmd = &cobra.Command{
 		}
 		for _, dir := range staleStateDirs {
 			if _, err := os.Stat(dir); err == nil {
-				fmt.Printf("Cleaning %s...\n", dir)
+				if clix.Verbose {
+					rep.Message("Cleaning %s...", dir)
+				}
 				_ = os.RemoveAll(dir)
 			}
 		}
 
-		fmt.Println("Destroyed.")
+		rep.Message("Destroyed.")
 		return nil
 	},
 }

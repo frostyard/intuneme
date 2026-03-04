@@ -55,10 +55,10 @@ var brokerProxyEnableCmd = &cobra.Command{
 			return fmt.Errorf("write dbus service file: %w", err)
 		}
 
-		fmt.Println("Broker proxy enabled.")
-		fmt.Printf("D-Bus activation file installed: %s\n", svcPath)
-		fmt.Println("The proxy will start automatically on next 'intuneme start',")
-		fmt.Println("or when a host app calls the broker.")
+		rep.Message("Broker proxy enabled.")
+		rep.Message("D-Bus activation file installed: %s", svcPath)
+		rep.Message("The proxy will start automatically on next 'intuneme start',")
+		rep.Message("or when a host app calls the broker.")
 		return nil
 	},
 }
@@ -90,7 +90,7 @@ var brokerProxyDisableCmd = &cobra.Command{
 		pidPath := filepath.Join(root, "broker-proxy.pid")
 		broker.StopByPIDFile(pidPath)
 
-		fmt.Println("Broker proxy disabled.")
+		rep.Message("Broker proxy disabled.")
 		return nil
 	},
 }

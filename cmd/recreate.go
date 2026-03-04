@@ -6,6 +6,7 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -41,8 +42,16 @@ var recreateCmd = &cobra.Command{
 			return fmt.Errorf("get current user: %w", err)
 		}
 
+		if clix.DryRun {
+			rep.Message("[dry-run] Would stop container (if running)")
+			rep.Message("[dry-run] Would backup shadow entry and broker state")
+			rep.Message("[dry-run] Would remove old rootfs at %s", cfg.RootfsPath)
+			rep.Message("[dry-run] Would pull new image and re-provision")
+			return nil
+		}
+
 		// Validate sudo early
-		fmt.Println("Checking sudo credentials...")
+		rep.Message("Checking sudo credentials...")
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
@@ -52,36 +61,44 @@ var recreateCmd = &cobra.Command{
 			if cfg.BrokerProxy {
 				pidPath := filepath.Join(root, "broker-proxy.pid")
 				broker.StopByPIDFile(pidPath)
-				fmt.Println("Broker proxy stopped.")
+				rep.Message("Broker proxy stopped.")
 			}
-			fmt.Println("Stopping container...")
+			rep.Message("Stopping container...")
 			if err := nspawn.Stop(r, cfg.MachineName); err != nil {
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
-			fmt.Println("Container stopped.")
+			rep.Message("Container stopped.")
 		}
 
 		// Backup state
-		fmt.Println("Backing up shadow entry...")
+		if clix.Verbose {
+			rep.Message("Backing up shadow entry...")
+		}
 		shadowLine, err := provision.BackupShadowEntry(r, cfg.RootfsPath, u.Username)
 		if err != nil {
 			return fmt.Errorf("backup shadow entry: %w", err)
 		}
 
-		fmt.Println("Backing up device broker state...")
+		if clix.Verbose {
+			rep.Message("Backing up device broker state...")
+		}
 		brokerBackupDir, err := provision.BackupDeviceBrokerState(r, cfg.RootfsPath)
 		if err != nil {
 			return fmt.Errorf("backup device broker state: %w", err)
 		}
 		if brokerBackupDir != "" {
 			defer func() { _ = os.RemoveAll(brokerBackupDir) }()
-			fmt.Println("Device broker state backed up.")
+			if clix.Verbose {
+				rep.Message("Device broker state backed up.")
+			}
 		} else {
-			fmt.Println("No device broker state found (skipping).")
+			if clix.Verbose {
+				rep.Message("No device broker state found (skipping).")
+			}
 		}
 
 		// Remove old rootfs
-		fmt.Printf("Removing old rootfs at %s...\n", cfg.RootfsPath)
+		rep.Message("Removing old rootfs at %s...", cfg.RootfsPath)
 		out, err := r.Run("sudo", "rm", "-rf", cfg.RootfsPath)
 		if err != nil {
 			return fmt.Errorf("rm rootfs failed: %w\n%s", err, out)
@@ -94,7 +111,7 @@ var recreateCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Pulling and extracting OCI image %s (via %s)...\n", image, p.Name())
+		rep.Message("Pulling and extracting OCI image %s (via %s)...", image, p.Name())
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
@@ -107,42 +124,52 @@ var recreateCmd = &cobra.Command{
 
 		// Ensure container has a render group matching the host for GPU access
 		if renderGID, renderErr := provision.FindHostRenderGID(); renderErr == nil && renderGID >= 0 {
-			fmt.Println("Configuring GPU render group...")
+			if clix.Verbose {
+				rep.Message("Configuring GPU render group...")
+			}
 			if err := provision.EnsureRenderGroup(r, cfg.RootfsPath, renderGID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: render group setup failed: %v\n", err)
+				rep.Warning("render group setup failed: %v", err)
 			}
 		}
 
-		fmt.Println("Creating container user...")
+		rep.Message("Creating container user...")
 		if err := provision.CreateContainerUser(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid()); err != nil {
 			return err
 		}
 
-		fmt.Println("Applying fixups...")
+		if clix.Verbose {
+			rep.Message("Applying fixups...")
+		}
 		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
 			return err
 		}
 
 		// Restore state
-		fmt.Println("Restoring shadow entry...")
+		if clix.Verbose {
+			rep.Message("Restoring shadow entry...")
+		}
 		if err := provision.RestoreShadowEntry(r, cfg.RootfsPath, shadowLine); err != nil {
 			return fmt.Errorf("restore shadow entry: %w", err)
 		}
 
 		if brokerBackupDir != "" {
-			fmt.Println("Restoring device broker state...")
+			if clix.Verbose {
+				rep.Message("Restoring device broker state...")
+			}
 			if err := provision.RestoreDeviceBrokerState(r, cfg.RootfsPath, brokerBackupDir); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: restore device broker state failed: %v\n", err)
+				rep.Warning("restore device broker state failed: %v", err)
 			}
 		}
 
 		// Install polkit rules
-		fmt.Println("Installing polkit rules...")
+		if clix.Verbose {
+			rep.Message("Installing polkit rules...")
+		}
 		if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: polkit install failed: %v\n", err)
+			rep.Warning("polkit install failed: %v", err)
 		}
 
-		fmt.Println("Container recreated. Run 'intuneme start' to boot.")
+		rep.Message("Container recreated. Run 'intuneme start' to boot.")
 		return nil
 	},
 }
