@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/prereq"
 	"github.com/frostyard/intuneme/internal/provision"
@@ -34,7 +35,7 @@ var initCmd = &cobra.Command{
 		// Check prerequisites
 		if errs := prereq.Check(r); len(errs) > 0 {
 			for _, e := range errs {
-				fmt.Fprintln(os.Stderr, "  -", e)
+				rep.Warning("  - %s", e)
 			}
 			return fmt.Errorf("missing prerequisites")
 		}
@@ -51,6 +52,15 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
+		// Load config for dry-run reporting.
+		cfg, _ := config.Load(root)
+
+		if clix.DryRun {
+			rep.Message("[dry-run] Would pull OCI image and create container at %s", cfg.RootfsPath)
+			rep.Message("[dry-run] Would create container user %s", u.Username)
+			return nil
+		}
+
 		// Create ~/Intune directory
 		home, _ := os.UserHomeDir()
 		intuneHome := filepath.Join(home, "Intune")
@@ -59,7 +69,6 @@ var initCmd = &cobra.Command{
 		}
 
 		// Check if already initialized
-		cfg, _ := config.Load(root)
 		if _, err := os.Stat(cfg.RootfsPath); err == nil && !forceInit {
 			return fmt.Errorf("already initialized at %s — use --force to reinitialize", root)
 		}
@@ -71,7 +80,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Printf("Pulling and extracting OCI image %s (via %s)...\n", image, p.Name())
+		rep.Message("Pulling and extracting OCI image %s (via %s)...", image, p.Name())
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
@@ -83,47 +92,57 @@ var initCmd = &cobra.Command{
 
 		// Ensure container has a render group matching the host for GPU access
 		if renderGID, renderErr := provision.FindHostRenderGID(); renderErr == nil && renderGID >= 0 {
-			fmt.Println("Configuring GPU render group...")
+			if clix.Verbose {
+				rep.Message("Configuring GPU render group...")
+			}
 			if err := provision.EnsureRenderGroup(r, cfg.RootfsPath, renderGID); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: render group setup failed: %v\n", err)
+				rep.Warning("render group setup failed: %v", err)
 			}
 		}
 
-		fmt.Println("Creating container user...")
+		rep.Message("Creating container user...")
 		if err := provision.CreateContainerUser(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid()); err != nil {
 			return err
 		}
 
-		fmt.Println("Setting container user password...")
+		rep.Message("Setting container user password...")
 		if err := provision.SetContainerPassword(r, cfg.RootfsPath, u.Username, password); err != nil {
 			return fmt.Errorf("set password failed: %w", err)
 		}
 
-		fmt.Println("Applying fixups...")
+		if clix.Verbose {
+			rep.Message("Applying fixups...")
+		}
 		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
 			return err
 		}
 
-		fmt.Println("Installing polkit rules...")
+		if clix.Verbose {
+			rep.Message("Installing polkit rules...")
+		}
 		if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: polkit install failed: %v\n", err)
+			rep.Warning("polkit install failed: %v", err)
 		}
 
 		if provision.SELinuxEnabled() {
-			fmt.Println("Applying SELinux policy (required for machinectl shell on SELinux systems)...")
+			if clix.Verbose {
+				rep.Message("Applying SELinux policy (required for machinectl shell on SELinux systems)...")
+			}
 			if err := provision.InstallSELinuxPolicy(r, cfg.RootfsPath); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: SELinux policy setup failed: %v\n", err)
+				rep.Warning("SELinux policy setup failed: %v", err)
 			}
 		}
 
-		fmt.Println("Saving config...")
+		if clix.Verbose {
+			rep.Message("Saving config...")
+		}
 		cfg.HostUID = os.Getuid()
 		cfg.HostUser = u.Username
 		if err := cfg.Save(root); err != nil {
 			return err
 		}
 
-		fmt.Printf("Initialized intuneme at %s\n", root)
+		rep.Message("Initialized intuneme at %s", root)
 		return nil
 	},
 }
@@ -205,7 +224,7 @@ func readPassword(username, passwordFile string) (string, error) {
 		}
 
 		if string(p1) != string(p2) {
-			fmt.Fprintln(os.Stderr, "Passwords do not match, please try again.")
+			rep.Warning("Passwords do not match, please try again.")
 			continue
 		}
 
