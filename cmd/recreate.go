@@ -42,18 +42,18 @@ var recreateCmd = &cobra.Command{
 			return fmt.Errorf("get current user: %w", err)
 		}
 
-		// Validate sudo early
-		rep.Message("Checking sudo credentials...")
-		if err := nspawn.ValidateSudo(r); err != nil {
-			return fmt.Errorf("sudo authentication failed: %w", err)
-		}
-
 		if clix.DryRun {
 			rep.Message("[dry-run] Would stop container (if running)")
 			rep.Message("[dry-run] Would backup shadow entry and broker state")
 			rep.Message("[dry-run] Would remove old rootfs at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would pull new image and re-provision")
 			return nil
+		}
+
+		// Validate sudo early
+		rep.Message("Checking sudo credentials...")
+		if err := nspawn.ValidateSudo(r); err != nil {
+			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
 
 		// Stop container if running
