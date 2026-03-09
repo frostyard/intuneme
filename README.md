@@ -1,4 +1,5 @@
 # intuneme
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/frostyard/intuneme/badge)](https://scorecard.dev/viewer/?uri=github.com/frostyard/intuneme)
 
 Run Microsoft Intune on an immutable Linux host.
 
