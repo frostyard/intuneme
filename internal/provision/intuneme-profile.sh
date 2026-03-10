@@ -3,8 +3,13 @@
 # Sets display/audio environment, imports into systemd user session,
 # and initializes gnome-keyring on first login after boot.
 
-# Display environment
-export DISPLAY=:0
+# Display environment — read host display from marker written by intuneme start
+if [ -f /etc/intuneme-host-display ]; then
+    . /etc/intuneme-host-display
+    export DISPLAY
+else
+    export DISPLAY=:0
+fi
 export NO_AT_BRIDGE=1
 export GTK_A11Y=none
 export PATH="/opt/microsoft/intune/bin:/opt/microsoft/microsoft-azurevpnclient:$PATH"

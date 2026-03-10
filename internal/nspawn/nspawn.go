@@ -47,6 +47,41 @@ func findXAuthority(uid int) string {
 	return ""
 }
 
+// displayMarkerPath is the container-side path where the host DISPLAY value is stored.
+// Written by the CLI before boot; read by intuneme-profile.sh and the broker service.
+const displayMarkerPath = "etc/intuneme-host-display"
+
+// HostDisplay returns the host's DISPLAY value, falling back to ":0".
+// It validates that the corresponding X11 socket exists.
+func HostDisplay() string {
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		return ":0"
+	}
+
+	// Validate the X11 socket exists (display ":N" -> /tmp/.X11-unix/XN)
+	if num, ok := strings.CutPrefix(display, ":"); ok {
+		// Strip screen number if present (e.g., ":1.0" -> "1")
+		if idx := strings.IndexByte(num, '.'); idx >= 0 {
+			num = num[:idx]
+		}
+		socket := filepath.Join("/tmp/.X11-unix", "X"+num)
+		if _, err := os.Stat(socket); err != nil {
+			return ":0"
+		}
+	}
+
+	return display
+}
+
+// WriteDisplayMarker writes the host DISPLAY value into the container rootfs
+// so that container scripts and services can read it.
+func WriteDisplayMarker(rootfs, display string) error {
+	path := filepath.Join(rootfs, displayMarkerPath)
+	content := fmt.Sprintf("DISPLAY=%s\n", display)
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
 // DetectHostSockets checks which optional host sockets/files exist and returns
 // bind mount pairs for them.
 func DetectHostSockets(uid int) []BindMount {
@@ -163,8 +198,9 @@ func Exec(r runner.Runner, machine, user string, uid int, command string) error 
 		return err
 	}
 	uidStr := fmt.Sprintf("%d", uid)
+	display := HostDisplay()
 	script := fmt.Sprintf(
-		`export DISPLAY=:0
+		`export DISPLAY=%s
 export XAUTHORITY=/run/host-xauthority
 export WAYLAND_DISPLAY=/run/host-wayland
 export PIPEWIRE_REMOTE=/run/host-pipewire
@@ -172,7 +208,7 @@ export PULSE_SERVER=unix:/run/host-pulse
 export XDG_RUNTIME_DIR=/run/user/%s
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
 nohup %s >/dev/null 2>&1 &`,
-		uidStr, uidStr, command,
+		display, uidStr, uidStr, command,
 	)
 	nsenterArgs := []string{
 		"nsenter",
