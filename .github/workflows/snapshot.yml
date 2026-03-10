@@ -9,12 +9,13 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Only run if the Tests workflow succeeded
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
