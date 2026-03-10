@@ -1,6 +1,8 @@
 package nspawn
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -77,6 +79,42 @@ func TestDetectVideoDevices_ReturnsBindMounts(t *testing.T) {
 		if d.Mount.Host == "" {
 			t.Error("empty host path in video device mount")
 		}
+	}
+}
+
+func TestHostDisplay_UsesEnv(t *testing.T) {
+	// Test: unset DISPLAY falls back to :0
+	t.Setenv("DISPLAY", "")
+	if got := HostDisplay(); got != ":0" {
+		t.Errorf("HostDisplay() with empty DISPLAY = %q, want %q", got, ":0")
+	}
+}
+
+func TestHostDisplay_FallbackWhenSocketMissing(t *testing.T) {
+	// Set DISPLAY to a value whose socket doesn't exist
+	t.Setenv("DISPLAY", ":99")
+	if got := HostDisplay(); got != ":0" {
+		t.Errorf("HostDisplay() with missing socket = %q, want %q", got, ":0")
+	}
+}
+
+func TestWriteDisplayMarker(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "etc"), 0755); err != nil {
+		t.Fatalf("create etc dir: %v", err)
+	}
+
+	if err := WriteDisplayMarker(tmpDir, ":1"); err != nil {
+		t.Fatalf("WriteDisplayMarker failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, displayMarkerPath))
+	if err != nil {
+		t.Fatalf("reading marker: %v", err)
+	}
+	want := "DISPLAY=:1\n"
+	if string(data) != want {
+		t.Errorf("marker content = %q, want %q", string(data), want)
 	}
 }
 

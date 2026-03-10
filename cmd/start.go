@@ -80,6 +80,11 @@ var startCmd = &cobra.Command{
 			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
 
+		display := nspawn.HostDisplay()
+		if err := nspawn.WriteDisplayMarker(cfg.RootfsPath, display); err != nil {
+			return fmt.Errorf("write display marker: %w", err)
+		}
+
 		rep.Message("Booting container...")
 		if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets); err != nil {
 			return fmt.Errorf("failed to start container: %w", err)
