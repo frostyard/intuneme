@@ -98,7 +98,7 @@ func TestPodmanPullAndExtract(t *testing.T) {
 	// Expected commands:
 	// 1. podman rm intuneme-extract (cleanup)
 	// 2. podman pull <image>
-	// 3. podman create --name intuneme-extract <image>
+	// 3. podman create --name intuneme-extract <image> /bin/true
 	// 4. podman export -o <tmp> intuneme-extract
 	// 5. sudo tar -xf <tmp> -C <rootfs>
 	// 6. podman rm intuneme-extract
@@ -108,8 +108,8 @@ func TestPodmanPullAndExtract(t *testing.T) {
 	if !strings.Contains(r.commands[1], "podman pull") {
 		t.Errorf("cmd[1]: expected podman pull, got: %s", r.commands[1])
 	}
-	if !strings.Contains(r.commands[2], "podman create") {
-		t.Errorf("cmd[2]: expected podman create, got: %s", r.commands[2])
+	if !strings.Contains(r.commands[2], "podman create") || !strings.Contains(r.commands[2], "/bin/true") {
+		t.Errorf("cmd[2]: expected podman create with /bin/true, got: %s", r.commands[2])
 	}
 	if !strings.Contains(r.commands[3], "podman export") {
 		t.Errorf("cmd[3]: expected podman export, got: %s", r.commands[3])
@@ -162,7 +162,7 @@ func TestDockerPullAndExtract(t *testing.T) {
 	// Expected commands:
 	// 1. docker rm intuneme-extract (cleanup)
 	// 2. docker pull <image>
-	// 3. docker create --name intuneme-extract <image>
+	// 3. docker create --name intuneme-extract <image> /bin/true
 	// 4. docker export -o <tmp> intuneme-extract
 	// 5. sudo tar -xf <tmp> -C <rootfs>
 	// 6. docker rm intuneme-extract
@@ -172,8 +172,8 @@ func TestDockerPullAndExtract(t *testing.T) {
 	if !strings.Contains(r.commands[1], "docker pull") {
 		t.Errorf("cmd[1]: expected docker pull, got: %s", r.commands[1])
 	}
-	if !strings.Contains(r.commands[2], "docker create") {
-		t.Errorf("cmd[2]: expected docker create, got: %s", r.commands[2])
+	if !strings.Contains(r.commands[2], "docker create") || !strings.Contains(r.commands[2], "/bin/true") {
+		t.Errorf("cmd[2]: expected docker create with /bin/true, got: %s", r.commands[2])
 	}
 	if !strings.Contains(r.commands[3], "docker export") {
 		t.Errorf("cmd[3]: expected docker export, got: %s", r.commands[3])

@@ -57,8 +57,9 @@ func (p *PodmanPuller) PullAndExtract(r runner.Runner, image string, rootfsPath 
 		return fmt.Errorf("podman pull failed: %w\n%s", err, out)
 	}
 
-	// Create a temporary container to export
-	out, err = r.Run("podman", "create", "--name", "intuneme-extract", image)
+	// Create a temporary container to export (command is required but never
+	// run — the container is only created so we can export its filesystem)
+	out, err = r.Run("podman", "create", "--name", "intuneme-extract", image, "/bin/true")
 	if err != nil {
 		return fmt.Errorf("podman create failed: %w\n%s", err, out)
 	}
@@ -130,8 +131,9 @@ func (p *DockerPuller) PullAndExtract(r runner.Runner, image string, rootfsPath 
 		return fmt.Errorf("docker pull failed: %w\n%s", err, out)
 	}
 
-	// Create a temporary container to export
-	out, err = r.Run("docker", "create", "--name", "intuneme-extract", image)
+	// Create a temporary container to export (command is required but never
+	// run — the container is only created so we can export its filesystem)
+	out, err = r.Run("docker", "create", "--name", "intuneme-extract", image, "/bin/true")
 	if err != nil {
 		return fmt.Errorf("docker create failed: %w\n%s", err, out)
 	}
