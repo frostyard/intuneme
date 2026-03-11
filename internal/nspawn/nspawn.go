@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
+
+// validDisplay matches X11 display formats: ":N" or ":N.S" or "host:N" or "host:N.S"
+var validDisplay = regexp.MustCompile(`^[a-zA-Z0-9._-]*:[0-9]+(\.[0-9]+)?$`)
 
 // BindMount represents a host:container bind mount pair.
 type BindMount struct {
@@ -78,6 +82,10 @@ func HostDisplay() string {
 // so that container scripts and services can read it.
 // Uses sudo install because the rootfs /etc/ is owned by root.
 func WriteDisplayMarker(r runner.Runner, rootfs, display string) error {
+	if !validDisplay.MatchString(display) {
+		return fmt.Errorf("invalid display value: %q", display)
+	}
+
 	tmp, err := os.CreateTemp("", "intuneme-display-*")
 	if err != nil {
 		return err

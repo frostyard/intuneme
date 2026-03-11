@@ -1,17 +1,27 @@
 package nspawn
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
 type mockRunner struct {
-	commands []string
+	commands    []string
+	fileContent string // captured from the source file in the last "install" command
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	// Capture the temp file content before WriteDisplayMarker deletes it.
+	// sudo install <flags> <src> <dst> — src is the second-to-last arg.
+	if name == "sudo" && len(args) >= 4 && args[0] == "install" {
+		src := args[len(args)-2]
+		if data, err := os.ReadFile(src); err == nil {
+			m.fileContent = string(data)
+		}
+	}
 	return nil, nil
 }
 
@@ -139,6 +149,28 @@ func TestWriteDisplayMarker(t *testing.T) {
 	}
 	if !strings.HasSuffix(cmd, wantSuffix) {
 		t.Errorf("command should target %s, got: %s", wantSuffix, cmd)
+	}
+
+	// Verify the temp file contained the correct marker content
+	wantContent := "DISPLAY=:1\n"
+	if r.fileContent != wantContent {
+		t.Errorf("marker content = %q, want %q", r.fileContent, wantContent)
+	}
+}
+
+func TestWriteDisplayMarker_InvalidDisplay(t *testing.T) {
+	r := &mockRunner{}
+	tests := []string{
+		"; rm -rf /",
+		"$(whoami)",
+		":1\nMALICIOUS=true",
+		"`id`",
+		"",
+	}
+	for _, display := range tests {
+		if err := WriteDisplayMarker(r, t.TempDir(), display); err == nil {
+			t.Errorf("expected error for display %q, got nil", display)
+		}
 	}
 }
 
