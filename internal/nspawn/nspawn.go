@@ -4,10 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
+
+// validDisplay matches X11 display formats: ":N" or ":N.S" or "host:N" or "host:N.S"
+var validDisplay = regexp.MustCompile(`^[a-zA-Z0-9._-]*:[0-9]+(\.[0-9]+)?$`)
 
 // BindMount represents a host:container bind mount pair.
 type BindMount struct {
@@ -76,10 +80,28 @@ func HostDisplay() string {
 
 // WriteDisplayMarker writes the host DISPLAY value into the container rootfs
 // so that container scripts and services can read it.
-func WriteDisplayMarker(rootfs, display string) error {
-	path := filepath.Join(rootfs, displayMarkerPath)
+// Uses sudo install because the rootfs /etc/ is owned by root.
+func WriteDisplayMarker(r runner.Runner, rootfs, display string) error {
+	if !validDisplay.MatchString(display) {
+		return fmt.Errorf("invalid display value: %q", display)
+	}
+
+	tmp, err := os.CreateTemp("", "intuneme-display-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+
 	content := fmt.Sprintf("DISPLAY=%s\n", display)
-	return os.WriteFile(path, []byte(content), 0644)
+	if _, err := tmp.Write([]byte(content)); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	_ = tmp.Close()
+
+	path := filepath.Join(rootfs, displayMarkerPath)
+	_, err = r.Run("sudo", "install", "-m", "0644", tmp.Name(), path)
+	return err
 }
 
 // DetectHostSockets checks which optional host sockets/files exist and returns

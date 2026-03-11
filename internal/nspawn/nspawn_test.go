@@ -7,6 +7,38 @@ import (
 	"testing"
 )
 
+type mockRunner struct {
+	commands    []string
+	fileContent string // captured from the source file in the last "install" command
+}
+
+func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
+	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	// Capture the temp file content before WriteDisplayMarker deletes it.
+	// sudo install <flags> <src> <dst> — src is the second-to-last arg.
+	if name == "sudo" && len(args) >= 4 && args[0] == "install" {
+		src := args[len(args)-2]
+		if data, err := os.ReadFile(src); err == nil {
+			m.fileContent = string(data)
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockRunner) RunAttached(name string, args ...string) error {
+	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func (m *mockRunner) RunBackground(name string, args ...string) error {
+	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func (m *mockRunner) LookPath(name string) (string, error) {
+	return "/usr/bin/" + name, nil
+}
+
 func TestBuildBootArgs(t *testing.T) {
 	sockets := []BindMount{
 		{"/run/user/1000/wayland-0", "/run/host-wayland"},
@@ -100,21 +132,45 @@ func TestHostDisplay_FallbackWhenSocketMissing(t *testing.T) {
 
 func TestWriteDisplayMarker(t *testing.T) {
 	tmpDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(tmpDir, "etc"), 0755); err != nil {
-		t.Fatalf("create etc dir: %v", err)
-	}
 
-	if err := WriteDisplayMarker(tmpDir, ":1"); err != nil {
+	r := &mockRunner{}
+	if err := WriteDisplayMarker(r, tmpDir, ":1"); err != nil {
 		t.Fatalf("WriteDisplayMarker failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, displayMarkerPath))
-	if err != nil {
-		t.Fatalf("reading marker: %v", err)
+	// Verify sudo install was called targeting the correct path
+	if len(r.commands) != 1 {
+		t.Fatalf("expected 1 command, got %d: %v", len(r.commands), r.commands)
 	}
-	want := "DISPLAY=:1\n"
-	if string(data) != want {
-		t.Errorf("marker content = %q, want %q", string(data), want)
+	cmd := r.commands[0]
+	wantSuffix := filepath.Join(tmpDir, "etc", "intuneme-host-display")
+	if !strings.Contains(cmd, "sudo install -m 0644") {
+		t.Errorf("expected sudo install command, got: %s", cmd)
+	}
+	if !strings.HasSuffix(cmd, wantSuffix) {
+		t.Errorf("command should target %s, got: %s", wantSuffix, cmd)
+	}
+
+	// Verify the temp file contained the correct marker content
+	wantContent := "DISPLAY=:1\n"
+	if r.fileContent != wantContent {
+		t.Errorf("marker content = %q, want %q", r.fileContent, wantContent)
+	}
+}
+
+func TestWriteDisplayMarker_InvalidDisplay(t *testing.T) {
+	r := &mockRunner{}
+	tests := []string{
+		"; rm -rf /",
+		"$(whoami)",
+		":1\nMALICIOUS=true",
+		"`id`",
+		"",
+	}
+	for _, display := range tests {
+		if err := WriteDisplayMarker(r, t.TempDir(), display); err == nil {
+			t.Errorf("expected error for display %q, got nil", display)
+		}
 	}
 }
 

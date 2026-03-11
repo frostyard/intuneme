@@ -81,7 +81,7 @@ var startCmd = &cobra.Command{
 		}
 
 		display := nspawn.HostDisplay()
-		if err := nspawn.WriteDisplayMarker(cfg.RootfsPath, display); err != nil {
+		if err := nspawn.WriteDisplayMarker(r, cfg.RootfsPath, display); err != nil {
 			return fmt.Errorf("write display marker: %w", err)
 		}
 
