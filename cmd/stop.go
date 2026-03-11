@@ -54,7 +54,8 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 		time.Sleep(pollInterval)
 	}
 
-	return fmt.Errorf("container did not stop within 30 seconds")
+	timeout := pollInterval * time.Duration(maxAttempts)
+	return fmt.Errorf("container %s did not stop within %s", cfg.MachineName, timeout)
 }
 
 var stopCmd = &cobra.Command{

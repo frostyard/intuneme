@@ -93,4 +93,8 @@ func TestRunStop_Timeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "did not stop") {
 		t.Errorf("expected timeout message, got: %v", err)
 	}
+	// Effective timeout = 1ms * 5 = 5ms; verify it appears in the error
+	if !strings.Contains(err.Error(), "5ms") {
+		t.Errorf("expected computed timeout in error message, got: %v", err)
+	}
 }
