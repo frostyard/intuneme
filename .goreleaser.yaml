@@ -126,6 +126,28 @@ release:
 
     ---
 
+    ## Verifying artifacts
+
+    ### Cosign
+
+    ```bash
+    cosign verify-blob --bundle <artifact>.sigstore <artifact>
+    ```
+
+    ### GitHub attestation
+
+    ```bash
+    gh attestation verify <artifact> -o frostyard
+    ```
+
+    ### Container image
+
+    ```bash
+    cosign verify --key ubuntu-intune/cosign.pub ghcr.io/frostyard/ubuntu-intune:latest
+    ```
+
+    ---
+
     _Released with [GoReleaser Pro](https://goreleaser.com/pro)!_
 
 nightly:
