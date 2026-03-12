@@ -68,7 +68,7 @@ signs:
       - "--bundle=${signature}"
       - "${artifact}"
       - "--yes"
-    artifacts: checksum
+    artifacts: all
 
 changelog:
   sort: asc
