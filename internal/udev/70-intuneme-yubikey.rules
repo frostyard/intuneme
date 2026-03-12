@@ -1,0 +1,11 @@
+# intuneme: forward Yubico USB security keys to systemd-nspawn container.
+# Matches vendor ID 1050 (Yubico) on any USB port.
+# Managed by intuneme — do not edit manually.
+
+# USB device nodes (/dev/bus/usb/BBB/DDD)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1050", RUN+="/usr/local/lib/intuneme/usb-hotplug add %E{DEVNAME}"
+ACTION=="remove", SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="1050", ENV{DEVNAME}=="/dev/bus/usb/*", RUN+="/usr/local/lib/intuneme/usb-hotplug remove %E{DEVNAME}"
+
+# HID raw interfaces (/dev/hidraw*) — for FIDO2/U2F
+ACTION=="add", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1050", RUN+="/usr/local/lib/intuneme/usb-hotplug add /dev/%k"
+ACTION=="remove", SUBSYSTEM=="hidraw", ENV{ID_VENDOR_ID}=="1050", RUN+="/usr/local/lib/intuneme/usb-hotplug remove /dev/%k"
