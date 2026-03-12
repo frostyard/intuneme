@@ -62,7 +62,7 @@ checksum:
 
 signs:
   - cmd: cosign
-    signature: "${artifact}.sigstore.json"
+    signature: "${artifact}.sigstore"
     args:
       - "sign-blob"
       - "--bundle=${signature}"
