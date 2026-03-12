@@ -20,6 +20,8 @@ Xauthority file ────────bind──→  /run/host-xauthority
 /dev/dri ───────────────bind──→  /dev/dri
 /dev/video* ────────────bind──→  /dev/video*  (if present)
 /dev/media* ────────────bind──→  /dev/media*  (if present)
+/dev/bus/usb/* ──────nsenter──→  /dev/bus/usb/*  (YubiKey hotplug)
+/dev/hidraw* ────────nsenter──→  /dev/hidraw*    (YubiKey hotplug)
 
 intuneme CLI                      systemd (PID 1)
   └─ broker-proxy (opt-in) ─D-Bus─→ ├─ microsoft-identity-broker
@@ -48,6 +50,29 @@ intuneme stop && intuneme start
 ```
 
 When enabled, `intuneme start` also creates a login session inside the container (for gnome-keyring and the broker's user services) and `intuneme status` shows the proxy state.
+
+## YubiKey passthrough
+
+YubiKey USB security keys are automatically forwarded into the container. When you run `intuneme start`, udev rules are installed on the host that detect Yubico devices (vendor ID `1050`) and forward them into the running container via `nsenter`. This works regardless of which physical USB port the key is plugged into.
+
+- **Hot-plug**: Plugging in a YubiKey while the container is running automatically forwards it.
+- **Hot-unplug**: Removing the key cleans up the device node inside the container.
+- **Already-plugged keys**: Keys plugged in before `intuneme start` are detected and forwarded at boot.
+- **Automatic lifecycle**: Rules are installed on `intuneme start` and removed on `intuneme stop`.
+
+For manual control (e.g., cleaning up stray rules after a crash):
+
+```bash
+# Install rules without starting the container
+intuneme udev install
+
+# Remove rules without stopping the container
+intuneme udev remove
+```
+
+Both commands are idempotent and graceful — `udev remove` succeeds even if no rules are installed.
+
+To check forwarding logs: `journalctl -t intuneme-usb`.
 
 ## Prerequisites
 
@@ -136,6 +161,8 @@ bash scripts/install-desktop-items.sh --uninstall
 | `intuneme open portal` | Launch Intune Portal inside the container |
 | `intuneme stop` | Shut down the container |
 | `intuneme status` | Show whether the container is initialized and running |
+| `intuneme udev install` | Install udev rules for YubiKey forwarding (normally automatic) |
+| `intuneme udev remove` | Remove udev rules (graceful, safe to run anytime) |
 | `intuneme recreate` | Upgrade the container image, preserving enrollment state |
 | `intuneme destroy` | Stop the container, remove the rootfs, clean enrollment state |
 | `intuneme config broker-proxy enable` | Enable the host-side broker proxy for SSO |
@@ -232,6 +259,9 @@ Check that PipeWire is forwarded. The host needs a PipeWire socket at `/run/user
 
 **Webcam not available in Teams/Edge**
 Video devices are detected at `intuneme start` and are not hot-plugged. If you connect a USB webcam after the container is already running, restart it with `intuneme stop && intuneme start` to pick up the new device.
+
+**YubiKey not detected inside the container**
+Check that udev rules are installed: `ls /etc/udev/rules.d/70-intuneme-yubikey.rules`. If missing, run `intuneme udev install`. Check forwarding logs with `journalctl -t intuneme-usb`. Verify the key is detected on the host with `lsusb | grep Yubico`.
 
 ## How it differs from mkosi-intune
 

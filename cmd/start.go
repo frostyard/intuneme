@@ -10,6 +10,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/udev"
 	"github.com/spf13/cobra"
 )
 
@@ -100,6 +101,30 @@ var startCmd = &cobra.Command{
 
 		if !nspawn.IsRunning(r, cfg.MachineName) {
 			return fmt.Errorf("container failed to start within 30 seconds")
+		}
+
+		// Install udev rules for YubiKey hotplug and forward already-plugged keys.
+		if err := udev.Install(r, cfg.MachineName); err != nil {
+			rep.Message("Warning: failed to install udev rules: %v", err)
+		} else {
+			if clix.Verbose {
+				rep.Message("Installed YubiKey udev rules.")
+			}
+			yubikeys := udev.DetectYubikeys()
+			for _, yk := range yubikeys {
+				name := yk.Name
+				if name == "" {
+					name = "Yubico device"
+				}
+				for _, devnode := range yk.Devices() {
+					if err := udev.ForwardDevice(r, cfg.MachineName, devnode); err != nil {
+						rep.Message("Warning: failed to forward %s: %v", devnode, err)
+					} else if clix.Verbose {
+						rep.Message("Forwarded %s (%s)", devnode, name)
+					}
+				}
+				rep.Message("Forwarded YubiKey: %s", name)
+			}
 		}
 
 		if cfg.BrokerProxy {

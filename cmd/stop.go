@@ -10,6 +10,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/udev"
 	"github.com/spf13/cobra"
 )
 
@@ -37,6 +38,15 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 		pidPath := filepath.Join(root, "broker-proxy.pid")
 		broker.StopByPIDFile(pidPath)
 		rep.Message("Broker proxy stopped.")
+	}
+
+	// Remove udev rules for YubiKey forwarding.
+	if udev.IsInstalled() {
+		if err := udev.Remove(r); err != nil {
+			rep.Message("Warning: failed to remove udev rules: %v", err)
+		} else if clix.Verbose {
+			rep.Message("Removed YubiKey udev rules.")
+		}
 	}
 
 	rep.Message("Stopping container...")
