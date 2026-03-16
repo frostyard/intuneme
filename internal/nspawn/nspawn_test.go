@@ -55,8 +55,13 @@ func TestBuildBootArgs(t *testing.T) {
 	if !strings.Contains(joined, "--bind=/tmp/.X11-unix") {
 		t.Errorf("missing X11 bind in: %s", joined)
 	}
-	if !strings.Contains(joined, "--bind=/dev/dri") {
-		t.Errorf("missing /dev/dri bind in: %s", joined)
+	// DRI devices are bound individually (not as a directory) so that nspawn
+	// adds them to the cgroup allow list. The exact devices depend on the
+	// host, so just verify at least one DRI bind is present if the host has DRI.
+	if _, err := os.Stat("/dev/dri/renderD128"); err == nil {
+		if !strings.Contains(joined, "--bind=/dev/dri/renderD128") {
+			t.Errorf("missing DRI renderD128 bind in: %s", joined)
+		}
 	}
 	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
 		t.Errorf("missing wayland socket bind in: %s", joined)

@@ -1,0 +1,56 @@
+#!/bin/bash
+# intuneme USB hotplug handler — forwards Yubico devices to nspawn container.
+# Managed by intuneme — do not edit manually.
+set -euo pipefail
+
+ACTION="${1:-}"
+DEVNODE="${2:-}"
+MACHINE="{{.Machine}}"
+STATE_DIR="/run/intuneme/devices"
+LOG_TAG="intuneme-usb"
+
+log() { logger -t "$LOG_TAG" "$@" 2>/dev/null || true; }
+
+[ -z "$ACTION" ] || [ -z "$DEVNODE" ] && exit 0
+
+# Check if container is running.
+LEADER=$(machinectl show "$MACHINE" -p Leader --value 2>/dev/null) || exit 0
+[ -z "$LEADER" ] || [ "$LEADER" = "0" ] && exit 0
+
+state_file() { echo "$STATE_DIR/$(echo "$1" | tr / _)"; }
+
+case "$ACTION" in
+  add)
+    [ ! -e "$DEVNODE" ] && { log "add: $DEVNODE does not exist, skipping"; exit 0; }
+
+    # Get device major:minor (hex).
+    MAJOR=$(stat -c '0x%t' "$DEVNODE" 2>/dev/null) || { log "add: cannot stat $DEVNODE"; exit 0; }
+    MINOR=$(stat -c '0x%T' "$DEVNODE" 2>/dev/null) || exit 0
+
+    # Allow the device in the container's cgroup. DevicePolicy=auto preserves
+    # the existing nspawn device policy and adds our device on top.
+    systemctl set-property "machine-${MACHINE}.scope" DevicePolicy=auto "DeviceAllow=$DEVNODE rwm" 2>/dev/null || true
+
+    # Create device node inside container.
+    nsenter -t "$LEADER" -m -- mkdir -p "$(dirname "$DEVNODE")" 2>/dev/null || true
+    nsenter -t "$LEADER" -m -- rm -f "$DEVNODE" 2>/dev/null || true
+    nsenter -t "$LEADER" -m -- mknod "$DEVNODE" c "$MAJOR" "$MINOR" 2>/dev/null || {
+      log "add: mknod failed for $DEVNODE"; exit 0
+    }
+    nsenter -t "$LEADER" -m -- chmod 0666 "$DEVNODE"
+
+    # Record forwarded device.
+    mkdir -p "$STATE_DIR"
+    echo "$DEVNODE" > "$(state_file "$DEVNODE")"
+    log "add: forwarded $DEVNODE to $MACHINE"
+    ;;
+
+  remove)
+    SF="$(state_file "$DEVNODE")"
+    [ ! -f "$SF" ] && exit 0
+
+    nsenter -t "$LEADER" -m -- rm -f "$DEVNODE" 2>/dev/null || true
+    rm -f "$SF"
+    log "remove: removed $DEVNODE from $MACHINE"
+    ;;
+esac

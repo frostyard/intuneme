@@ -176,6 +176,20 @@ func readSysfsName(devPath string) string {
 	return strings.TrimSpace(string(data))
 }
 
+// DetectDRIDevices scans for DRM card and render devices.
+// Returns individual device bind mounts instead of a directory bind so that
+// nspawn correctly adds each device to the cgroup DeviceAllow list.
+func DetectDRIDevices() []BindMount {
+	var mounts []BindMount
+	for _, pattern := range []string{"/dev/dri/card*", "/dev/dri/renderD*"} {
+		matches, _ := filepath.Glob(pattern)
+		for _, dev := range matches {
+			mounts = append(mounts, BindMount{dev, dev})
+		}
+	}
+	return mounts
+}
+
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
 func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount) []string {
 	args := []string{
@@ -183,7 +197,11 @@ func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []
 		fmt.Sprintf("--machine=%s", machine),
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
-		"--bind=/dev/dri",
+	}
+	// Bind DRI devices individually so nspawn adds them to the cgroup allow list.
+	// A directory bind (--bind=/dev/dri) does not register contained devices.
+	for _, dri := range DetectDRIDevices() {
+		args = append(args, fmt.Sprintf("--bind=%s", dri.Host))
 	}
 	for _, s := range sockets {
 		args = append(args, fmt.Sprintf("--bind=%s:%s", s.Host, s.Container))
