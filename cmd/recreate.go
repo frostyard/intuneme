@@ -17,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var insidersRecreate bool
+
 var recreateCmd = &cobra.Command{
 	Use:   "recreate",
 	Short: "Recreate the container with a fresh image, preserving enrollment state",
@@ -105,7 +107,13 @@ var recreateCmd = &cobra.Command{
 		}
 
 		// Pull new image
-		image := pkgversion.ImageRef()
+		if cmd.Flags().Changed("insiders") {
+			cfg.Insiders = insidersRecreate
+			if err := cfg.Save(root); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+		}
+		image := pkgversion.ImageRef(cfg.Insiders)
 		p, err := puller.Detect(r)
 		if err != nil {
 			return err
@@ -175,5 +183,6 @@ var recreateCmd = &cobra.Command{
 }
 
 func init() {
+	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch to the insiders channel container image")
 	rootCmd.AddCommand(recreateCmd)
 }
