@@ -1,0 +1,8 @@
+// This allows everyone within the plugdev group access to certificates on Yubikeys
+
+polkit.addRule(function(action, subject) {
+  var actions = ["org.debian.pcsc-lite.access_pcsc", "org.debian.pcsc-lite.access_card"];
+  if (actions.indexOf(action.id) !== -1 && subject.active && subject.isInGroup("plugdev")) {
+    return polkit.Result.YES;
+  }
+});
