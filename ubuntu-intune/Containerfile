@@ -8,6 +8,7 @@ COPY ubuntu-intune/system_files /
 
 # Build ubuntu-intune
 ARG DEBIAN_FRONTEND=noninteractive
+ARG CHANNEL
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache/apt \
     --mount=type=cache,dst=/var/log \

@@ -29,6 +29,12 @@ Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-By: /usr/share/keyrings/microsoft.gpg
 REPOEOF
+
+# Patch Microsoft prod repo for insiders channel
+if [ "${CHANNEL}" = "insiders" ]; then
+  sed -i 's/^Suites: noble$/Suites: noble insiders-fast/' /etc/apt/sources.list.d/microsoft.sources
+fi
+
 apt update -y
 
 # Remove no longer needed packages

@@ -22,18 +22,22 @@ env:
   IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/234627017?s=200&v=4"
   IMAGE_NAME: "ubuntu-intune"
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
-  DEFAULT_TAG: "latest"
 
 permissions: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
-  cancel-in-progress: true
 
 jobs:
   build_push:
     name: Build and push image
     runs-on: ubuntu-24.04
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.tag }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: latest
+          - tag: insiders
 
     permissions:
       attestations: write
@@ -47,6 +51,7 @@ jobs:
         run: |
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
+          echo "DEFAULT_TAG=${{ matrix.tag }}" >> ${GITHUB_ENV}
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -78,8 +83,10 @@ jobs:
           tags: |
             type=raw,value=${{ env.DEFAULT_TAG }},enable=${{ github.event_name != 'schedule' }}
             type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}},enable=${{ github.event_name != 'schedule' }}
-            type=raw,value=${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' }}
-            type=raw,value=${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' }}
+            type=raw,value=${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' && matrix.tag == 'latest' }}
+            type=raw,value=${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' && matrix.tag == 'latest' }}
+            type=raw,value=${{ matrix.tag }}-${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' && matrix.tag != 'latest' }}
+            type=raw,value=${{ matrix.tag }}-${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' && matrix.tag != 'latest' }}
             type=raw,value={{date 'YYYYMMDD'}}
             type=sha,enable=${{ github.event_name == 'pull_request' }}
             type=ref,event=pr
@@ -120,6 +127,7 @@ jobs:
           extra-args: --skip-unused-stages=false
           build-args: |
             SOURCE_DATE_EPOCH=${{ steps.epoch.outputs.epoch }}
+            CHANNEL=${{ matrix.tag }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
