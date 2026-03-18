@@ -55,12 +55,18 @@ var statusCmd = &cobra.Command{
 			}
 		}
 
+		channel := "stable"
+		if cfg.Insiders {
+			channel = "insiders"
+		}
+
 		if clix.OutputJSON(map[string]any{
 			"initialized":  true,
 			"root":         root,
 			"rootfs":       cfg.RootfsPath,
 			"machine":      cfg.MachineName,
 			"container":    containerStatus,
+			"channel":      channel,
 			"broker_proxy": brokerStatus,
 		}) {
 			return nil
@@ -70,6 +76,7 @@ var statusCmd = &cobra.Command{
 		rep.MessagePlain("Rootfs:  %s", cfg.RootfsPath)
 		rep.MessagePlain("Machine: %s", cfg.MachineName)
 		rep.MessagePlain("Container: %s", containerStatus)
+		rep.MessagePlain("Channel: %s", channel)
 
 		if cfg.BrokerProxy {
 			rep.MessagePlain("Broker proxy: %s", brokerStatus)
