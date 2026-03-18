@@ -173,12 +173,13 @@ bash scripts/install-desktop-items.sh --uninstall
 
 - `--root <path>` — Override the data directory (default: `~/.local/share/intuneme/`)
 - `--force` — Force re-initialization (with `init`)
+- `--insiders` — Use the insiders channel container image (with `init` or `recreate`)
 
 ## What `init` does
 
 1. Checks that `systemd-nspawn`, `machinectl`, and `podman` are installed
 2. Creates `~/Intune` on the host
-3. Pulls `ghcr.io/frostyard/ubuntu-intune:latest`
+3. Pulls `ghcr.io/frostyard/ubuntu-intune:latest` (or `:insiders` with `--insiders`)
 4. Extracts the rootfs into `~/.local/share/intuneme/rootfs/`
 5. Configures a `render` group matching the host for GPU access
 6. Creates a container user matching your host UID/GID
@@ -194,7 +195,7 @@ bash scripts/install-desktop-items.sh --uninstall
 ~/.local/share/intuneme/
 ├── rootfs/          # Ubuntu 24.04 rootfs with Intune + Edge
 ├── runtime/         # Bind-mounted as /run/user/<uid> in container (broker proxy)
-└── config.toml      # machine name, rootfs path, host UID, broker_proxy flag
+└── config.toml      # machine name, rootfs path, host UID, broker_proxy, insiders flags
 
 ~/Intune/            # Container user's home (persists across rebuilds)
 ├── .config/intune/  # Enrollment state
