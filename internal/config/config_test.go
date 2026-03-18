@@ -72,9 +72,57 @@ func TestLoadBrokerProxyDefault(t *testing.T) {
 	}
 }
 
+func TestLoadInsiders(t *testing.T) {
+	tmp := t.TempDir()
+	toml := "insiders = true\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte(toml), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !cfg.Insiders {
+		t.Error("Insiders should be true")
+	}
+}
+
+func TestLoadInsidersDefault(t *testing.T) {
+	tmp := t.TempDir()
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Insiders {
+		t.Error("Insiders should default to false")
+	}
+}
+
+func TestSaveRoundTripInsiders(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &Config{
+		MachineName: "intuneme",
+		RootfsPath:  filepath.Join(tmp, "rootfs"),
+		Insiders:    true,
+	}
+	if err := cfg.Save(tmp); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !loaded.Insiders {
+		t.Error("Insiders should survive Save/Load round-trip")
+	}
+}
+
 func FuzzLoad(f *testing.F) {
 	f.Add(`machine_name = "intuneme"` + "\n")
 	f.Add("broker_proxy = true\n")
+	f.Add("insiders = true\n")
 	f.Add(`machine_name = "test"` + "\n" + `rootfs_path = "/tmp/rootfs"` + "\n")
 	f.Add("")
 	f.Add("invalid toml {{{\n")

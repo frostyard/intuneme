@@ -13,6 +13,7 @@ type Config struct {
 	HostUID     int    `toml:"host_uid"`
 	HostUser    string `toml:"host_user"`
 	BrokerProxy bool   `toml:"broker_proxy"`
+	Insiders    bool   `toml:"insiders"`
 }
 
 func DefaultRoot() string {
