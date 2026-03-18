@@ -14,10 +14,15 @@ curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microso
 install -o root -g root -m 644 microsoft.gpg /usr/share/keyrings
 rm microsoft.gpg
 
+SUITE="$(lsb_release -cs)"
+if [ "${CHANNEL}" = "insiders" ]; then
+    SUITE="${SUITE} insiders-fast"
+fi
+
 tee /etc/apt/sources.list.d/microsoft.sources > /dev/null << REPOEOF
 Types: deb
 URIs: https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod
-Suites: $(lsb_release -cs)
+Suites: ${SUITE}
 Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-By: /usr/share/keyrings/microsoft.gpg
@@ -29,11 +34,6 @@ Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-By: /usr/share/keyrings/microsoft.gpg
 REPOEOF
-
-# Patch Microsoft prod repo for insiders channel
-if [ "${CHANNEL}" = "insiders" ]; then
-  sed -i 's/^Suites: noble$/Suites: noble insiders-fast/' /etc/apt/sources.list.d/microsoft.sources
-fi
 
 apt update -y
 
