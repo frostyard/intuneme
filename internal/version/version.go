@@ -11,7 +11,11 @@ var semverRe = regexp.MustCompile(`^v?(\d+\.\d+\.\d+)$`)
 
 // ImageRef returns the full OCI image reference for the container.
 // Release versions (clean semver) get a pinned tag; everything else gets latest.
-func ImageRef() string {
+// When insiders is true, the tag is always "insiders".
+func ImageRef(insiders bool) string {
+	if insiders {
+		return imageBase + ":insiders"
+	}
 	m := semverRe.FindStringSubmatch(Version)
 	if m == nil {
 		return imageBase + ":latest"

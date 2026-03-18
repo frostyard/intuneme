@@ -9,49 +9,61 @@ func TestImageRef(t *testing.T) {
 	const registry = "ghcr.io/frostyard/ubuntu-intune"
 
 	tests := []struct {
-		version string
-		want    string
+		version  string
+		insiders bool
+		want     string
 	}{
-		{"dev", registry + ":latest"},
-		{"0.4.0", registry + ":v0.4.0"},
-		{"v0.4.0", registry + ":v0.4.0"},
-		{"1.0.0", registry + ":v1.0.0"},
-		{"v1.0.0", registry + ":v1.0.0"},
-		{"v0.4.0-2-g98e23e6", registry + ":latest"},
-		{"v0.4.0-dirty", registry + ":latest"},
-		{"none", registry + ":latest"},
-		{"", registry + ":latest"},
-		{"v0.4.0-rc1", registry + ":latest"},
-		{"0.4.0-beta.1", registry + ":latest"},
+		{"dev", false, registry + ":latest"},
+		{"0.4.0", false, registry + ":v0.4.0"},
+		{"v0.4.0", false, registry + ":v0.4.0"},
+		{"1.0.0", false, registry + ":v1.0.0"},
+		{"v1.0.0", false, registry + ":v1.0.0"},
+		{"v0.4.0-2-g98e23e6", false, registry + ":latest"},
+		{"v0.4.0-dirty", false, registry + ":latest"},
+		{"none", false, registry + ":latest"},
+		{"", false, registry + ":latest"},
+		{"v0.4.0-rc1", false, registry + ":latest"},
+		{"0.4.0-beta.1", false, registry + ":latest"},
+		// Insiders always returns :insiders regardless of version.
+		{"dev", true, registry + ":insiders"},
+		{"0.4.0", true, registry + ":insiders"},
+		{"v0.4.0", true, registry + ":insiders"},
+		{"v0.4.0-2-g98e23e6", true, registry + ":insiders"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.version, func(t *testing.T) {
+		name := tt.version
+		if tt.insiders {
+			name += "/insiders"
+		}
+		t.Run(name, func(t *testing.T) {
 			Version = tt.version
-			got := ImageRef()
+			got := ImageRef(tt.insiders)
 			if got != tt.want {
-				t.Errorf("ImageRef() = %q, want %q", got, tt.want)
+				t.Errorf("ImageRef(%v) = %q, want %q", tt.insiders, got, tt.want)
 			}
 		})
 	}
 }
 
 func FuzzImageRef(f *testing.F) {
-	f.Add("dev")
-	f.Add("v0.4.0")
-	f.Add("0.4.0")
-	f.Add("v0.4.0-2-g98e23e6")
-	f.Add("v0.4.0-dirty")
-	f.Add("")
-	f.Add("v0.4.0-rc1")
-	f.Add("999.999.999")
+	f.Add("dev", false)
+	f.Add("v0.4.0", false)
+	f.Add("0.4.0", false)
+	f.Add("v0.4.0-2-g98e23e6", false)
+	f.Add("v0.4.0-dirty", false)
+	f.Add("", false)
+	f.Add("v0.4.0-rc1", false)
+	f.Add("999.999.999", false)
+	f.Add("dev", true)
+	f.Add("v0.4.0", true)
 
-	f.Fuzz(func(t *testing.T, version string) {
+	f.Fuzz(func(t *testing.T, version string, insiders bool) {
 		Version = version
-		ref := ImageRef()
+		ref := ImageRef(insiders)
 		// Must always return a valid image reference starting with the base.
 		if !strings.HasPrefix(ref, "ghcr.io/frostyard/ubuntu-intune:") {
-			t.Errorf("ImageRef() = %q, missing expected prefix", ref)
+			t.Errorf("ImageRef(%v) = %q, missing expected prefix", insiders, ref)
 		}
 	})
 }
