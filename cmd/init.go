@@ -15,6 +15,7 @@ import (
 	"github.com/frostyard/intuneme/internal/provision"
 	"github.com/frostyard/intuneme/internal/puller"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudoers"
 	pkgversion "github.com/frostyard/intuneme/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -124,6 +125,13 @@ var initCmd = &cobra.Command{
 		}
 		if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
 			rep.Warning("polkit install failed: %v", err)
+		}
+
+		if clix.Verbose {
+			rep.Message("Installing sudoers rule for passwordless app launch...")
+		}
+		if err := sudoers.Install(r, u.Username); err != nil {
+			rep.Warning("sudoers install failed: %v", err)
 		}
 
 		if provision.SELinuxEnabled() {

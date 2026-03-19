@@ -20,7 +20,7 @@ The repository has two main components:
 - **systemd-run --machine** — requires root (direct bus transport), bypasses polkit. Permission denied as a normal user.
 - **machinectl shell + systemd-run --user** — the transient user service has a minimal PATH that skips `/usr/local/bin/` wrappers, and the sanitized environment breaks X11 auth.
 
-A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme start`, removed by `intuneme stop`) makes the nsenter command passwordless, so the GNOME extension can launch apps without a terminal for sudo prompts.
+A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme init`, persists across start/stop, removed by `intuneme destroy`) makes the nsenter command passwordless, so the GNOME extension can launch apps without a terminal for sudo prompts. The `start` command reinstalls it idempotently if missing (handles upgrades from older versions).
 
 ## Before committing
 

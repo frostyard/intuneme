@@ -10,7 +10,6 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
-	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/frostyard/intuneme/internal/udev"
 	"github.com/spf13/cobra"
 )
@@ -49,8 +48,6 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 	} else if clix.Verbose {
 		rep.Message("Removed udev hotplug rules.")
 	}
-
-	sudoers.Remove(r)
 
 	rep.Message("Stopping container...")
 	if err := nspawn.Stop(r, cfg.MachineName); err != nil {

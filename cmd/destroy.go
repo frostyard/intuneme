@@ -9,6 +9,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/spf13/cobra"
 )
 
@@ -43,6 +44,9 @@ var destroyCmd = &cobra.Command{
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
 		}
+
+		// Remove host-level rules installed by init.
+		sudoers.Remove(r)
 
 		// Remove rootfs with sudo (owned by root after nspawn use)
 		rep.Message("Removing %s...", root)
