@@ -186,8 +186,10 @@ func LeaderPID(r runner.Runner, machine string) (string, error) {
 	return pid, nil
 }
 
-// Exec runs a command non-interactively inside the container as the given user
-// and returns immediately. Uses nsenter to avoid requiring a PTY.
+// Exec runs a command non-interactively inside the container as the given user.
+// Uses nsenter to enter the container's namespaces and launch the command in the
+// background. Requires passwordless sudo for nsenter (installed by intuneme start
+// via /etc/sudoers.d/intuneme-exec).
 func Exec(r runner.Runner, machine, user string, uid int, command string) error {
 	leaderPID, err := LeaderPID(r, machine)
 	if err != nil {
@@ -212,7 +214,10 @@ nohup %s >/dev/null 2>&1 &`,
 		"-m", "-u", "-i", "-n", "-p",
 		"--", "/bin/su", "-s", "/bin/bash", user, "-c", script,
 	}
-	return r.RunBackground("sudo", nsenterArgs...)
+	if _, err := r.Run("sudo", nsenterArgs...); err != nil {
+		return fmt.Errorf("exec in container failed: %w", err)
+	}
+	return nil
 }
 
 // Boot starts the nspawn container in the background using sudo.

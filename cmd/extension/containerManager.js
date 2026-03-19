@@ -8,7 +8,7 @@ const INTUNEME_BIN = 'intuneme';
 const INTUNEME_ROOT = `${GLib.get_home_dir()}/.local/share/intuneme`;
 
 // Terminal emulators to try, in order of preference.
-const TERMINALS = ['ptyxis', 'kgx', 'gnome-terminal', 'xterm'];
+const TERMINALS = ['ghostty', 'ptyxis', 'kgx', 'gnome-terminal', 'xterm'];
 
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 
@@ -235,17 +235,17 @@ export const ContainerManager = GObject.registerClass({
             proc.wait_async(null, (_, res) => {
                 try {
                     proc.wait_finish(res);
-                    if (!proc.get_successful()) {
-                        this._setTransitioning(false);
+                    if (!proc.get_successful())
                         this._showErrorBriefly();
-                    }
                 } catch (e) {
                     console.warn(`[intuneme] start failed: ${e.message}`);
-                    this._setTransitioning(false);
                     this._showErrorBriefly();
                 }
-                // D-Bus MachineNew signal will flip state on success
-                // Poll as fallback
+                // intuneme start already waits for the container to register,
+                // so clear transitioning unconditionally. The D-Bus MachineNew
+                // signal may have already fired; if not (container was already
+                // running), the poll picks up the correct state.
+                this._setTransitioning(false);
                 this._pollStatus();
             });
         } catch (e) {
@@ -266,11 +266,12 @@ export const ContainerManager = GObject.registerClass({
         const [ok, , stderr] = await execCommand([INTUNEME_BIN, 'stop']);
         if (!ok) {
             console.warn(`[intuneme] stop failed: ${stderr}`);
-            this._setTransitioning(false);
             this._showErrorBriefly();
-            this._pollStatus();
         }
-        // On success, D-Bus MachineRemoved signal will flip state
+        // intuneme stop waits for the container to deregister, so clear
+        // transitioning unconditionally and poll for the final state.
+        this._setTransitioning(false);
+        this._pollStatus();
     }
 
     /**
@@ -296,33 +297,29 @@ export const ContainerManager = GObject.registerClass({
     }
 
     /**
-     * Launch Microsoft Edge inside the container via `intuneme open edge`.
-     * No terminal needed — Edge opens its own window directly.
+     * Launch an application inside the container.
+     * Uses machinectl shell (polkit-authenticated), so no terminal is needed.
      */
-    openEdge() {
-        try {
-            Gio.Subprocess.new(
-                [INTUNEME_BIN, 'open', 'edge'],
-                Gio.SubprocessFlags.NONE,
-            );
-        } catch (e) {
-            console.error(`[intuneme] Failed to launch Edge: ${e.message}`);
+    async _openApp(subcommand, label) {
+        const [ok, , stderr] = await execCommand([INTUNEME_BIN, 'open', subcommand]);
+        if (!ok) {
+            console.error(`[intuneme] Failed to launch ${label}: ${stderr}`);
+            this._showErrorBriefly();
         }
     }
 
     /**
+     * Launch Microsoft Edge inside the container via `intuneme open edge`.
+     */
+    openEdge() {
+        this._openApp('edge', 'Edge');
+    }
+
+    /**
      * Launch Intune Portal inside the container via `intuneme open portal`.
-     * No terminal needed — Portal opens its own window directly.
      */
     openPortal() {
-        try {
-            Gio.Subprocess.new(
-                [INTUNEME_BIN, 'open', 'portal'],
-                Gio.SubprocessFlags.NONE,
-            );
-        } catch (e) {
-            console.error(`[intuneme] Failed to launch Intune Portal: ${e.message}`);
-        }
+        this._openApp('portal', 'Intune Portal');
     }
 
     destroy() {

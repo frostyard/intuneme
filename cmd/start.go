@@ -10,6 +10,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/frostyard/intuneme/internal/udev"
 	"github.com/spf13/cobra"
 )
@@ -96,6 +97,14 @@ var startCmd = &cobra.Command{
 			rep.Message("Warning: failed to install udev rules (hotplug won't work): %v", err)
 		} else if clix.Verbose {
 			rep.Message("Installed udev hotplug rules.")
+		}
+
+		// Install sudoers rule so the GNOME extension can launch container
+		// apps (Edge, Portal) without a terminal for sudo prompts.
+		if err := sudoers.Install(r, cfg.HostUser); err != nil {
+			rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
+		} else if clix.Verbose {
+			rep.Message("Installed passwordless nsenter rule.")
 		}
 
 		// Forward already-plugged YubiKeys.

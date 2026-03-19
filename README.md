@@ -146,6 +146,12 @@ Log out and back in to activate. The toggle appears in Quick Settings with the c
 
 The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback. Requires GNOME Shell 47+.
 
+### Passwordless app launch
+
+When you run `intuneme start`, a sudoers rule is installed at `/etc/sudoers.d/intuneme-exec` that allows the host user to run `nsenter` into the container without a password prompt. This enables the GNOME extension (and `.desktop` shortcuts) to launch Edge and Intune Portal directly — no terminal window needed for sudo authentication.
+
+The rule is scoped to the specific `nsenter` flag pattern used by `intuneme open` and only allows `su` to the host user. It is removed automatically on `intuneme stop`.
+
 ## Desktop shortcuts
 
 Install `.desktop` entries for Edge and Intune Portal so they appear in the GNOME application grid:
@@ -165,7 +171,7 @@ bash scripts/install-desktop-items.sh --uninstall
 | Command | Description |
 |---------|-------------|
 | `intuneme init` | Pull the OCI image, extract rootfs, install Edge, configure user/PAM/services |
-| `intuneme start` | Boot the container |
+| `intuneme start` | Boot the container (installs udev hotplug rules and sudoers rule for passwordless app launch) |
 | `intuneme shell` | Open an interactive shell (real logind session with D-Bus and keyring) |
 | `intuneme open edge` | Launch Microsoft Edge inside the container |
 | `intuneme open portal` | Launch Intune Portal inside the container |
