@@ -28,7 +28,7 @@ Pre-built packages are available on the [GitHub releases page](https://github.co
 
 ## go install
 
-If you have Go 1.21 or later installed, you can install directly from source:
+If you have Go 1.26 or later installed, you can install directly from source:
 
 ```bash
 go install github.com/frostyard/intuneme@latest

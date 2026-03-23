@@ -4,7 +4,7 @@ Contributions are welcome. This page covers how to build and test the project lo
 
 ## Building from source
 
-Prerequisites: Go 1.22 or later, `make`.
+Prerequisites: Go 1.26 or later, `make`.
 
 ```bash
 git clone https://github.com/frostyard/intuneme.git
