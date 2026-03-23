@@ -147,7 +147,9 @@ func DetectDRIDevices() []BindMount {
 }
 
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
-func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount) []string {
+// nvidiaDevices are Nvidia device nodes that need explicit DeviceAllow entries
+// (unlike DRI devices, nspawn does not auto-allow /dev/nvidia* in cgroups).
+func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount, nvidiaDevices []BindMount) []string {
 	args := []string{
 		"-D", rootfs,
 		fmt.Sprintf("--machine=%s", machine),
@@ -158,6 +160,11 @@ func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []
 	// A directory bind (--bind=/dev/dri) does not register contained devices.
 	for _, dri := range DetectDRIDevices() {
 		args = append(args, fmt.Sprintf("--bind=%s", dri.Host))
+	}
+	// Bind Nvidia device nodes with explicit cgroup DeviceAllow.
+	for _, dev := range nvidiaDevices {
+		args = append(args, fmt.Sprintf("--bind=%s", dev.Host))
+		args = append(args, fmt.Sprintf("--property=DeviceAllow=%s rwm", dev.Host))
 	}
 	for _, s := range sockets {
 		args = append(args, fmt.Sprintf("--bind=%s:%s", s.Host, s.Container))
@@ -205,6 +212,10 @@ export PIPEWIRE_REMOTE=/run/host-pipewire
 export PULSE_SERVER=unix:/run/host-pulse
 export XDG_RUNTIME_DIR=/run/user/%s
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
+if [ -d /run/host-nvidia ]; then
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    export __GLX_VENDOR_LIBRARY_NAME=nvidia
+fi
 nohup %s >/dev/null 2>&1 &`,
 		display, uidStr, uidStr, command,
 	)
@@ -221,8 +232,8 @@ nohup %s >/dev/null 2>&1 &`,
 }
 
 // Boot starts the nspawn container in the background using sudo.
-func Boot(r runner.Runner, rootfs, machine, intuneHome, containerHome string, sockets []BindMount) error {
-	args := append([]string{"systemd-nspawn"}, BuildBootArgs(rootfs, machine, intuneHome, containerHome, sockets)...)
+func Boot(r runner.Runner, rootfs, machine, intuneHome, containerHome string, sockets, nvidiaDevices []BindMount) error {
+	args := append([]string{"systemd-nspawn"}, BuildBootArgs(rootfs, machine, intuneHome, containerHome, sockets, nvidiaDevices)...)
 	return r.RunBackground("sudo", args...)
 }
 

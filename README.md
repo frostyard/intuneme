@@ -18,6 +18,7 @@ Host                              Container (systemd-nspawn)
 /run/user/$UID/pipewire-0 bind─→ /run/host-pipewire
 Xauthority file ────────bind──→  /run/host-xauthority
 /dev/dri ───────────────bind──→  /dev/dri
+/dev/nvidia* ──────────bind──→  /dev/nvidia*  (auto-detected)
 /dev/video* ─────────nsenter──→  /dev/video*  (hotplug)
 /dev/media* ─────────nsenter──→  /dev/media*  (hotplug)
 /dev/bus/usb/* ──────nsenter──→  /dev/bus/usb/*  (YubiKey hotplug)
@@ -83,6 +84,19 @@ intuneme udev remove
 Both commands are idempotent and graceful — `udev remove` succeeds even if no rules are installed.
 
 To check forwarding logs: `journalctl -t intuneme-hotplug`.
+
+## Nvidia GPU support
+
+On hosts with Nvidia GPUs, the container automatically detects and configures the proprietary driver libraries at boot. The host must have the Nvidia proprietary driver loaded (the open-source nouveau driver is handled by existing Mesa support and needs no special setup).
+
+When `intuneme start` detects `/dev/nvidiactl`, it:
+
+1. Bind-mounts Nvidia device nodes (`/dev/nvidia*`) into the container with explicit cgroup `DeviceAllow` rules.
+2. Bind-mounts the host's Nvidia userspace libraries (discovered via `ldconfig -p`) read-only into the container.
+3. Creates symlinks from the container's library path to the bind-mounted host libraries and runs `ldconfig`.
+4. Bind-mounts Nvidia Vulkan/EGL vendor JSON files if present on the host.
+
+The setup is cleaned up automatically — stale symlinks from a previous Nvidia boot are removed on every start, even if the GPU is no longer present. Non-Nvidia systems are unaffected.
 
 ## Prerequisites
 

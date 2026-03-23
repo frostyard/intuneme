@@ -43,7 +43,7 @@ func TestBuildBootArgs(t *testing.T) {
 	sockets := []BindMount{
 		{"/run/user/1000/wayland-0", "/run/host-wayland"},
 	}
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--machine=intuneme") {
@@ -72,7 +72,7 @@ func TestBuildBootArgs(t *testing.T) {
 }
 
 func TestBuildBootArgsNoSockets(t *testing.T) {
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--machine=intuneme") {
@@ -168,10 +168,46 @@ func TestDetectHostSockets_PulseAudio(t *testing.T) {
 	sockets := []BindMount{
 		{"/run/user/1000/pulse/native", "/run/host-pulse"},
 	}
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--bind=/run/user/1000/pulse/native:/run/host-pulse") {
 		t.Errorf("missing pulse socket bind in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_NvidiaDevices(t *testing.T) {
+	nvidiaDevs := []BindMount{
+		{"/dev/nvidia0", "/dev/nvidia0"},
+		{"/dev/nvidiactl", "/dev/nvidiactl"},
+	}
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nvidiaDevs)
+
+	joined := strings.Join(args, " ")
+	// Verify device binds.
+	if !strings.Contains(joined, "--bind=/dev/nvidia0") {
+		t.Errorf("missing nvidia0 bind in: %s", joined)
+	}
+	if !strings.Contains(joined, "--bind=/dev/nvidiactl") {
+		t.Errorf("missing nvidiactl bind in: %s", joined)
+	}
+	// Verify DeviceAllow properties.
+	if !strings.Contains(joined, "--property=DeviceAllow=/dev/nvidia0 rwm") {
+		t.Errorf("missing DeviceAllow for nvidia0 in: %s", joined)
+	}
+	if !strings.Contains(joined, "--property=DeviceAllow=/dev/nvidiactl rwm") {
+		t.Errorf("missing DeviceAllow for nvidiactl in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil)
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "DeviceAllow") {
+		t.Errorf("unexpected DeviceAllow in args with no Nvidia devices: %s", joined)
+	}
+	if strings.Contains(joined, "nvidia") {
+		t.Errorf("unexpected nvidia reference in args with no Nvidia devices: %s", joined)
 	}
 }

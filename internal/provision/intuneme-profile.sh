@@ -40,6 +40,13 @@ if [ -S /run/host-pulse ]; then
     systemctl --user import-environment PULSE_SERVER 2>/dev/null
 fi
 
+# Nvidia GPU (libraries symlinked from host by intuneme start)
+if [ -d /run/host-nvidia ]; then
+    export __NV_PRIME_RENDER_OFFLOAD=1
+    export __GLX_VENDOR_LIBRARY_NAME=nvidia
+    systemctl --user import-environment __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME 2>/dev/null
+fi
+
 # Initialize gnome-keyring once per boot.
 # The keyring must be unlocked for microsoft-identity-broker to store credentials.
 # Marker lives in /tmp (tmpfs) so it resets on every container boot — the keyring
