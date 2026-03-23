@@ -85,8 +85,8 @@ Updates the container image while preserving enrollment. Can switch channels.
 1. **Early validation** — Check sudoers rule exists, validate sudo access
 2. **Stop container** if running
 3. **Backup state:**
-   - Password hash from container's `/etc/shadow` (`provision.BackupShadowEntry()`)
-   - Device broker state from `~/Intune/.local/state/microsoft-identity-broker/` (`provision.BackupDeviceBrokerState()`)
+   - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
+   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` (`provision.BackupDeviceBrokerState()`)
 4. **Delete old rootfs** — `sudo rm -rf`
 5. **Pull and extract new image** — Same as init step
 6. **Re-provision** — GPU, user, hostname, fixups, polkit rule (same steps as init)
@@ -112,3 +112,38 @@ Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sour
 ## `intuneme open edge` / `intuneme open portal`
 
 Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [OVERVIEW.md](OVERVIEW.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory.
+
+## `intuneme udev install` / `intuneme udev remove`
+
+Manually install or remove udev rules for device hotplug forwarding. Normally called automatically by `start`/`stop`, but can be run independently.
+
+**`install`:**
+1. Load config to get machine name
+2. Validate sudo access
+3. Install YubiKey rules (`70-intuneme-yubikey.rules`), video rules (`70-intuneme-video.rules`), and helper script (`/usr/local/lib/intuneme/usb-hotplug`) via `udev.Install()`
+4. Reload udev
+
+**`remove`:**
+1. Check if rules are installed (`udev.IsInstalled()`)
+2. Validate sudo access
+3. Remove rules files and helper script via `udev.Remove()`
+4. Reload udev
+
+## `intuneme config broker-proxy enable` / `disable`
+
+Toggle the D-Bus broker proxy for host-side SSO. See [Broker Proxy](broker-proxy.md) for details.
+
+**`enable`:** Sets `broker_proxy = true` in config, installs D-Bus service file for auto-activation.
+
+**`disable`:** Clears the flag, removes D-Bus service file, stops the proxy if running.
+
+## `intuneme extension install`
+
+Installs the GNOME Shell Quick Settings extension for managing the container from the desktop.
+
+**Steps:**
+1. Copy embedded extension files to `~/.local/share/gnome-shell/extensions/intuneme@frostyard.org/`
+2. Install polkit policy to `/etc/polkit-1/actions/org.frostyard.intuneme.policy` (requires sudo)
+3. Enable extension via `gnome-extensions enable`
+
+The extension provides a Quick Settings toggle (start/stop), status display, and shortcuts for shell, Edge, and Intune Portal. It monitors container state via systemd-machined D-Bus signals with a 5-second polling fallback.
