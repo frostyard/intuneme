@@ -68,11 +68,11 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 ### State Preservation Across Recreate
 
 `recreate` updates the container image while preserving enrollment:
-1. Backs up password hash (from shadow file) and device broker state
+1. Backs up password hash (from `rootfs/etc/shadow`) and device broker state (from `rootfs/var/lib/microsoft-identity-device-broker`)
 2. Deletes old rootfs, pulls new image, re-provisions
-3. Restores password hash and broker state
+3. Restores password hash and broker state into the new rootfs
 
-Enrollment data persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
+Enrollment data (Intune database, app state) persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
 
 ### Runner Abstraction
 
@@ -132,6 +132,8 @@ intuneme installs these on the host (all reversible via `destroy`):
 | Polkit rule | `/etc/polkit-1/rules.d/50-intuneme.rules` | `init` | `destroy` |
 | Sudoers rule | `/etc/sudoers.d/intuneme-exec` | `init` (reinstalled by `start`) | `destroy` |
 | Udev rules | `/etc/udev/rules.d/70-intuneme-*.rules` | `start` | `stop` |
+| Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop` |
+| Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | Manual |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
 
 ## Detailed Subsystem Docs

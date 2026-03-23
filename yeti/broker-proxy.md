@@ -19,7 +19,7 @@ Interface: `com.microsoft.identity.broker1`
 **Methods (8 total):**
 - `acquireTokenInteractively` — Interactive auth (browser popup)
 - `acquireTokenSilently` — Silent token refresh
-- `acquirePrtSsoToken` — Primary Refresh Token for SSO
+- `acquirePrtSsoCookie` — Primary Refresh Token SSO cookie
 - `generateSignedHttpRequest` — Signed HTTP request for device auth
 - `getAccounts` — List enrolled accounts
 - `removeAccount` — Remove an account
