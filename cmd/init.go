@@ -23,6 +23,7 @@ import (
 var forceInit bool
 var passwordFile string
 var insidersInit bool
+var tmpDirInit string
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -87,7 +88,7 @@ var initCmd = &cobra.Command{
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
-		if err := p.PullAndExtract(r, image, cfg.RootfsPath); err != nil {
+		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirInit); err != nil {
 			return err
 		}
 
@@ -250,5 +251,6 @@ func init() {
 	initCmd.Flags().BoolVar(&forceInit, "force", false, "reinitialize even if already set up")
 	initCmd.Flags().StringVar(&passwordFile, "password-file", "", "path to file containing the container user password (first line used)")
 	initCmd.Flags().BoolVar(&insidersInit, "insiders", false, "use the insiders channel container image")
+	initCmd.Flags().StringVar(&tmpDirInit, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
 	rootCmd.AddCommand(initCmd)
 }
