@@ -93,38 +93,13 @@ var initCmd = &cobra.Command{
 
 		hostname, _ := os.Hostname()
 
-		// Ensure container has a render group matching the host for GPU access
-		if renderGID, renderErr := provision.FindHostRenderGID(); renderErr == nil && renderGID >= 0 {
-			if clix.Verbose {
-				rep.Message("Configuring GPU render group...")
-			}
-			if err := provision.EnsureRenderGroup(r, cfg.RootfsPath, renderGID); err != nil {
-				rep.Warning("render group setup failed: %v", err)
-			}
-		}
-
-		rep.Message("Creating container user...")
-		if err := provision.CreateContainerUser(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid()); err != nil {
+		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname); err != nil {
 			return err
 		}
 
 		rep.Message("Setting container user password...")
 		if err := provision.SetContainerPassword(r, cfg.RootfsPath, u.Username, password); err != nil {
 			return fmt.Errorf("set password failed: %w", err)
-		}
-
-		if clix.Verbose {
-			rep.Message("Applying fixups...")
-		}
-		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
-			return err
-		}
-
-		if clix.Verbose {
-			rep.Message("Installing polkit rules...")
-		}
-		if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
-			rep.Warning("polkit install failed: %v", err)
 		}
 
 		if clix.Verbose {

@@ -8,7 +8,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/std/reporter"
 )
 
 //go:embed intuneme-profile.sh
@@ -436,5 +438,41 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 	if err := r.RunAttached("sudo", "install", "-m", "0644", tmpFile.Name(), dest); err != nil {
 		return fmt.Errorf("install polkit rule failed: %w", err)
 	}
+	return nil
+}
+
+// ProvisionContainer runs the shared provisioning sequence used by both init
+// and recreate: GPU render group setup, container user creation, fixups, and
+// polkit rule installation.
+func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, username string, uid, gid int, hostname string) error {
+	// Ensure container has a render group matching the host for GPU access
+	if renderGID, err := FindHostRenderGID(); err == nil && renderGID >= 0 {
+		if clix.Verbose {
+			rep.Message("Configuring GPU render group...")
+		}
+		if err := EnsureRenderGroup(r, rootfsPath, renderGID); err != nil {
+			rep.Warning("render group setup failed: %v", err)
+		}
+	}
+
+	rep.Message("Creating container user...")
+	if err := CreateContainerUser(r, rootfsPath, username, uid, gid); err != nil {
+		return err
+	}
+
+	if clix.Verbose {
+		rep.Message("Applying fixups...")
+	}
+	if err := WriteFixups(r, rootfsPath, username, uid, gid, hostname+"LXC"); err != nil {
+		return err
+	}
+
+	if clix.Verbose {
+		rep.Message("Installing polkit rules...")
+	}
+	if err := InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
+		rep.Warning("polkit install failed: %v", err)
+	}
+
 	return nil
 }
