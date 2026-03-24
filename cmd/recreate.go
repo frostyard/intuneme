@@ -18,6 +18,7 @@ import (
 )
 
 var insidersRecreate bool
+var tmpDirRecreate string
 
 var recreateCmd = &cobra.Command{
 	Use:   "recreate",
@@ -123,32 +124,14 @@ var recreateCmd = &cobra.Command{
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
-		if err := p.PullAndExtract(r, image, cfg.RootfsPath); err != nil {
+		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirRecreate); err != nil {
 			return err
 		}
 
 		// Re-provision
 		hostname, _ := os.Hostname()
 
-		// Ensure container has a render group matching the host for GPU access
-		if renderGID, renderErr := provision.FindHostRenderGID(); renderErr == nil && renderGID >= 0 {
-			if clix.Verbose {
-				rep.Message("Configuring GPU render group...")
-			}
-			if err := provision.EnsureRenderGroup(r, cfg.RootfsPath, renderGID); err != nil {
-				rep.Warning("render group setup failed: %v", err)
-			}
-		}
-
-		rep.Message("Creating container user...")
-		if err := provision.CreateContainerUser(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid()); err != nil {
-			return err
-		}
-
-		if clix.Verbose {
-			rep.Message("Applying fixups...")
-		}
-		if err := provision.WriteFixups(r, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname+"LXC"); err != nil {
+		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname); err != nil {
 			return err
 		}
 
@@ -169,14 +152,6 @@ var recreateCmd = &cobra.Command{
 			}
 		}
 
-		// Install polkit rules
-		if clix.Verbose {
-			rep.Message("Installing polkit rules...")
-		}
-		if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
-			rep.Warning("polkit install failed: %v", err)
-		}
-
 		rep.Message("Container recreated. Run 'intuneme start' to boot.")
 		return nil
 	},
@@ -184,5 +159,6 @@ var recreateCmd = &cobra.Command{
 
 func init() {
 	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch to the insiders channel container image")
+	recreateCmd.Flags().StringVar(&tmpDirRecreate, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
 	rootCmd.AddCommand(recreateCmd)
 }

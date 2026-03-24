@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudo"
 )
 
 const (
@@ -68,22 +70,6 @@ func ScriptPath() string {
 	return filepath.Join(ScriptDir, ScriptName)
 }
 
-// sudoWriteFile writes data to path via a temp file + sudo install.
-func sudoWriteFile(r runner.Runner, path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp("", "intuneme-udev-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	_ = tmp.Close()
-	_, err = r.Run("sudo", "install", "-m", fmt.Sprintf("%04o", perm), tmp.Name(), path)
-	return err
-}
-
 // Install writes the udev rule file and helper script, then reloads udev.
 func Install(r runner.Runner, machineName string) error {
 	// Create script directory.
@@ -92,15 +78,15 @@ func Install(r runner.Runner, machineName string) error {
 	}
 
 	// Write helper script.
-	if err := sudoWriteFile(r, ScriptPath(), []byte(scriptContent(machineName)), 0755); err != nil {
+	if err := sudo.WriteFile(r, ScriptPath(), []byte(scriptContent(machineName)), 0755); err != nil {
 		return fmt.Errorf("install helper script: %w", err)
 	}
 
 	// Write udev rules.
-	if err := sudoWriteFile(r, RulesPath(), []byte(rulesTemplate), 0644); err != nil {
+	if err := sudo.WriteFile(r, RulesPath(), []byte(rulesTemplate), 0644); err != nil {
 		return fmt.Errorf("install yubikey udev rule: %w", err)
 	}
-	if err := sudoWriteFile(r, VideoRulesPath(), []byte(videoRulesTemplate), 0644); err != nil {
+	if err := sudo.WriteFile(r, VideoRulesPath(), []byte(videoRulesTemplate), 0644); err != nil {
 		return fmt.Errorf("install video udev rule: %w", err)
 	}
 
@@ -231,9 +217,12 @@ func findHIDRawDevices(usbDevDir string) []string {
 // ForwardDevice creates a device node inside the running container using nsenter.
 // For hidraw devices, it also adjusts the cgroup device allow list.
 func ForwardDevice(r runner.Runner, machine, devnode string) error {
-	leaderPID, err := leaderPID(r, machine)
+	pid, err := nspawn.LeaderPID(r, machine)
 	if err != nil {
 		return err
+	}
+	if pid == "0" {
+		return fmt.Errorf("container %s is not running", machine)
 	}
 
 	// Get major:minor of the device.
@@ -256,27 +245,27 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 
 	// Create the device node inside the container.
 	dir := filepath.Dir(devnode)
-	_, _ = r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+	_, _ = r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 		"mkdir", "-p", dir)
-	_, _ = r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+	_, _ = r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 		"rm", "-f", devnode)
-	if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+	if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 		"mknod", devnode, "c", major, minor); err != nil {
 		return fmt.Errorf("mknod %s: %w", devnode, err)
 	}
 	// Use restrictive permissions for video/media devices (0660 root:video)
 	// matching the typical host access model. Other devices use 0666.
 	if isVideoDevice(devnode) {
-		if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 			"chgrp", "video", devnode); err != nil {
 			return fmt.Errorf("chgrp %s: %w", devnode, err)
 		}
-		if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 			"chmod", "0660", devnode); err != nil {
 			return fmt.Errorf("chmod %s: %w", devnode, err)
 		}
 	} else {
-		if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
 			"chmod", "0666", devnode); err != nil {
 			return fmt.Errorf("chmod %s: %w", devnode, err)
 		}
@@ -288,19 +277,6 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	_, _ = r.Run("sudo", "bash", "-c", fmt.Sprintf("echo %q > %s", devnode, stateFile))
 
 	return nil
-}
-
-// leaderPID returns the PID of the container's init process.
-func leaderPID(r runner.Runner, machine string) (string, error) {
-	out, err := r.Run("machinectl", "show", machine, "-p", "Leader", "--value")
-	if err != nil {
-		return "", fmt.Errorf("machinectl show failed: %w", err)
-	}
-	pid := strings.TrimSpace(string(out))
-	if pid == "" || pid == "0" {
-		return "", fmt.Errorf("container %s is not running", machine)
-	}
-	return pid, nil
 }
 
 // isVideoDevice reports whether the device path is a video or media controller device.

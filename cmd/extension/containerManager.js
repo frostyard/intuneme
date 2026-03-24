@@ -44,6 +44,17 @@ function findTerminal() {
     return null;
 }
 
+/**
+ * Return the argv fragment that tells a terminal to execute a command.
+ * Ghostty and xterm use `-e`; most GNOME terminals use `--`.
+ */
+function terminalExecArgs(terminal) {
+    const base = GLib.path_get_basename(terminal);
+    if (base === 'ghostty' || base === 'xterm')
+        return ['-e'];
+    return ['--'];
+}
+
 export const ContainerManager = GObject.registerClass({
     Properties: {
         'container-running': GObject.ParamSpec.boolean(
@@ -229,7 +240,7 @@ export const ContainerManager = GObject.registerClass({
         this._setTransitioning(true);
         try {
             const proc = Gio.Subprocess.new(
-                [terminal, '--', INTUNEME_BIN, 'start'],
+                [terminal, ...terminalExecArgs(terminal), INTUNEME_BIN, 'start'],
                 Gio.SubprocessFlags.NONE,
             );
             proc.wait_async(null, (_, res) => {
@@ -285,9 +296,8 @@ export const ContainerManager = GObject.registerClass({
         }
 
         try {
-            // Most terminals use `-- command args` to run a command
             const proc = Gio.Subprocess.new(
-                [terminal, '--', INTUNEME_BIN, 'shell'],
+                [terminal, ...terminalExecArgs(terminal), INTUNEME_BIN, 'shell'],
                 Gio.SubprocessFlags.NONE,
             );
             proc.wait_async(null, null);

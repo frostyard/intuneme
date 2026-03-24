@@ -61,9 +61,25 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 | Wayland | `$XDG_RUNTIME_DIR/wayland-0` | `/run/host-wayland` | Auto-detected on start |
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
 | PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
-| X11 auth | `$XAUTHORITY` | `/run/host-xauthority` | Auto-detected on start |
+| X11 auth | `$XAUTHORITY` (see search order below) | `/run/host-xauthority` | Auto-detected on start |
 | GPU | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices for cgroup |
 | Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
+
+### X11 Authority File Search Order
+
+`findXAuthority()` in `nspawn.go` locates the host Xauthority file:
+1. `$XAUTHORITY` environment variable (if file exists)
+2. Glob `$XDG_RUNTIME_DIR/.mutter-Xwaylandauth.*` (Mutter/GNOME Wayland)
+3. Glob `$XDG_RUNTIME_DIR/xauth_*` (other Xwayland implementations)
+4. `~/.Xauthority` (classic X11)
+
+### Container Hostname
+
+During provisioning (`WriteFixups`), the container hostname is set to `<host-hostname>LXC` — e.g., if the host is `myworkstation`, the container gets `myworkstationLXC`. This prevents hostname collisions when both host and container are visible on the same network.
+
+### Container User Groups
+
+The container user is added to: `adm,sudo,video,audio` (plus `render` if a render group exists matching the host's render GID). The container-side sudoers rule at `/etc/sudoers.d/intuneme` grants `<user> ALL=(ALL) NOPASSWD: ALL` for passwordless operations inside the container.
 
 ### Profile Script Environment
 
@@ -141,8 +157,9 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 ├── config.toml          Configuration
 ├── rootfs/              Extracted container filesystem
 ├── runtime/             Broker proxy runtime dir (bind-mounted as /run/user/<uid>)
-├── broker-proxy.pid     PID file for broker proxy process
-└── udev/                Hotplug helper script + state
+└── broker-proxy.pid     PID file for broker proxy process
+
+/run/intuneme/devices/   Udev forwarded device state (tmpfs, only while running)
 
 ~/Intune/                Bind-mounted as container home directory
 ├── .config/intune/      Enrollment database

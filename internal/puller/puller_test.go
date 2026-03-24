@@ -90,7 +90,7 @@ func TestPodmanPullAndExtract(t *testing.T) {
 	p := NewPodmanPuller()
 	rootfs := t.TempDir()
 
-	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs, "")
 	if err != nil {
 		t.Fatalf("PullAndExtract error: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSkopeoPullAndExtract(t *testing.T) {
 	p := &SkopeoPuller{}
 	rootfs := t.TempDir()
 
-	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs, "")
 	if err != nil {
 		t.Fatalf("PullAndExtract error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestDockerPullAndExtract(t *testing.T) {
 	p := NewDockerPuller()
 	rootfs := t.TempDir()
 
-	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
+	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs, "")
 	if err != nil {
 		t.Fatalf("PullAndExtract error: %v", err)
 	}

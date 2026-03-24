@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudo"
 )
 
 const deviceBrokerRelPath = "var/lib/microsoft-identity-device-broker"
@@ -94,5 +95,5 @@ func RestoreShadowEntry(r runner.Runner, rootfs, shadowLine string) error {
 		return fmt.Errorf("user %q not found in new shadow file", username)
 	}
 
-	return sudoWriteFile(r, shadowPath, []byte(strings.Join(lines, "\n")), 0640)
+	return sudo.WriteFile(r, shadowPath, []byte(strings.Join(lines, "\n")), 0640)
 }

@@ -14,7 +14,17 @@ type Puller interface {
 	// Name returns a human-readable name for the backend (e.g. "podman").
 	Name() string
 	// PullAndExtract pulls image from a registry and extracts it to rootfsPath.
-	PullAndExtract(r runner.Runner, image string, rootfsPath string) error
+	// tmpDir overrides the directory used for intermediate files (e.g. exported
+	// tars). When empty, os.TempDir() is used.
+	PullAndExtract(r runner.Runner, image string, rootfsPath string, tmpDir string) error
+}
+
+// resolveTmpDir returns tmpDir when non-empty, otherwise os.TempDir().
+func resolveTmpDir(tmpDir string) string {
+	if tmpDir != "" {
+		return tmpDir
+	}
+	return os.TempDir()
 }
 
 // Detect returns the first available Puller in preference order:
@@ -44,7 +54,7 @@ type containerToolPuller struct {
 
 func (c *containerToolPuller) Name() string { return c.tool }
 
-func (c *containerToolPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string) error {
+func (c *containerToolPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string, tmpDir string) error {
 	// Clean up any leftover extract container from a previous failed run
 	_, _ = r.Run(c.tool, "rm", "intuneme-extract")
 
@@ -67,7 +77,7 @@ func (c *containerToolPuller) PullAndExtract(r runner.Runner, image string, root
 	}
 
 	// Export to tar, then extract with sudo to preserve container-internal UIDs
-	tmpTar := filepath.Join(os.TempDir(), "intuneme-rootfs.tar")
+	tmpTar := filepath.Join(resolveTmpDir(tmpDir), "intuneme-rootfs.tar")
 	out, err = r.Run(c.tool, "export", "-o", tmpTar, "intuneme-extract")
 	if err != nil {
 		_, _ = r.Run(c.tool, "rm", "intuneme-extract")
@@ -111,15 +121,15 @@ type SkopeoPuller struct{}
 
 func (p *SkopeoPuller) Name() string { return "skopeo+umoci" }
 
-func (p *SkopeoPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string) error {
+func (p *SkopeoPuller) PullAndExtract(r runner.Runner, image string, rootfsPath string, tmpDir string) error {
 	// Create a temp directory for the OCI layout
-	tmpDir, err := os.MkdirTemp("", "intuneme-oci-*")
+	ociTmpDir, err := os.MkdirTemp(resolveTmpDir(tmpDir), "intuneme-oci-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	defer func() { _ = os.RemoveAll(ociTmpDir) }()
 
-	ociDest := tmpDir + ":latest"
+	ociDest := ociTmpDir + ":latest"
 
 	// Pull image to OCI layout
 	out, err := r.Run("skopeo", "copy", "docker://"+image, "oci:"+ociDest)
