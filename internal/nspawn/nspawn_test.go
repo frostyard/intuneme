@@ -41,9 +41,9 @@ func (m *mockRunner) LookPath(name string) (string, error) {
 
 func TestBuildBootArgs(t *testing.T) {
 	sockets := []BindMount{
-		{"/run/user/1000/wayland-0", "/run/host-wayland"},
+		{Host: "/run/user/1000/wayland-0", Container: "/run/host-wayland"},
 	}
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--machine=intuneme") {
@@ -72,7 +72,7 @@ func TestBuildBootArgs(t *testing.T) {
 }
 
 func TestBuildBootArgsNoSockets(t *testing.T) {
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--machine=intuneme") {
@@ -166,12 +166,68 @@ func TestWriteDisplayMarker_InvalidDisplay(t *testing.T) {
 
 func TestDetectHostSockets_PulseAudio(t *testing.T) {
 	sockets := []BindMount{
-		{"/run/user/1000/pulse/native", "/run/host-pulse"},
+		{Host: "/run/user/1000/pulse/native", Container: "/run/host-pulse"},
 	}
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets)
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets, nil)
 
 	joined := strings.Join(args, " ")
 	if !strings.Contains(joined, "--bind=/run/user/1000/pulse/native:/run/host-pulse") {
 		t.Errorf("missing pulse socket bind in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_NvidiaDevices(t *testing.T) {
+	nvidiaDevs := []BindMount{
+		{Host: "/dev/nvidia0", Container: "/dev/nvidia0"},
+		{Host: "/dev/nvidiactl", Container: "/dev/nvidiactl"},
+	}
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nvidiaDevs)
+
+	joined := strings.Join(args, " ")
+	// Verify device binds.
+	if !strings.Contains(joined, "--bind=/dev/nvidia0") {
+		t.Errorf("missing nvidia0 bind in: %s", joined)
+	}
+	if !strings.Contains(joined, "--bind=/dev/nvidiactl") {
+		t.Errorf("missing nvidiactl bind in: %s", joined)
+	}
+	// Verify DeviceAllow properties.
+	if !strings.Contains(joined, "--property=DeviceAllow=/dev/nvidia0 rwm") {
+		t.Errorf("missing DeviceAllow for nvidia0 in: %s", joined)
+	}
+	if !strings.Contains(joined, "--property=DeviceAllow=/dev/nvidiactl rwm") {
+		t.Errorf("missing DeviceAllow for nvidiactl in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_ReadOnlyBinds(t *testing.T) {
+	sockets := []BindMount{
+		{Host: "/usr/lib/x86_64-linux-gnu", Container: "/run/host-nvidia/0", ReadOnly: true},
+		{Host: "/usr/share/vulkan/icd.d/nvidia_icd.json", Container: "/usr/share/vulkan/icd.d/nvidia_icd.json", ReadOnly: true},
+		{Host: "/run/user/1000/wayland-0", Container: "/run/host-wayland"},
+	}
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", sockets, nil)
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--bind-ro=/usr/lib/x86_64-linux-gnu:/run/host-nvidia/0") {
+		t.Errorf("missing read-only bind for nvidia lib dir in: %s", joined)
+	}
+	if !strings.Contains(joined, "--bind-ro=/usr/share/vulkan/icd.d/nvidia_icd.json:/usr/share/vulkan/icd.d/nvidia_icd.json") {
+		t.Errorf("missing read-only bind for ICD file in: %s", joined)
+	}
+	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
+		t.Errorf("missing writable bind for wayland socket in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
+	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil)
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "DeviceAllow") {
+		t.Errorf("unexpected DeviceAllow in args with no Nvidia devices: %s", joined)
+	}
+	if strings.Contains(joined, "nvidia") {
+		t.Errorf("unexpected nvidia reference in args with no Nvidia devices: %s", joined)
 	}
 }

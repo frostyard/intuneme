@@ -9,6 +9,7 @@ import (
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
+	"github.com/frostyard/intuneme/internal/nvidia"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/frostyard/intuneme/internal/udev"
@@ -57,8 +58,33 @@ var startCmd = &cobra.Command{
 			sockets = append(sockets, nspawn.BindMount{Host: hostDir, Container: containerDir})
 		}
 
+		// Detect Nvidia GPU and prepare bind mounts.
+		var nvidiaDevices []nspawn.BindMount
+		var nvidiaLibs []nvidia.LibMapping
+		nvidiaEnabled := nvidia.IsPresent()
+		if nvidiaEnabled {
+			nvidiaDevices = nvidia.DetectDevices()
+			ldconfigOut, err := r.Run("ldconfig", "-p")
+			if err != nil {
+				rep.Message("Warning: Nvidia detected but ldconfig failed: %v", err)
+				nvidiaEnabled = false
+			} else {
+				nvidiaLibs = nvidia.HostLibraries(ldconfigOut)
+				if len(nvidiaLibs) == 0 {
+					rep.Message("Warning: Nvidia detected but no driver libraries found.")
+					nvidiaEnabled = false
+				} else {
+					sockets = append(sockets, nvidia.LibDirMounts(nvidiaLibs)...)
+					sockets = append(sockets, nvidia.ICDMounts(nvidia.HostICDFiles())...)
+				}
+			}
+		}
+
 		if clix.DryRun {
 			rep.Message("[dry-run] Would boot container %s", cfg.MachineName)
+			if nvidiaEnabled {
+				rep.Message("[dry-run] Would configure Nvidia GPU with %d libraries", len(nvidiaLibs))
+			}
 			if cfg.BrokerProxy {
 				rep.Message("[dry-run] Would enable linger and start broker proxy")
 			}
@@ -76,7 +102,7 @@ var startCmd = &cobra.Command{
 		}
 
 		rep.Message("Booting container...")
-		if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets); err != nil {
+		if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets, nvidiaDevices); err != nil {
 			return fmt.Errorf("failed to start container: %w", err)
 		}
 
@@ -90,6 +116,20 @@ var startCmd = &cobra.Command{
 
 		if !nspawn.IsRunning(r, cfg.MachineName) {
 			return fmt.Errorf("container failed to start within 30 seconds")
+		}
+
+		// Clean stale Nvidia symlinks from previous boots (rootfs persists).
+		if err := nvidia.CleanStaleLinks(r, cfg.MachineName); err != nil {
+			rep.Message("Warning: failed to clean stale Nvidia links: %v", err)
+		}
+
+		// Create Nvidia library symlinks inside container.
+		if nvidiaEnabled {
+			if err := nvidia.Setup(r, cfg.MachineName, nvidiaLibs); err != nil {
+				rep.Message("Warning: Nvidia library setup failed: %v", err)
+			} else if clix.Verbose {
+				rep.Message("Nvidia GPU libraries configured.")
+			}
 		}
 
 		// Install udev rules for device hotplug (enables future hotplug events).
