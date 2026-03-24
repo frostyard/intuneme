@@ -14,13 +14,13 @@ One-time provisioning that creates the container from scratch.
 2. **Create home bind mount** — `mkdir ~/Intune`
 3. **Pull OCI image** — Auto-detect puller (podman → skopeo+umoci → docker), pull from `ghcr.io/frostyard/ubuntu-intune:<tag>`
 4. **Extract rootfs** — Unpack image to `~/.local/share/intuneme/rootfs/`
-5. **Configure GPU access** — Detect host render group GID, create matching group in container, add user to it
-6. **Create container user** — Match host UID/GID. Handles three cases: rename existing user with same UID, create new user, or update existing user's groups
-7. **Set password** — Validate locally (12+ chars, mixed case, digit, special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd`
+5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
+6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
+7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
 8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, `profile.d/intuneme.sh`, `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
 9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
 10. **Install sudoers rule** — `/etc/sudoers.d/intuneme-exec` for passwordless nsenter (validated with `visudo -c`)
-11. **SELinux** (if detected) — Install custom policy module, relabel rootfs as `container_file_t`
+11. **SELinux** (if detected) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
 12. **Save config** — Write `config.toml`
 
 ## `intuneme start`
@@ -39,10 +39,11 @@ Boots the container and sets up runtime environment.
 8. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
 9. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
 10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
-11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules
+11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
 12. **Ensure sudoers** — Reinstall sudoers rule if missing (handles upgrades from older versions)
-13. **Forward existing devices** — Detect already-plugged YubiKeys and video devices, forward into container
-14. **Start broker proxy** (if enabled):
+13. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
+14. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
+15. **Start broker proxy** (if enabled):
     - Enable systemd linger for container user
     - Create login session via `machinectl`
     - Wait for session bus socket to appear

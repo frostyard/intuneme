@@ -70,6 +70,26 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 | Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
 | Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
 
+### Device Hotplug Forwarding
+
+YubiKeys and video capture devices (webcams) can be forwarded into the running container, both at start (already-plugged devices) and at runtime via udev hotplug rules.
+
+**Device types:**
+
+| Type | Detection | Udev Rule | Permissions |
+|------|-----------|-----------|-------------|
+| YubiKey (USB + HIDraw) | Scan sysfs for vendor `1050` | `70-intuneme-yubikey.rules` | `0666` (world-accessible) |
+| Video (`/dev/video*`, `/dev/media*`) | Glob `/dev/video*`, `/dev/media*` | `70-intuneme-video.rules` | `0660 root:video` |
+
+**Forwarding mechanism** (`udev.ForwardDevice()`):
+1. Get device major:minor via `stat`
+2. Add `DeviceAllow` to the container's cgroup scope dynamically (`systemctl set-property machine-<name>.scope DevicePolicy=auto DeviceAllow=<dev> rwm`)
+3. Create the device node inside the container via `nsenter` + `mknod`
+4. Set permissions (restrictive `0660 root:video` for video devices, `0666` for others)
+5. Record in state directory (`/run/intuneme/devices/`) for cleanup
+
+**Udev hotplug flow:** The helper script at `/usr/local/lib/intuneme/usb-hotplug` is triggered by udev rules when devices are added/removed. It calls `ForwardDevice()` for adds and cleans up state for removes.
+
 ### Nvidia GPU Support
 
 On hosts with Nvidia GPUs, the container needs the device nodes and host userspace libraries (which must match the kernel module version exactly). This is handled by `internal/nvidia/` using a detect-at-start, bind-mount, symlink approach (similar to distrobox):
@@ -90,6 +110,10 @@ On hosts with Nvidia GPUs, the container needs the device nodes and host userspa
 3. Glob `$XDG_RUNTIME_DIR/xauth_*` (other Xwayland implementations)
 4. `~/.Xauthority` (classic X11)
 
+### Render Group GID Conflict Resolution
+
+During provisioning, `EnsureRenderGroup()` matches the container's `render` group GID to the host's so DRI render devices work across the bind mount. If the target GID is already occupied by a different group in the container, that group is reassigned to a free system GID (999–100) before the render group is created or modified.
+
 ### Container Hostname
 
 During provisioning (`WriteFixups`), the container hostname is set to `<host-hostname>LXC` — e.g., if the host is `myworkstation`, the container gets `myworkstationLXC`. This prevents hostname collisions when both host and container are visible on the same network.
@@ -97,6 +121,21 @@ During provisioning (`WriteFixups`), the container hostname is set to `<host-hos
 ### Container User Groups
 
 The container user is added to: `adm,sudo,video,audio` (plus `render` if a render group exists matching the host's render GID). The container-side sudoers rule at `/etc/sudoers.d/intuneme` grants `<user> ALL=(ALL) NOPASSWD: ALL` for passwordless operations inside the container.
+
+### SELinux Support
+
+On SELinux-enforcing systems (Fedora, Bazzite), `InstallSELinuxPolicy()` during `init`:
+
+1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`
+2. Installs a custom policy module (`intuneme-machined`) that allows `systemd_machined_t` to:
+   - Open/read/write/ioctl PTY devices (`user_devpts_t`) — required for `machinectl shell`
+   - Read symlinks in `/tmp` (`user_tmp_t`) — required for `/tmp/ptmx` traversal
+
+### Password Setting
+
+Container password is set via a bind-mounted temp file to avoid shell injection: the CLI writes `user:password` to a host temp file, bind-mounts it read-only as `/run/chpasswd-input`, and runs `chpasswd < /run/chpasswd-input` inside the container via `systemd-nspawn`.
+
+Password validation (both CLI-side and container PAM): minimum 12 chars, at least one digit, uppercase, lowercase, and special character, no username substring.
 
 ### Profile Script Environment
 
@@ -198,7 +237,8 @@ intuneme installs these on the host (all reversible via `destroy`):
 |----------|------|--------------|------------|
 | Polkit rule | `/etc/polkit-1/rules.d/50-intuneme.rules` | `init` | `destroy` |
 | Sudoers rule | `/etc/sudoers.d/intuneme-exec` | `init` (reinstalled by `start`) | `destroy` |
-| Udev rules | `/etc/udev/rules.d/70-intuneme-*.rules` | `start` | `stop`, `destroy` |
+| Udev rules (YubiKey) | `/etc/udev/rules.d/70-intuneme-yubikey.rules` | `start` | `stop`, `destroy` |
+| Udev rules (video) | `/etc/udev/rules.d/70-intuneme-video.rules` | `start` | `stop`, `destroy` |
 | Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop`, `destroy` |
 | Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | Manual |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
