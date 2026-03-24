@@ -51,7 +51,7 @@ intuneme shell
 intune-portal
 ```
 
-`destroy` removes the rootfs and cleans Intune enrollment state from `~/Intune/`. Other files in `~/Intune/` — Downloads, Edge profile, and so on — are preserved.
+`destroy` removes the rootfs, udev rules, polkit rule, and sudoers rule. It also cleans Intune enrollment state, keyrings, and broker state from `~/Intune/`. Other files in `~/Intune/` — Downloads, Edge profile, and so on — are preserved.
 
 ### When to re-enroll vs. upgrade
 

@@ -45,7 +45,7 @@ The data root can be overridden with `--root <path>` on any command.
 `~/Intune/` on the host is bind-mounted as `/home/<user>/` inside the container — the container user's home directory. This means enrollment state, browser profiles, keyring data, and downloads all live on the host filesystem and survive container rebuilds.
 
 !!! note
-    `intuneme destroy` removes the rootfs and cleans Intune enrollment state from `~/Intune/.config/intune/`. Other files in `~/Intune/` (Downloads, browser bookmarks, etc.) are preserved.
+    `intuneme destroy` removes the rootfs, udev rules, polkit rule, and sudoers rule. It also cleans Intune enrollment state from `~/Intune/`, including `.config/intune/`, `.local/share/intune/`, `.local/share/intune-portal/`, `.local/share/keyrings/`, `.local/state/microsoft-identity-broker/`, and `.cache/intune-portal/`. Other files in `~/Intune/` (Downloads, Edge profile, etc.) are preserved.
 
 ## What persists across `recreate`
 

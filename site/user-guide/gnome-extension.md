@@ -26,6 +26,12 @@ Log out and back in to activate the extension. After logging back in, the intune
 
 The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback.
 
+## Supported terminal emulators
+
+The shell shortcut in the extension opens an interactive terminal inside the container. The extension checks `$TERMINAL` first, then tries the following terminals in order: **Ghostty**, **Ptyxis**, **GNOME Console (kgx)**, **GNOME Terminal**, and **xterm**.
+
+Set the `TERMINAL` environment variable to override the default search order — for example, if you prefer a terminal that is not in the built-in list.
+
 ## Passwordless app launch
 
 `intuneme init` installs a sudoers rule at `/etc/sudoers.d/intuneme-exec` that allows the host user to run `nsenter` into the container without a password prompt. This is what enables the extension (and [desktop shortcuts](desktop-shortcuts.md)) to launch Edge and Intune Portal without a terminal window appearing to ask for a sudo password.
