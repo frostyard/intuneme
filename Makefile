@@ -1,4 +1,4 @@
-.PHONY: build clean install test run help completions manpages docs
+.PHONY: build clean install test run help completions manpages gendocs docs
 
 BINARY_NAME=intuneme
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -52,7 +52,12 @@ manpages: build ## Generate man pages
 	@mkdir -p manpages
 	@./$(BINARY_NAME) man > manpages/$(BINARY_NAME).1
 
-docs: completions manpages ## Generate all documentation
+gendocs: build ## Generate CLI reference markdown for MkDocs
+	@echo "Generating CLI reference..."
+	@mkdir -p site/reference/cli
+	@./$(BINARY_NAME) gendocs site/reference/cli/
+
+docs: completions manpages gendocs ## Generate all documentation
 
 deps: ## Download dependencies
 	@echo "Downloading dependencies..."

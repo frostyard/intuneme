@@ -19,15 +19,18 @@ The build script (`build_files/build`) adds Microsoft repos and installs:
 
 | Package | Purpose |
 |---------|---------|
-| `ms-identity-broker` | Microsoft identity broker (device enrollment, token management) |
-| `ms-edge-stable` | Microsoft Edge browser |
+| `microsoft-identity-broker` | Microsoft identity broker (device enrollment, token management) |
+| `microsoft-edge-stable` | Microsoft Edge browser |
 | `intune-portal` | Intune Portal app (patched — removes problematic polkit restart in postinst) |
-| `pipewire`, `libpulse0` | Audio support (PipeWire forwarded from host) |
-| `mesa-utils`, `libgl1-mesa-dri` | GPU/OpenGL support |
-| `pcscd`, `yubikey-manager` | Smart card / YubiKey support |
-| `libsecret-1-0`, `gnome-keyring` | Credential storage |
+| `pipewire-audio-client-libraries`, `libpulse0` | Audio support (PipeWire forwarded from host) |
+| `mesa-vulkan-drivers`, `mesa-va-drivers`, `intel-media-va-driver` | GPU/Vulkan/VA-API support |
+| `xdg-desktop-portal-gtk` | Desktop integration portal |
+| `pcscd`, `yubikey-manager`, `opensc` | Smart card / YubiKey support |
+| `libnss3-tools`, `openssl` | Certificate and TLS tooling |
+| `libsecret-tools` | Secret Service CLI (`secret-tool`) for keyring initialization |
 | `sudo`, `cracklib-runtime` | User management, password validation |
-| `unattended-upgrades` | Automatic security updates |
+| `upower` | Power state reporting (required by some Microsoft services) |
+| `unattended-upgrades` | Automatic security updates (includes Edge stable repo) |
 
 ## System Configuration
 
@@ -37,8 +40,10 @@ Static config files in `system_files/` are copied into the image:
 - `/etc/environment` — Disables accessibility bridge (`NO_AT_BRIDGE=1`, `GTK_A11Y=none`)
 
 ### PAM
-- `/etc/pam.d/machine-shell` — PAM stack for `machinectl shell` sessions
-- Password quality: `minlen=12`, requires digit, uppercase, lowercase, special character
+- `/etc/pam.d/machine-shell` — PAM stack for `machinectl shell` sessions (passwordless, polkit-controlled)
+- Password quality via `pam_pwquality`: `minlen=12`, `dcredit=-1`, `ucredit=-1`, `lcredit=-1`, `ocredit=-1` (each requires at least one digit, uppercase, lowercase, special character)
+- PAM modules enabled: `pwquality`, `mkhomedir`, `gnome-keyring`, `intune`, `unix`
+- `/etc/security/pwquality.conf` — enforcing mode with dictionary and username checks
 
 ### Systemd Overrides
 - `microsoft-identity-device-broker.service` — System-level broker override
@@ -46,7 +51,7 @@ Static config files in `system_files/` are copied into the image:
 - `intune-agent.timer` (user) — Timer override for compliance check schedule
 
 ### Edge Wrapper
-- `/usr/local/bin/microsoft-edge` — Wrapper script that launches Edge with appropriate flags for container environment
+- `/usr/local/bin/microsoft-edge` — Wrapper script that adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces) and enables Wayland/WebRTC PipeWire features when `WAYLAND_DISPLAY` is set
 
 ### Polkit
 - `50-pcscd.rules` — Allows smart card daemon access

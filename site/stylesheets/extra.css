@@ -1,0 +1,41 @@
+/* Frostyard — light snow accents */
+
+:root {
+  --frost-soft: #e8f4f8;
+  --frost-accent: #b3dce8;
+  --frost-border: #cce7f0;
+}
+
+[data-md-color-scheme="slate"] {
+  --frost-soft: #1a2a33;
+  --frost-accent: #2d4a5a;
+  --frost-border: #3a5a6a;
+}
+
+/* Subtle frost tint on admonitions */
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+  border-color: var(--frost-accent);
+}
+
+/* Frost-tinted code blocks */
+.md-typeset code {
+  background-color: var(--frost-soft);
+}
+
+[data-md-color-scheme="slate"] .md-typeset code {
+  background-color: var(--frost-soft);
+}
+
+/* Snowflake separator — used via <div class="frost-divider"></div> */
+.frost-divider {
+  text-align: center;
+  margin: 2rem 0;
+  color: var(--frost-accent);
+  font-size: 1.2rem;
+  letter-spacing: 0.5em;
+}
+
+.frost-divider::before {
+  content: "* * *";
+}

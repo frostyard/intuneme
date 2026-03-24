@@ -58,21 +58,36 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 |------|-----------|----------------|-----------|
 | Home directory | `~/Intune` | `/home/<user>` | Persistent (survives recreate) |
 | X11 sockets | `/tmp/.X11-unix` | `/tmp/.X11-unix` | Always |
-| Wayland | `$XDG_RUNTIME_DIR/wayland-*` | Same | Auto-detected on start |
-| PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | Same | Auto-detected on start |
-| PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | Same | Auto-detected on start |
-| X11 auth | `$XAUTHORITY` | `/run/host-xauthority` (ro) | Auto-detected on start |
+| Wayland | `$XDG_RUNTIME_DIR/wayland-0` | `/run/host-wayland` | Auto-detected on start |
+| PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
+| PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
+| X11 auth | `$XAUTHORITY` | `/run/host-xauthority` | Auto-detected on start |
 | GPU | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices for cgroup |
 | Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
+
+### Profile Script Environment
+
+The container profile script (`/etc/profile.d/intuneme.sh`, embedded in Go binary) runs on every login shell session and:
+
+1. Reads `DISPLAY` from `/etc/intuneme-host-display` (written by `start`), defaults to `:0`
+2. Extends `PATH` with `/opt/microsoft/intune/bin` and `/opt/microsoft/microsoft-azurevpnclient`
+3. Sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
+4. Imports display/audio vars into systemd user session so services see them
+5. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`) from `/run/host-*` sockets
+6. On first login per boot (marker in `/tmp`):
+   - Initializes `gnome-keyring-daemon` with `--replace --unlock`
+   - Stores a test secret to force default keyring collection creation
+   - Restarts identity brokers to pick up the initialized keyring
+7. Starts `intune-agent.timer` for compliance checks
 
 ### State Preservation Across Recreate
 
 `recreate` updates the container image while preserving enrollment:
-1. Backs up password hash (from shadow file) and device broker state
+1. Backs up password hash (from `rootfs/etc/shadow`) and device broker state (from `rootfs/var/lib/microsoft-identity-device-broker`)
 2. Deletes old rootfs, pulls new image, re-provisions
-3. Restores password hash and broker state
+3. Restores password hash and broker state into the new rootfs
 
-Enrollment data persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
+Enrollment data (Intune database, app state) persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
 
 ### Runner Abstraction
 
@@ -88,6 +103,21 @@ All shell commands go through the `runner.Runner` interface (`internal/runner/`)
 ### Image Pull Strategy
 
 The puller detects available tools in order: podman → skopeo+umoci → docker. Each implements the `Puller` interface with `PullAndExtract()` to download the OCI image and extract the rootfs.
+
+### Edge Wrapper
+
+The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
+- Always adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces; renderer sandbox stays active)
+- When `WAYLAND_DISPLAY` is set: unsets `DISPLAY`, adds `--enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland`
+
+### GNOME Shell Extension
+
+The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME 47-50) installs to `~/.local/share/gnome-shell/extensions/` and provides:
+- Quick Settings toggle (start/stop container)
+- Status display (container running/stopped, broker proxy state)
+- Menu shortcuts for shell, Edge, Intune Portal
+- Monitors container state via `org.freedesktop.machine1` D-Bus signals with 5-second polling fallback
+- Finds a terminal emulator (checks `$TERMINAL`, then ghostty/ptyxis/kgx/gnome-terminal/xterm)
 
 ## Configuration
 
@@ -132,6 +162,8 @@ intuneme installs these on the host (all reversible via `destroy`):
 | Polkit rule | `/etc/polkit-1/rules.d/50-intuneme.rules` | `init` | `destroy` |
 | Sudoers rule | `/etc/sudoers.d/intuneme-exec` | `init` (reinstalled by `start`) | `destroy` |
 | Udev rules | `/etc/udev/rules.d/70-intuneme-*.rules` | `start` | `stop` |
+| Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop` |
+| Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | Manual |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
 
 ## Detailed Subsystem Docs
