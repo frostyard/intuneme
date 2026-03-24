@@ -14,7 +14,7 @@ The proxy listens on the host's session bus under the well-known name `com.micro
 
 Bus name: `com.microsoft.identity.broker1`
 Object path: `/com/microsoft/identity/broker1`
-Interface: `com.microsoft.identity.broker1`
+Interface: `com.microsoft.identity.Broker1` (note: capital B)
 
 **Methods (8 total):**
 - `acquireTokenInteractively` — Interactive auth (browser popup)
@@ -46,7 +46,7 @@ A login session must be created inside the container so that the session bus soc
 
 ### D-Bus Service Activation
 
-When enabled, a D-Bus service file is installed on the host that triggers `intuneme broker-proxy` on first access to `com.microsoft.identity.broker1`. This enables lazy activation — the proxy starts automatically when an app needs it.
+When enabled, a D-Bus service file is installed at `~/.local/share/dbus-1/services/com.microsoft.identity.broker1.service` that triggers `intuneme broker-proxy` on first access to `com.microsoft.identity.broker1`. This enables lazy activation — the proxy starts automatically when an app needs it.
 
 ## Enabling/Disabling
 

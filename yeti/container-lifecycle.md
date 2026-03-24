@@ -78,7 +78,7 @@ Removes container and enrollment state, preserves user files.
 
 Updates the container image while preserving enrollment. Can switch channels.
 
-**Flags:** `--insiders` (switch to insiders channel), `--password-file`
+**Flags:** `--insiders` (switch to insiders channel)
 
 **Flow:**
 
@@ -99,7 +99,7 @@ Updates the container image while preserving enrollment. Can switch channels.
 
 Reports container state without modifying anything.
 
-**Output fields:** initialized, rootfs_path, machine_name, state (running/stopped), channel (stable/insiders), broker_proxy (enabled/disabled, running/stopped)
+**Output fields (JSON keys):** `initialized` (bool), `root` (string), `rootfs` (string), `machine` (string), `container` ("running"/"stopped"), `channel` ("stable"/"insiders"), `broker_proxy` ("running (PID X)"/"not running", omitted if disabled)
 
 Supports `--json` for machine-readable output via `clix.OutputJSON()`.
 
@@ -147,3 +147,9 @@ Installs the GNOME Shell Quick Settings extension for managing the container fro
 3. Enable extension via `gnome-extensions enable`
 
 The extension provides a Quick Settings toggle (start/stop), status display, and shortcuts for shell, Edge, and Intune Portal. It monitors container state via systemd-machined D-Bus signals with a 5-second polling fallback.
+
+## `intuneme gendocs` (hidden)
+
+Generates markdown CLI reference pages for the MkDocs documentation site.
+
+**Usage:** `intuneme gendocs <output-dir>`
