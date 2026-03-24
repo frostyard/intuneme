@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudo"
 )
 
 // validDisplay matches X11 display formats: ":N" or ":N.S" or "host:N" or "host:N.S"
@@ -86,22 +87,9 @@ func WriteDisplayMarker(r runner.Runner, rootfs, display string) error {
 		return fmt.Errorf("invalid display value: %q", display)
 	}
 
-	tmp, err := os.CreateTemp("", "intuneme-display-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-
 	content := fmt.Sprintf("DISPLAY=%s\n", display)
-	if _, err := tmp.Write([]byte(content)); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	_ = tmp.Close()
-
 	path := filepath.Join(rootfs, displayMarkerPath)
-	_, err = r.Run("sudo", "install", "-m", "0644", tmp.Name(), path)
-	return err
+	return sudo.WriteFile(r, path, []byte(content), 0644)
 }
 
 // DetectHostSockets checks which optional host sockets/files exist and returns

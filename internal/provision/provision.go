@@ -9,26 +9,11 @@ import (
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudo"
 )
 
 //go:embed intuneme-profile.sh
 var intuneProfileScript []byte
-
-// sudoWriteFile writes data to path via a temp file + sudo install.
-func sudoWriteFile(r runner.Runner, path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp("", "intuneme-fixup-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	_ = tmp.Close()
-	_, err = r.Run("sudo", "install", "-m", fmt.Sprintf("%04o", perm), tmp.Name(), path)
-	return err
-}
 
 // sudoMkdirAll creates directories with sudo.
 func sudoMkdirAll(r runner.Runner, path string) error {
@@ -44,7 +29,7 @@ func sudoSymlink(r runner.Runner, target, link string) error {
 
 func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostname string) error {
 	// /etc/hostname
-	if err := sudoWriteFile(r,
+	if err := sudo.WriteFile(r,
 		filepath.Join(rootfsPath, "etc", "hostname"),
 		[]byte(hostname+"\n"), 0644,
 	); err != nil {
@@ -53,7 +38,7 @@ func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostnam
 
 	// /etc/hosts
 	hosts := fmt.Sprintf("127.0.0.1 %s localhost\n", hostname)
-	if err := sudoWriteFile(r,
+	if err := sudo.WriteFile(r,
 		filepath.Join(rootfsPath, "etc", "hosts"),
 		[]byte(hosts), 0644,
 	); err != nil {
@@ -76,7 +61,7 @@ WantedBy=multi-user.target
 `, uid, gid, user)
 
 	svcPath := filepath.Join(rootfsPath, "etc", "systemd", "system", "fix-home-ownership.service")
-	if err := sudoWriteFile(r, svcPath, []byte(svc), 0644); err != nil {
+	if err := sudo.WriteFile(r, svcPath, []byte(svc), 0644); err != nil {
 		return fmt.Errorf("write fix-home-ownership.service: %w", err)
 	}
 
@@ -94,7 +79,7 @@ WantedBy=multi-user.target
 	if err := sudoMkdirAll(r, profileDir); err != nil {
 		return fmt.Errorf("mkdir profile.d: %w", err)
 	}
-	if err := sudoWriteFile(r, filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
+	if err := sudo.WriteFile(r, filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
 		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
 	}
 
@@ -104,7 +89,7 @@ WantedBy=multi-user.target
 		return fmt.Errorf("mkdir sudoers.d: %w", err)
 	}
 	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
-	if err := sudoWriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
+	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
 	}
 

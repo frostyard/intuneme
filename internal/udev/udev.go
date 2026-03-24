@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudo"
 )
 
 const (
@@ -68,22 +69,6 @@ func ScriptPath() string {
 	return filepath.Join(ScriptDir, ScriptName)
 }
 
-// sudoWriteFile writes data to path via a temp file + sudo install.
-func sudoWriteFile(r runner.Runner, path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp("", "intuneme-udev-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	_ = tmp.Close()
-	_, err = r.Run("sudo", "install", "-m", fmt.Sprintf("%04o", perm), tmp.Name(), path)
-	return err
-}
-
 // Install writes the udev rule file and helper script, then reloads udev.
 func Install(r runner.Runner, machineName string) error {
 	// Create script directory.
@@ -92,15 +77,15 @@ func Install(r runner.Runner, machineName string) error {
 	}
 
 	// Write helper script.
-	if err := sudoWriteFile(r, ScriptPath(), []byte(scriptContent(machineName)), 0755); err != nil {
+	if err := sudo.WriteFile(r, ScriptPath(), []byte(scriptContent(machineName)), 0755); err != nil {
 		return fmt.Errorf("install helper script: %w", err)
 	}
 
 	// Write udev rules.
-	if err := sudoWriteFile(r, RulesPath(), []byte(rulesTemplate), 0644); err != nil {
+	if err := sudo.WriteFile(r, RulesPath(), []byte(rulesTemplate), 0644); err != nil {
 		return fmt.Errorf("install yubikey udev rule: %w", err)
 	}
-	if err := sudoWriteFile(r, VideoRulesPath(), []byte(videoRulesTemplate), 0644); err != nil {
+	if err := sudo.WriteFile(r, VideoRulesPath(), []byte(videoRulesTemplate), 0644); err != nil {
 		return fmt.Errorf("install video udev rule: %w", err)
 	}
 
