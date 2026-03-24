@@ -6,7 +6,7 @@ Detailed flows for each lifecycle command. All commands share the `--root` flag 
 
 One-time provisioning that creates the container from scratch.
 
-**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use insiders channel)
+**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use insiders channel), `--tmp-dir` (temp directory for image extraction)
 
 **Steps:**
 
@@ -61,27 +61,29 @@ Graceful shutdown via `runStop()` (shared between `stop` command and internal us
 
 ## `intuneme destroy`
 
-Removes container and enrollment state, preserves user files.
+Removes container and all host modifications, preserves user files.
 
 **Flow:**
 
-1. **Stop container** if running — calls `nspawn.Stop()` directly (does NOT use `runStop()`, so no udev cleanup or broker proxy stop)
-2. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec` (note: polkit rule is NOT removed)
-3. **Delete rootfs** — `sudo rm -rf` the rootfs directory
-4. **Remove config** — Delete `config.toml`
-5. **Clean enrollment state** from `~/Intune`:
+1. **Stop container** if running — calls `nspawn.Stop()` directly (does NOT use `runStop()`, so no broker proxy stop)
+2. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
+3. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
+4. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec`
+5. **Delete rootfs** — `sudo rm -rf` the rootfs directory
+6. **Remove config** — Delete `config.toml`
+7. **Clean enrollment state** from `~/Intune`:
    - `.config/intune/` (enrollment database)
    - `.local/share/intune/`, `.local/share/intune-portal/` (app state)
    - `.local/share/keyrings/` (gnome-keyring)
    - `.local/state/microsoft-identity-broker/` (broker state)
    - `.cache/intune-portal/` (cache)
-6. **Preserve user files** — Downloads, documents, etc. remain in `~/Intune`
+8. **Preserve user files** — Downloads, documents, etc. remain in `~/Intune`
 
 ## `intuneme recreate`
 
 Updates the container image while preserving enrollment. Can switch channels.
 
-**Flags:** `--insiders` (switch to insiders channel)
+**Flags:** `--insiders` (switch to insiders channel), `--tmp-dir` (temp directory for image extraction)
 
 **Flow:**
 

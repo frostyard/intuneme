@@ -28,7 +28,7 @@ ubuntu-intune/        Container image definition
 ├── Containerfile     Multi-stage build (Ubuntu 24.04 base)
 ├── build_files/      Build script (package install, PAM config, patches)
 └── system_files/     Static config files copied into image
-polkit/               Polkit rule template for machinectl access
+polkit/               Polkit rule reference for machinectl access (actual rule generated inline)
 scripts/              Build helpers (completions, manpages, SELinux, desktop files)
 ```
 
@@ -168,6 +168,8 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`).
 
+Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.InstallPolkitRule()` and allows both `sudo` and `wheel` groups to manage nspawn machines. The `polkit/` directory in the repo contains a reference copy that only checks `sudo` — the installed version is authoritative.
+
 ## Storage Layout
 
 ```
@@ -196,8 +198,8 @@ intuneme installs these on the host (all reversible via `destroy`):
 |----------|------|--------------|------------|
 | Polkit rule | `/etc/polkit-1/rules.d/50-intuneme.rules` | `init` | `destroy` |
 | Sudoers rule | `/etc/sudoers.d/intuneme-exec` | `init` (reinstalled by `start`) | `destroy` |
-| Udev rules | `/etc/udev/rules.d/70-intuneme-*.rules` | `start` | `stop` |
-| Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop` |
+| Udev rules | `/etc/udev/rules.d/70-intuneme-*.rules` | `start` | `stop`, `destroy` |
+| Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop`, `destroy` |
 | Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | Manual |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
 
