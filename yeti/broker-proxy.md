@@ -42,7 +42,7 @@ Linger must be enabled for the container user so that the user session (and sess
 
 ### Login Session
 
-A login session must be created inside the container so that the session bus socket is initialized. The `start` command creates this via `machinectl` and waits for the socket to appear.
+A login session must be created inside the container so that the session bus socket is initialized. The `start` command creates this via `machinectl shell <user>@<machine> /bin/bash --login -c "exec sleep infinity"`. The login shell sources `intuneme.sh` (initializing keyring, display, etc.) and stays alive via `sleep infinity` so the keyring daemon persists. The `start` command waits up to 30 seconds for the session bus socket to appear.
 
 ### D-Bus Service Activation
 

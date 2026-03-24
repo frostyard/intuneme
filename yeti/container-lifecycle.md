@@ -17,7 +17,7 @@ One-time provisioning that creates the container from scratch.
 5. **Configure GPU access** — Detect host render group GID, create matching group in container, add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: rename existing user with same UID, create new user, or update existing user's groups
 7. **Set password** — Validate locally (12+ chars, mixed case, digit, special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd`
-8. **Write fixups** — hostname, `/etc/hosts`, `profile.d/intuneme.sh`, `fix-home-ownership.service`, PAM sudoers
+8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, `profile.d/intuneme.sh`, `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
 9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
 10. **Install sudoers rule** — `/etc/sudoers.d/intuneme-exec` for passwordless nsenter (validated with `visudo -c`)
 11. **SELinux** (if detected) — Install custom policy module, relabel rootfs as `container_file_t`
@@ -47,14 +47,14 @@ Boots the container and sets up runtime environment.
 
 ## `intuneme stop`
 
-Graceful shutdown shared between `stop` and `recreate` commands.
+Graceful shutdown via `runStop()` (shared between `stop` command and internal use).
 
 **Flow:**
 
 1. **Stop broker proxy** (if enabled) — Kill process by PID file, remove PID file
-2. **Remove udev rules** — Delete rules files and helper script, reload udev (idempotent)
+2. **Remove udev rules** — Delete rules files, helper script, and state dir (`/run/intuneme/devices`), reload udev (idempotent)
 3. **Power off container** — `machinectl poweroff <machine>`
-4. **Wait for deregistration** — Poll `machinectl` up to 30 seconds until container is no longer listed
+4. **Wait for deregistration** — Poll `machinectl` every 500ms, up to 60 attempts (30 seconds max)
 
 ## `intuneme destroy`
 
@@ -62,8 +62,8 @@ Removes container and enrollment state, preserves user files.
 
 **Flow:**
 
-1. **Stop container** if running (uses same `runStop()`)
-2. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec`
+1. **Stop container** if running — calls `nspawn.Stop()` directly (does NOT use `runStop()`, so no udev cleanup or broker proxy stop)
+2. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec` (note: polkit rule is NOT removed)
 3. **Delete rootfs** — `sudo rm -rf` the rootfs directory
 4. **Remove config** — Delete `config.toml`
 5. **Clean enrollment state** from `~/Intune`:
@@ -82,18 +82,20 @@ Updates the container image while preserving enrollment. Can switch channels.
 
 **Flow:**
 
-1. **Early validation** — Check sudoers rule exists, validate sudo access
-2. **Stop container** if running
+1. **Early validation** — Verify initialized, validate sudo access
+2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.Stop()` directly
 3. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
-   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` (`provision.BackupDeviceBrokerState()`)
+   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` to temp dir (`provision.BackupDeviceBrokerState()`)
 4. **Delete old rootfs** — `sudo rm -rf`
-5. **Pull and extract new image** — Same as init step
-6. **Re-provision** — GPU, user, hostname, fixups, polkit rule (same steps as init)
+5. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag)
+6. **Re-provision** — GPU render group, user creation, hostname (`<host>LXC`), fixups, polkit rule
 7. **Restore state:**
-   - Write backed-up password hash into new shadow file
-   - Copy backed-up broker state back to `~/Intune`
+   - Write backed-up password hash into new `rootfs/etc/shadow`
+   - Copy backed-up device broker state back into `rootfs/var/lib/microsoft-identity-device-broker`
 8. **Update config** — Save with potentially new insiders flag
+
+Note: `recreate` reinstalls the host polkit rule but does NOT reinstall the host sudoers rule — `start` handles that idempotently.
 
 ## `intuneme status`
 
