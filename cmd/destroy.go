@@ -10,6 +10,7 @@ import (
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
+	"github.com/frostyard/intuneme/internal/udev"
 	"github.com/spf13/cobra"
 )
 
@@ -32,6 +33,8 @@ var destroyCmd = &cobra.Command{
 			if nspawn.IsRunning(r, cfg.MachineName) {
 				rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
 			}
+			rep.Message("[dry-run] Would remove udev rules")
+			rep.Message("[dry-run] Would remove polkit rule")
 			rep.Message("[dry-run] Would remove %s", root)
 			rep.Message("[dry-run] Would clean Intune state from ~/Intune")
 			return nil
@@ -45,7 +48,17 @@ var destroyCmd = &cobra.Command{
 			}
 		}
 
-		// Remove host-level rules installed by init.
+		// Remove udev rules and hotplug artifacts.
+		if err := udev.Remove(r); err != nil {
+			rep.Message("Warning: failed to remove udev rules: %v", err)
+		}
+
+		// Remove polkit rule installed by init.
+		if _, err := r.Run("sudo", "rm", "-f", "/etc/polkit-1/rules.d/50-intuneme.rules"); err != nil {
+			rep.Message("Warning: failed to remove polkit rule: %v", err)
+		}
+
+		// Remove sudoers rule installed by init.
 		sudoers.Remove(r)
 
 		// Remove rootfs with sudo (owned by root after nspawn use)
