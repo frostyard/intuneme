@@ -8,7 +8,7 @@ This page covers the day-to-day commands for working with intuneme once you have
 intuneme start
 ```
 
-This boots the container and installs udev hotplug rules for USB devices. The container runs a full systemd instance — it takes a few seconds to be ready.
+This boots the container, installs udev hotplug rules for USB devices, and configures [Nvidia GPU forwarding](nvidia-gpu.md) if a GPU is detected. The container runs a full systemd instance — it takes a few seconds to be ready.
 
 ## Launch apps
 

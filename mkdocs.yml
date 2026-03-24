@@ -64,6 +64,7 @@ nav:
       - Broker Proxy (SSO): user-guide/broker-proxy.md
       - Device Hotplug: user-guide/device-hotplug.md
       - GNOME Extension: user-guide/gnome-extension.md
+      - Nvidia GPU: user-guide/nvidia-gpu.md
       - Desktop Shortcuts: user-guide/desktop-shortcuts.md
       - Upgrading: user-guide/upgrading.md
   - Troubleshooting: troubleshooting.md

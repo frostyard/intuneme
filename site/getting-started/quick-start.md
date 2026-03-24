@@ -12,6 +12,13 @@ This pulls the Ubuntu 24.04 container image from GHCR, extracts the rootfs, inst
 
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
 
+!!! tip "Fedora / tmpfs systems"
+    If `init` fails with "disk quota exceeded", your `/tmp` is likely a size-limited tmpfs. Use `--tmp-dir` to redirect temporary files to disk:
+    ```bash
+    intuneme init --tmp-dir /var/tmp
+    ```
+    See [Troubleshooting](../troubleshooting.md) for details.
+
 !!! note "Insiders channel"
     To use the insiders (pre-release) container image, add the `--insiders` flag:
     ```bash
@@ -25,7 +32,7 @@ See the [init command reference](../reference/cli/intuneme_init.md) for the full
 intuneme start
 ```
 
-This boots the container (systemd as PID 1), mounts host display/audio/GPU resources into it, and installs udev rules for device hotplug (YubiKey, webcam). The container is ready when `intuneme status` shows it as running.
+This boots the container (systemd as PID 1), mounts host display/audio/GPU resources into it, configures Nvidia GPU forwarding if detected, and installs udev rules for device hotplug (YubiKey, webcam). The container is ready when `intuneme status` shows it as running.
 
 ## 3. Open a shell inside the container
 

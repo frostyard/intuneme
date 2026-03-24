@@ -20,6 +20,13 @@ intuneme uses two directories on the host: a data directory for container state,
 
 The data root can be overridden with `--root <path>` on any command.
 
+## Runtime paths (while container is running)
+
+| Path | Description |
+|------|-------------|
+| `/run/intuneme/devices/` | Udev forwarded device state (tmpfs, only while running) |
+| `/run/host-nvidia/0/`, `/run/host-nvidia/1/`, ... | Nvidia host library directories bind-mounted read-only into the container (only on Nvidia systems) |
+
 ## Container home directory
 
 ```

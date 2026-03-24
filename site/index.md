@@ -17,7 +17,7 @@ graph LR
         home["~/Intune/"]
         display["Display\n(X11 / Wayland)"]
         audio["Audio\n(PipeWire)"]
-        gpu["/dev/dri"]
+        gpu["/dev/dri\n/dev/nvidia*"]
         devices["USB / Video\n(hotplug)"]
         proxy["broker-proxy\n(opt-in)"]
     end
@@ -54,6 +54,7 @@ graph LR
 - **Broker proxy (host-side SSO)** — An opt-in D-Bus forwarding proxy lets host apps (Edge, VS Code) authenticate via the container's Intune enrollment — no re-authentication needed on the host.
 - **Device hotplug** — YubiKey USB security keys and webcams are automatically forwarded into the container via udev rules. Plug in, plug out; the container tracks it.
 - **GNOME Quick Settings extension** — A one-click toggle in GNOME Quick Settings starts or stops the container and provides shortcuts to launch Edge and Intune Portal.
+- **Nvidia GPU support** — Nvidia GPUs are auto-detected at boot. Host driver libraries, device nodes, and Vulkan/EGL vendor files are forwarded into the container — no manual setup required.
 - **Desktop shortcuts** — `.desktop` entries for Edge and Intune Portal integrate with the GNOME application grid so you can launch corporate apps like any other app.
 - **Auto-generated CLI reference** — Full command and flag documentation generated from the source.
 

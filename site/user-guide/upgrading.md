@@ -32,6 +32,12 @@ No re-enrollment is needed after `recreate`. Your existing enrollment, browser p
 !!! tip
     Use `--insiders` to switch to (or stay on) the insiders channel image: `intuneme recreate --insiders`
 
+!!! tip "Fedora / tmpfs systems"
+    If `recreate` fails with "disk quota exceeded", use `--tmp-dir` to write temporary files to a disk-backed directory:
+    ```bash
+    intuneme recreate --tmp-dir /var/tmp
+    ```
+
 ## Re-enrollment
 
 If you need to start completely fresh with Intune, destroy and re-initialize the container:
