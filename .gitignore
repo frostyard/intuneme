@@ -7,3 +7,6 @@
 /completions
 /manpages
 /dist
+/_site
+/site/reference/cli
+/.venv

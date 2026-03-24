@@ -1,0 +1,77 @@
+site_name: intuneme
+site_description: Provision and manage a systemd-nspawn container running Microsoft Intune on an immutable Linux host.
+site_url: https://frostyard.github.io/intuneme/
+repo_url: https://github.com/frostyard/intuneme
+repo_name: frostyard/intuneme
+docs_dir: site
+site_dir: _site
+
+theme:
+  name: materialx
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Prerequisites: getting-started/prerequisites.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
+  - User Guide:
+      - Daily Workflow: user-guide/daily-workflow.md
+      - Broker Proxy (SSO): user-guide/broker-proxy.md
+      - Device Hotplug: user-guide/device-hotplug.md
+      - GNOME Extension: user-guide/gnome-extension.md
+      - Desktop Shortcuts: user-guide/desktop-shortcuts.md
+      - Upgrading: user-guide/upgrading.md
+  - Troubleshooting: troubleshooting.md
+  - Reference:
+      - CLI Commands: reference/cli/intuneme.md
+      - Configuration: reference/configuration.md
+      - Storage Layout: reference/storage.md
+  - Contributing: contributing.md
+
+extra_css:
+  - stylesheets/extra.css
