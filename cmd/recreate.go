@@ -18,6 +18,7 @@ import (
 )
 
 var insidersRecreate bool
+var tmpDirRecreate string
 
 var recreateCmd = &cobra.Command{
 	Use:   "recreate",
@@ -123,7 +124,7 @@ var recreateCmd = &cobra.Command{
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
-		if err := p.PullAndExtract(r, image, cfg.RootfsPath); err != nil {
+		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirRecreate); err != nil {
 			return err
 		}
 
@@ -184,5 +185,6 @@ var recreateCmd = &cobra.Command{
 
 func init() {
 	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch to the insiders channel container image")
+	recreateCmd.Flags().StringVar(&tmpDirRecreate, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
 	rootCmd.AddCommand(recreateCmd)
 }

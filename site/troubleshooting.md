@@ -2,6 +2,21 @@
 
 Common issues and solutions. Click an item to expand it.
 
+??? question "`intuneme init` fails with \"disk quota exceeded\" on Fedora"
+    Fedora and many systemd-based distros mount `/tmp` as a tmpfs (RAM-backed) with a size limit. The container image export can exceed this limit.
+
+    Use `--tmp-dir` to write temporary files to a disk-backed directory:
+
+    ```bash
+    intuneme init --tmp-dir /var/tmp
+    ```
+
+    The same flag is available on `intuneme recreate`. Alternatively, set the `TMPDIR` environment variable:
+
+    ```bash
+    TMPDIR=/var/tmp intuneme init
+    ```
+
 ??? question "`intuneme shell` fails on Fedora/Bazzite (SELinux)"
     `intuneme init` handles this automatically: it relabels the rootfs as `container_file_t` and installs a policy module that grants `systemd-machined` the PTY access it needs for `machinectl shell`.
 
