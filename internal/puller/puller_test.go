@@ -87,7 +87,7 @@ func TestDetectFallsBackToDocker(t *testing.T) {
 
 func TestPodmanPullAndExtract(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{"podman": true}}
-	p := &PodmanPuller{}
+	p := NewPodmanPuller()
 	rootfs := t.TempDir()
 
 	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
@@ -151,7 +151,7 @@ func TestSkopeoPullAndExtract(t *testing.T) {
 
 func TestDockerPullAndExtract(t *testing.T) {
 	r := &mockRunner{available: map[string]bool{"docker": true}}
-	p := &DockerPuller{}
+	p := NewDockerPuller()
 	rootfs := t.TempDir()
 
 	err := p.PullAndExtract(r, "ghcr.io/frostyard/ubuntu-intune:latest", rootfs)
