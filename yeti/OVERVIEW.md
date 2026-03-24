@@ -18,7 +18,9 @@ internal/
 ├── prereq/           Prerequisite checks (systemd-nspawn, machinectl)
 ├── provision/        Container provisioning (user, fixups, password, polkit, SELinux, backup/restore)
 ├── puller/           OCI image pull + extraction (podman → skopeo+umoci → docker)
+├── nvidia/           Nvidia GPU detection, library bind mounts, and container-side symlink setup
 ├── runner/           Command execution abstraction (mockable interface)
+├── sudo/             Helper for writing files via temp file + sudo install
 ├── sudoers/          Sudoers rule install/remove for passwordless nsenter
 ├── udev/             Udev rules + hotplug script for YubiKey and video devices
 └── version/          Build version + OCI image ref resolution
@@ -62,8 +64,23 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
 | PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
 | X11 auth | `$XAUTHORITY` (see search order below) | `/run/host-xauthority` | Auto-detected on start |
-| GPU | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices for cgroup |
+| GPU (DRI) | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices for cgroup |
+| GPU (Nvidia) | `/dev/nvidia*` | Same | When Nvidia detected; explicit `DeviceAllow` |
+| Nvidia libs | Host lib dirs (from `ldconfig`) | `/run/host-nvidia/<index>/` | Read-only; when Nvidia detected |
+| Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
 | Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
+
+### Nvidia GPU Support
+
+On hosts with Nvidia GPUs, the container needs the device nodes and host userspace libraries (which must match the kernel module version exactly). This is handled by `internal/nvidia/` using a detect-at-start, bind-mount, symlink approach (similar to distrobox):
+
+1. **Detection** — `nvidia.IsPresent()` checks for `/dev/nvidiactl`
+2. **Device bind mounts** — `DetectDevices()` globs `/dev/nvidia*` and `/dev/nvidia-caps/*`. Unlike DRI devices, nspawn does not auto-allow Nvidia devices in cgroups, so each gets an explicit `--property=DeviceAllow=<dev> rwm` boot arg
+3. **Library discovery** — `HostLibraries()` parses `ldconfig -p` output for Nvidia libraries (x86-64 only), deduplicating by basename
+4. **Library bind mounts** — `LibDirMounts()` maps unique host library directories to `/run/host-nvidia/0/`, `/run/host-nvidia/1/`, etc. (read-only). The indexed paths avoid basename collisions
+5. **ICD files** — `HostICDFiles()` and `ICDMounts()` bind-mount Vulkan/EGL vendor JSON files at their standard paths
+6. **Post-boot setup** — After boot, `CleanStaleLinks()` removes any symlinks from previous Nvidia sessions (always, even on non-Nvidia boots). Then `Setup()` creates symlinks in `/usr/lib/x86_64-linux-gnu/` pointing into `/run/host-nvidia/<index>/`, skipping package-owned regular files. Finishes with `ldconfig`
+7. **Environment** — Both the profile script and `Exec()` set `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` when `/run/host-nvidia` exists
 
 ### X11 Authority File Search Order
 
@@ -90,11 +107,12 @@ The container profile script (`/etc/profile.d/intuneme.sh`, embedded in Go binar
 3. Sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
 4. Imports display/audio vars into systemd user session so services see them
 5. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`) from `/run/host-*` sockets
-6. On first login per boot (marker in `/tmp`):
+6. Sets `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` when `/run/host-nvidia` exists, and imports them into the systemd user session
+7. On first login per boot (marker in `/tmp`):
    - Initializes `gnome-keyring-daemon` with `--replace --unlock`
    - Stores a test secret to force default keyring collection creation
    - Restarts identity brokers to pick up the initialized keyring
-7. Starts `intune-agent.timer` for compliance checks
+8. Starts `intune-agent.timer` for compliance checks
 
 ### State Preservation Across Recreate
 

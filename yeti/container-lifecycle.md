@@ -31,15 +31,18 @@ Boots the container and sets up runtime environment.
 
 1. **Load config** — Read `config.toml`, verify rootfs exists
 2. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
-3. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
-4. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
-5. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by profile.d script on container login)
-6. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device cgroup rules, `--boot` flag
-7. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
-8. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules
-9. **Ensure sudoers** — Reinstall sudoers rule if missing (handles upgrades from older versions)
-10. **Forward existing devices** — Detect already-plugged YubiKeys and video devices, forward into container
-11. **Start broker proxy** (if enabled):
+3. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
+4. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
+5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
+6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by profile.d script on container login)
+7. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device cgroup rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
+8. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
+9. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
+10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
+11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules
+12. **Ensure sudoers** — Reinstall sudoers rule if missing (handles upgrades from older versions)
+13. **Forward existing devices** — Detect already-plugged YubiKeys and video devices, forward into container
+14. **Start broker proxy** (if enabled):
     - Enable systemd linger for container user
     - Create login session via `machinectl`
     - Wait for session bus socket to appear
