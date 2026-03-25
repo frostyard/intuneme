@@ -238,10 +238,12 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 
 	// Allow the device in the container's cgroup. DevicePolicy=auto preserves
 	// the existing nspawn device policy and adds our device on top.
-	_, _ = r.Run("sudo", "systemctl", "set-property",
+	if _, err := r.Run("sudo", "systemctl", "set-property",
 		fmt.Sprintf("machine-%s.scope", machine),
 		"DevicePolicy=auto",
-		fmt.Sprintf("DeviceAllow=%s rwm", devnode))
+		fmt.Sprintf("DeviceAllow=%s rwm", devnode)); err != nil {
+		return fmt.Errorf("cgroup DeviceAllow for %s: %w", devnode, err)
+	}
 
 	// Create the device node inside the container.
 	dir := filepath.Dir(devnode)
