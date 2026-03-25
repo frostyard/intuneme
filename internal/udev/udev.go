@@ -221,9 +221,6 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	if err != nil {
 		return err
 	}
-	if pid == "0" {
-		return fmt.Errorf("container %s is not running", machine)
-	}
 
 	// Get major:minor of the device.
 	out, err := r.Run("stat", "-c", "0x%t 0x%T", devnode)
