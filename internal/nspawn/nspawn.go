@@ -180,8 +180,8 @@ func LeaderPID(r runner.Runner, machine string) (string, error) {
 		return "", fmt.Errorf("machinectl show failed: %w", err)
 	}
 	pid := strings.TrimSpace(string(out))
-	if pid == "" {
-		return "", fmt.Errorf("could not determine container leader PID")
+	if pid == "" || pid == "0" {
+		return "", fmt.Errorf("container %s is not running", machine)
 	}
 	return pid, nil
 }

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 )
 
@@ -16,7 +17,7 @@ const containerLibDir = "/usr/lib/x86_64-linux-gnu"
 // (even non-Nvidia boots) because the rootfs persists across boots and
 // stale symlinks from a previous Nvidia session could break the loader.
 func CleanStaleLinks(r runner.Runner, machine string) error {
-	leaderPID, err := leaderPID(r, machine)
+	leaderPID, err := nspawn.LeaderPID(r, machine)
 	if err != nil {
 		return err
 	}
@@ -41,7 +42,7 @@ func CleanStaleLinks(r runner.Runner, machine string) error {
 // pointing from the container's lib dir into the bind-mounted host directories.
 // It also runs ldconfig to update the dynamic linker cache.
 func Setup(r runner.Runner, machine string, libs []LibMapping) error {
-	leaderPID, err := leaderPID(r, machine)
+	leaderPID, err := nspawn.LeaderPID(r, machine)
 	if err != nil {
 		return err
 	}
@@ -78,17 +79,4 @@ func Setup(r runner.Runner, machine string, libs []LibMapping) error {
 	}
 
 	return nil
-}
-
-// leaderPID returns the PID of the container's init process.
-func leaderPID(r runner.Runner, machine string) (string, error) {
-	out, err := r.Run("machinectl", "show", machine, "-p", "Leader", "--value")
-	if err != nil {
-		return "", fmt.Errorf("machinectl show failed: %w", err)
-	}
-	pid := strings.TrimSpace(string(out))
-	if pid == "" || pid == "0" {
-		return "", fmt.Errorf("container %s is not running", machine)
-	}
-	return pid, nil
 }
