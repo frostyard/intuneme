@@ -274,7 +274,7 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	// Record in state directory.
 	_, _ = r.Run("sudo", "mkdir", "-p", StateDir)
 	stateFile := filepath.Join(StateDir, strings.ReplaceAll(devnode, "/", "_"))
-	_, _ = r.Run("sudo", "bash", "-c", fmt.Sprintf("echo %q > %s", devnode, stateFile))
+	_ = sudo.WriteFile(r, stateFile, []byte(devnode+"\n"), 0644)
 
 	return nil
 }
