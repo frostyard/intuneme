@@ -20,7 +20,7 @@ internal/
 ├── puller/           OCI image pull + extraction (podman → skopeo+umoci → docker)
 ├── nvidia/           Nvidia GPU detection, library bind mounts, and container-side symlink setup
 ├── runner/           Command execution abstraction (mockable interface)
-├── sudo/             Helper for writing files via temp file + sudo install
+├── sudo/             Helper for writing files via temp file + sudo install (used by provision, nspawn, udev)
 ├── sudoers/          Sudoers rule install/remove for passwordless nsenter
 ├── udev/             Udev rules + hotplug script for YubiKey and video devices
 └── version/          Build version + OCI image ref resolution
@@ -82,13 +82,14 @@ YubiKeys and video capture devices (webcams) can be forwarded into the running c
 | Video (`/dev/video*`, `/dev/media*`) | Glob `/dev/video*`, `/dev/media*` | `70-intuneme-video.rules` | `0660 root:video` |
 
 **Forwarding mechanism** (`udev.ForwardDevice()`):
-1. Get device major:minor via `stat`
-2. Add `DeviceAllow` to the container's cgroup scope dynamically (`systemctl set-property machine-<name>.scope DevicePolicy=auto DeviceAllow=<dev> rwm`)
-3. Create the device node inside the container via `nsenter` + `mknod`
-4. Set permissions (restrictive `0660 root:video` for video devices, `0666` for others)
-5. Record in state directory (`/run/intuneme/devices/`) for cleanup
+1. Get container leader PID via `nspawn.LeaderPID()`
+2. Get device major:minor via `stat`
+3. Add `DeviceAllow` to the container's cgroup scope dynamically (`systemctl set-property machine-<name>.scope DevicePolicy=auto DeviceAllow=<dev> rwm`) — returns error on failure
+4. Create the device node inside the container via `nsenter` + `mknod`
+5. Set permissions (restrictive `0660 root:video` for video devices, `0666` for others)
+6. Record in state directory (`/run/intuneme/devices/`) via `sudo.WriteFile()` for cleanup
 
-**Udev hotplug flow:** The helper script at `/usr/local/lib/intuneme/usb-hotplug` is triggered by udev rules when devices are added/removed. It calls `ForwardDevice()` for adds and cleans up state for removes.
+**Udev hotplug flow:** The helper script at `/usr/local/lib/intuneme/usb-hotplug` is triggered by udev rules when devices are added/removed. It calls `ForwardDevice()` for adds and cleans up state for removes. All forwarding operations go through `nspawn.LeaderPID()` to locate the container's init process for namespace entry.
 
 ### Nvidia GPU Support
 
