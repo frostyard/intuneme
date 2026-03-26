@@ -53,6 +53,12 @@ intune-portal
 
 `destroy` removes the rootfs, udev rules, polkit rule, and sudoers rule. It also cleans Intune enrollment state, keyrings, and broker state from `~/Intune/`. Other files in `~/Intune/` — Downloads, Edge profile, and so on — are preserved.
 
+To fully uninstall all intuneme artifacts from the host, including the GNOME extension, D-Bus service file, and the entire `~/Intune/` directory:
+
+```bash
+intuneme destroy --all
+```
+
 ### When to re-enroll vs. upgrade
 
 | Scenario | Recommended action |
@@ -61,6 +67,7 @@ intune-portal
 | Enrollment is broken or expired | `intuneme destroy` + `intuneme init` |
 | Container rootfs is corrupted | `intuneme recreate` (or `destroy` + `init`) |
 | Switching to a different Intune tenant | `intuneme destroy` + `intuneme init` |
+| Full uninstall (removing all artifacts) | `intuneme destroy --all` |
 
 !!! warning
     Re-enrollment (`destroy` + `init`) will require you to go through the full Intune enrollment process again. Your IT administrator may need to approve the device before you regain access to corporate resources.
