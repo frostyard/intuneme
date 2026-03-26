@@ -47,7 +47,7 @@ The data root can be overridden with `--root <path>` on any command.
 !!! note
     `intuneme destroy` removes the rootfs, udev rules, polkit rule, and sudoers rule. It also cleans Intune enrollment state from `~/Intune/`, including `.config/intune/`, `.local/share/intune/`, `.local/share/intune-portal/`, `.local/share/keyrings/`, `.local/state/microsoft-identity-broker/`, and `.cache/intune-portal/`. Other files in `~/Intune/` (Downloads, Edge profile, etc.) are preserved.
 
-    `intuneme destroy --all` additionally removes the GNOME extension, polkit policy action, D-Bus broker service file, the entire `~/Intune/` directory, and the entire `~/.local/share/intuneme/` data directory — a full uninstall of all intuneme artifacts from the host.
+    `intuneme destroy --all` additionally removes the GNOME extension, polkit policy action, D-Bus broker service file, the entire `~/Intune/` directory, and the entire data root directory (default `~/.local/share/intuneme/`) — a full uninstall of all intuneme artifacts from the host.
 
 ## What persists across `recreate`
 

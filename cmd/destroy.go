@@ -27,8 +27,9 @@ Intune enrollment state from ~/Intune. Other files in ~/Intune (Downloads,
 Edge profile) are preserved.
 
 With --all, additionally removes the GNOME extension, polkit policy action,
-D-Bus broker service file, and the ~/Intune and ~/.local/share/intuneme
-directories entirely — a full uninstall of all intuneme artifacts.`,
+D-Bus broker service file, the ~/Intune directory, and the intuneme data root
+directory (default ~/.local/share/intuneme) entirely — a full uninstall of all
+intuneme artifacts.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
 		root := rootDir
@@ -102,8 +103,11 @@ directories entirely — a full uninstall of all intuneme artifacts.`,
 
 		// Clean intune state from ~/Intune (persists via bind mount)
 		home, err := os.UserHomeDir()
-		if err != nil || !filepath.IsAbs(home) {
+		if err != nil {
 			return fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		if !filepath.IsAbs(home) {
+			return fmt.Errorf("home directory is not an absolute path: %q", home)
 		}
 		intuneHome := filepath.Join(home, "Intune")
 
