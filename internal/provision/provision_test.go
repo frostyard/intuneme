@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/std/reporter"
 )
 
 type mockRunner struct {
@@ -286,7 +288,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 991)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 991)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -310,7 +312,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 991)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 991)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -330,7 +332,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 991)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 991)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -355,7 +357,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 992)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 992)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -384,7 +386,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 992)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 992)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -408,7 +410,7 @@ func TestEnsureRenderGroup(t *testing.T) {
 		}
 
 		r := &mockRunner{}
-		err := EnsureRenderGroup(r, tmp, 992)
+		err := EnsureRenderGroup(r, reporter.NoopReporter{}, tmp, 992)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -440,7 +442,7 @@ func TestCreateContainerUserIncludesRender(t *testing.T) {
 	}
 
 	r := &mockRunner{}
-	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	err := CreateContainerUser(r, reporter.NoopReporter{}, tmp, "alice", 1000, 1000)
 	if err != nil {
 		t.Fatalf("CreateContainerUser error: %v", err)
 	}
@@ -465,7 +467,7 @@ func TestCreateContainerUserNoRenderGroupSkipsIt(t *testing.T) {
 	}
 
 	r := &mockRunner{}
-	err := CreateContainerUser(r, tmp, "alice", 1000, 1000)
+	err := CreateContainerUser(r, reporter.NoopReporter{}, tmp, "alice", 1000, 1000)
 	if err != nil {
 		t.Fatalf("CreateContainerUser error: %v", err)
 	}

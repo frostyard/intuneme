@@ -139,7 +139,7 @@ func userGroups(rootfsPath string) string {
 // CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
 // If a user with the target UID already exists (e.g., "ubuntu" from the OCI image),
 // it is renamed and reconfigured. Otherwise a new user is created.
-func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int) error {
+func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, user string, uid, gid int) error {
 	// Check if a user with this UID already exists in the rootfs passwd
 	passwdPath := filepath.Join(rootfsPath, "etc", "passwd")
 	existingUser, err := findUserByUID(passwdPath, uid)
@@ -149,7 +149,7 @@ func CreateContainerUser(r runner.Runner, rootfsPath, user string, uid, gid int)
 
 	if existingUser != "" && existingUser != user {
 		// Rename the existing user and fix up their home directory
-		fmt.Printf("  Renaming existing user %q to %q...\n", existingUser, user)
+		rep.Message("Renaming existing user %q to %q...", existingUser, user)
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
 			"usermod", "--login", user, "--home", fmt.Sprintf("/home/%s", user), "--move-home", existingUser,
 		); err != nil {
@@ -270,7 +270,7 @@ func FindHostRenderGID() (int, error) {
 // If the group is missing it is created; if it exists with a different GID it is modified.
 // If the target GID is already occupied by another group, that group is reassigned to a
 // free system GID first.
-func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
+func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string, gid int) error {
 	containerGroupPath := filepath.Join(rootfsPath, "etc", "group")
 	existingGID, err := findGroupGID(containerGroupPath, "render")
 	if err != nil {
@@ -291,7 +291,7 @@ func EnsureRenderGroup(r runner.Runner, rootfsPath string, gid int) error {
 		if err != nil {
 			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
 		}
-		fmt.Printf("  Reassigning group %q from GID %d to %d...\n", conflicting, gid, freeGID)
+		rep.Message("Reassigning group %q from GID %d to %d...", conflicting, gid, freeGID)
 		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
 			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
 			return fmt.Errorf("reassign group %s: %w", conflicting, err)
@@ -435,13 +435,13 @@ func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, user
 		if clix.Verbose {
 			rep.Message("Configuring GPU render group...")
 		}
-		if err := EnsureRenderGroup(r, rootfsPath, renderGID); err != nil {
+		if err := EnsureRenderGroup(r, rep, rootfsPath, renderGID); err != nil {
 			rep.Warning("render group setup failed: %v", err)
 		}
 	}
 
 	rep.Message("Creating container user...")
-	if err := CreateContainerUser(r, rootfsPath, username, uid, gid); err != nil {
+	if err := CreateContainerUser(r, rep, rootfsPath, username, uid, gid); err != nil {
 		return err
 	}
 
