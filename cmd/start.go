@@ -23,7 +23,11 @@ var startCmd = &cobra.Command{
 		r := &runner.SystemRunner{}
 		root := rootDir
 		if root == "" {
-			root = config.DefaultRoot()
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
 		}
 
 		cfg, err := config.Load(root)
@@ -41,7 +45,10 @@ var startCmd = &cobra.Command{
 			return nil
 		}
 
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot determine home directory: %w", err)
+		}
 		intuneHome := home + "/Intune"
 		containerHome := fmt.Sprintf("/home/%s", cfg.HostUser)
 		sockets := nspawn.DetectHostSockets(cfg.HostUID)

@@ -32,7 +32,11 @@ var initCmd = &cobra.Command{
 		r := &runner.SystemRunner{}
 		root := rootDir
 		if root == "" {
-			root = config.DefaultRoot()
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
 		}
 
 		// Check prerequisites
@@ -65,7 +69,10 @@ var initCmd = &cobra.Command{
 		}
 
 		// Create ~/Intune directory
-		home, _ := os.UserHomeDir()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot determine home directory: %w", err)
+		}
 		intuneHome := filepath.Join(home, "Intune")
 		if err := os.MkdirAll(intuneHome, 0755); err != nil {
 			return fmt.Errorf("create ~/Intune: %w", err)

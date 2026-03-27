@@ -75,7 +75,11 @@ var stopCmd = &cobra.Command{
 		r := &runner.SystemRunner{}
 		root := rootDir
 		if root == "" {
-			root = config.DefaultRoot()
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
 		}
 		return runStop(r, root, 500*time.Millisecond, 60)
 	},

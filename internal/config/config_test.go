@@ -7,9 +7,15 @@ import (
 )
 
 func TestDefaultRoot(t *testing.T) {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir() error: %v", err)
+	}
 	want := filepath.Join(home, ".local", "share", "intuneme")
-	got := DefaultRoot()
+	got, err := DefaultRoot()
+	if err != nil {
+		t.Fatalf("DefaultRoot() error: %v", err)
+	}
 	if got != want {
 		t.Errorf("DefaultRoot() = %q, want %q", got, want)
 	}

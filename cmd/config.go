@@ -28,7 +28,11 @@ var brokerProxyEnableCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		root := rootDir
 		if root == "" {
-			root = config.DefaultRoot()
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
 		}
 
 		cfg, err := config.Load(root)
@@ -69,7 +73,11 @@ var brokerProxyDisableCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		root := rootDir
 		if root == "" {
-			root = config.DefaultRoot()
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
 		}
 
 		cfg, err := config.Load(root)

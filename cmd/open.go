@@ -23,7 +23,11 @@ func makeOpenAppCmd(use, short, command string) *cobra.Command {
 			r := &runner.SystemRunner{}
 			root := rootDir
 			if root == "" {
-				root = config.DefaultRoot()
+				var err error
+				root, err = config.DefaultRoot()
+				if err != nil {
+					return err
+				}
 			}
 
 			cfg, err := config.Load(root)
