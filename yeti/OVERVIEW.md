@@ -163,6 +163,15 @@ The container profile script (`/etc/profile.d/intuneme.sh`, embedded in Go binar
 
 Enrollment data (Intune database, app state) persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
 
+### CLI Framework (clix + reporter)
+
+The CLI uses `frostyard/clix` and `frostyard/std/reporter` for consistent output and common flags:
+
+- **Reporter** — A `reporter.Reporter` (initialized in `PersistentPreRunE` via `clix.NewReporter()`) is passed through the command tree and into `internal/` packages. All user-facing output goes through `rep.Message()` and `rep.Warning()` rather than direct `fmt.Print` calls.
+- **DryRun** — `clix.DryRun` flag enables dry-run mode across commands.
+- **Verbose** — `clix.Verbose` flag enables verbose output.
+- **JSON output** — `clix.OutputJSON()` provides `--output json` support (used by `status`).
+
 ### Runner Abstraction
 
 All shell commands go through the `runner.Runner` interface (`internal/runner/`), which provides `Run()`, `RunAttached()`, `RunBackground()`, and `LookPath()`. This makes command execution mockable for testing.
@@ -207,6 +216,17 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `insiders` | bool | Use insiders channel image |
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`).
+
+### Key Dependencies
+
+| Module | Version | Purpose |
+|--------|---------|---------|
+| `frostyard/clix` | v0.2.0 | CLI helpers (reporter, dry-run, verbose, JSON output) |
+| `frostyard/std` | v0.1.0 | Standard library (reporter interface) |
+| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for broker proxy |
+| `spf13/cobra` | v1.10.2 | CLI command framework |
+| `BurntSushi/toml` | v1.6.0 | TOML config parsing |
+| `charmbracelet/x/term` | v0.2.2 | Terminal password input |
 
 Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.InstallPolkitRule()` and allows both `sudo` and `wheel` groups to manage nspawn machines. The `polkit/` directory in the repo contains a reference copy that only checks `sudo` — the installed version is authoritative.
 
