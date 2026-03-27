@@ -62,23 +62,34 @@ Graceful shutdown via `runStop()` (shared between `stop` command and internal us
 
 ## `intuneme destroy`
 
-Removes container and all host modifications, preserves user files.
+Removes container and host modifications. By default preserves user files in `~/Intune`; with `--all` performs a full uninstall.
 
-**Flow:**
+**Flags:** `--all` (full uninstall — remove all intuneme artifacts including GNOME extension, D-Bus service, and `~/Intune`)
 
-1. **Stop container** if running — calls `nspawn.Stop()` directly (does NOT use `runStop()`, so no broker proxy stop)
-2. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
-3. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
-4. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec`
-5. **Delete rootfs** — `sudo rm -rf` the rootfs directory
-6. **Remove config** — Delete `config.toml`
-7. **Clean enrollment state** from `~/Intune`:
+**Flow (default):**
+
+1. **Stop broker proxy** (if enabled) — Kill process by PID file
+2. **Stop container** if running — `nspawn.Stop()`
+3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
+4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
+5. **Remove sudoers rule** — Delete `/etc/sudoers.d/intuneme-exec`
+6. **Delete rootfs** — `sudo rm -rf` the rootfs directory
+7. **Remove config** — Delete `config.toml`
+8. **Clean enrollment state** from `~/Intune`:
    - `.config/intune/` (enrollment database)
    - `.local/share/intune/`, `.local/share/intune-portal/` (app state)
    - `.local/share/keyrings/` (gnome-keyring)
    - `.local/state/microsoft-identity-broker/` (broker state)
    - `.cache/intune-portal/` (cache)
-8. **Preserve user files** — Downloads, documents, etc. remain in `~/Intune`
+9. **Preserve user files** — Downloads, documents, etc. remain in `~/Intune`
+
+**Additional steps with `--all`** (replaces steps 8–9):
+
+8. **Disable and remove GNOME extension** — `gnome-extensions disable` + remove `~/.local/share/gnome-shell/extensions/intuneme@frostyard.org/` (best-effort, GNOME may not be running)
+9. **Remove polkit policy action** — Delete `/etc/polkit-1/actions/org.frostyard.intuneme.policy` (installed by `extension install`)
+10. **Remove D-Bus broker service file** — Delete the user-level D-Bus activation file for `com.microsoft.identity.broker1`
+11. **Remove `~/Intune` entirely** — All user files, Downloads, etc.
+12. **Remove data root entirely** — Delete `~/.local/share/intuneme/` (rootfs already removed above)
 
 ## `intuneme recreate`
 

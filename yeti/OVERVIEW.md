@@ -4,7 +4,7 @@
 
 intuneme is a Go CLI tool that provisions and manages a `systemd-nspawn` container running Microsoft Intune on immutable Linux hosts. It isolates Intune Portal, Microsoft Edge, and the Microsoft identity broker inside a container while providing transparent access to host display, audio, GPU, and USB devices via bind mounts and namespace forwarding.
 
-The tool handles the full container lifecycle — init, start, stop, destroy, recreate — with minimal host modifications (a polkit rule, a sudoers rule, and udev rules while running).
+The tool handles the full container lifecycle — init, start, stop, destroy, recreate — with minimal host modifications (a polkit rule, a sudoers rule, and udev rules while running). `destroy --all` performs a full uninstall of all artifacts.
 
 ## Architecture
 
@@ -241,7 +241,9 @@ intuneme installs these on the host (all reversible via `destroy`):
 | Udev rules (YubiKey) | `/etc/udev/rules.d/70-intuneme-yubikey.rules` | `start` | `stop`, `destroy` |
 | Udev rules (video) | `/etc/udev/rules.d/70-intuneme-video.rules` | `start` | `stop`, `destroy` |
 | Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop`, `destroy` |
-| Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | Manual |
+| Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | `destroy --all` |
+| GNOME extension | `~/.local/share/gnome-shell/extensions/intuneme@frostyard.org/` | `extension install` | `destroy --all` |
+| D-Bus broker service | `~/.local/share/dbus-1/services/com.microsoft.identity.broker1.service` | `config broker-proxy enable` | `config broker-proxy disable`, `destroy --all` |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
 
 ## Detailed Subsystem Docs
