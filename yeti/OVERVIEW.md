@@ -127,7 +127,7 @@ The container user is added to: `adm,sudo,video,audio` (plus `render` if a rende
 
 ### SELinux Support
 
-On SELinux-enforcing systems (Fedora, Bazzite), `InstallSELinuxPolicy()` during `init`:
+On SELinux-enabled systems (Fedora, Bazzite — both enforcing and permissive modes), `InstallSELinuxPolicy()` during `init`:
 
 1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`
 2. Installs a custom policy module (`intuneme-machined`) that allows `systemd_machined_t` to:
@@ -150,11 +150,12 @@ The container profile script (`/etc/profile.d/intuneme.sh`, embedded in Go binar
 4. Imports display/audio vars into systemd user session so services see them
 5. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`) from `/run/host-*` sockets
 6. Sets `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` when `/run/host-nvidia` exists, and imports them into the systemd user session
-7. On first login per boot (marker in `/tmp`):
-   - Initializes `gnome-keyring-daemon` with `--replace --unlock`
-   - Stores a test secret to force default keyring collection creation
-   - Restarts identity brokers to pick up the initialized keyring
-8. Starts `intune-agent.timer` for compliance checks
+7. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
+   - Ensures `~/.local/share/keyrings/default` points to `login`
+   - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
+   - Stores a test secret via `secret-tool` to force default collection creation (without this, `ReadAlias("default")` returns `/` and the broker can't store credentials)
+   - Restarts both `microsoft-identity-broker.service` (user) and `microsoft-identity-device-broker.service` (system) to pick up the initialized keyring
+8. Starts `intune-agent.timer` for compliance checks if not already active
 
 ### State Preservation Across Recreate
 
@@ -197,7 +198,7 @@ The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
 
 ### GNOME Shell Extension
 
-The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME 47-50) installs to `~/.local/share/gnome-shell/extensions/` and provides:
+The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME Shell 47–50) installs to `~/.local/share/gnome-shell/extensions/` and provides:
 - Quick Settings toggle (start/stop container)
 - Status display (container running/stopped, broker proxy state)
 - Menu shortcuts for shell, Edge, Intune Portal
@@ -229,6 +230,8 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 | `spf13/cobra` | v1.10.2 | CLI command framework |
 | `BurntSushi/toml` | v1.6.0 | TOML config parsing |
 | `charmbracelet/x/term` | v0.2.2 | Terminal password input |
+
+Go version: 1.26
 
 Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.InstallPolkitRule()` and allows both `sudo` and `wheel` groups to manage nspawn machines. The `polkit/` directory in the repo contains a reference copy that only checks `sudo` — the installed version is authoritative.
 
