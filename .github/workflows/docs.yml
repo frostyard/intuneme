@@ -35,7 +35,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make gendocs
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
       - run: pip install --break-system-packages mkdocs-materialx
