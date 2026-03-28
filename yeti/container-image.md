@@ -89,11 +89,14 @@ Images are signed with cosign. The build is automated via `.github/workflows/bui
 
 The container image works in concert with `internal/provision/intuneme-profile.sh` (embedded in the Go binary, written to rootfs during init). This script runs on every login shell session and:
 
-1. Reads host DISPLAY from `/etc/intuneme-host-display`
+1. Reads host DISPLAY from `/etc/intuneme-host-display`, extends PATH with Intune and Azure VPN bins
 2. Sets `XAUTHORITY=/run/host-xauthority` for X11 auth
-3. Imports Wayland, PipeWire, PulseAudio sockets into systemd user session
-4. On first login per boot (marker in `/tmp`):
-   - Initializes `gnome-keyring-daemon` with `--replace --unlock`
-   - Stores a test secret to force default keyring collection creation
-   - Restarts identity brokers to pick up the initialized keyring
-5. Starts the `intune-agent` timer for compliance checks
+3. Imports display/audio vars into systemd user session so services (broker) see them
+4. Detects Wayland, PipeWire, PulseAudio from `/run/host-*` sockets
+5. Sets Nvidia PRIME offload vars when `/run/host-nvidia` exists
+6. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
+   - Ensures default keyring points to `login`
+   - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
+   - Stores a test secret via `secret-tool` to force default collection creation
+   - Restarts both identity brokers to pick up the initialized keyring
+7. Starts the `intune-agent` timer for compliance checks if not already active

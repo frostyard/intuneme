@@ -20,7 +20,7 @@ One-time provisioning that creates the container from scratch.
 8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, `profile.d/intuneme.sh`, `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
 9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
 10. **Install sudoers rule** — `/etc/sudoers.d/intuneme-exec` for passwordless nsenter (validated with `visudo -c`)
-11. **SELinux** (if detected) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
+11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
 12. **Save config** — Write `config.toml`
 
 ## `intuneme start`
