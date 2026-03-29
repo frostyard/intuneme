@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -166,7 +167,16 @@ func DetectYubikeys() []YubikeyDevice {
 			continue
 		}
 
-		usbDevNode := fmt.Sprintf("/dev/bus/usb/%03s/%03s", busnum, devnum)
+		busNum, err := strconv.Atoi(busnum)
+		if err != nil {
+			continue
+		}
+		devNum, err := strconv.Atoi(devnum)
+		if err != nil {
+			continue
+		}
+
+		usbDevNode := fmt.Sprintf("/dev/bus/usb/%03d/%03d", busNum, devNum)
 		// Verify the device node exists.
 		if !fileExists(usbDevNode) {
 			continue
