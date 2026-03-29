@@ -60,7 +60,10 @@ var initCmd = &cobra.Command{
 		}
 
 		// Load config for dry-run reporting.
-		cfg, _ := config.Load(root)
+		cfg, err := config.Load(root)
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
 
 		if clix.DryRun {
 			rep.Message("[dry-run] Would pull OCI image and create container at %s", cfg.RootfsPath)
