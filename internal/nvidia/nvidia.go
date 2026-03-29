@@ -108,18 +108,11 @@ func HostLibraries(ldconfigOutput []byte) []LibMapping {
 // Nvidia libraries. Each directory is mounted read-only at /run/host-nvidia/<index>/
 // inside the container, using an index to avoid basename collisions.
 func LibDirMounts(libs []LibMapping) []nspawn.BindMount {
-	seen := make(map[string]int)
-	var mounts []nspawn.BindMount
-	idx := 0
-	for _, lib := range libs {
-		dir := filepath.Dir(lib.HostPath)
-		if _, ok := seen[dir]; ok {
-			continue
-		}
-		seen[dir] = idx
+	dirIdx := libDirIndex(libs)
+	mounts := make([]nspawn.BindMount, 0, len(dirIdx))
+	for dir, idx := range dirIdx {
 		containerPath := fmt.Sprintf("/run/host-nvidia/%d", idx)
 		mounts = append(mounts, nspawn.BindMount{Host: dir, Container: containerPath, ReadOnly: true})
-		idx++
 	}
 	return mounts
 }
