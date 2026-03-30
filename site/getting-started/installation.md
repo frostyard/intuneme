@@ -12,8 +12,8 @@ Pre-built packages are available on the [GitHub releases page](https://github.co
 
     ```bash
     # Replace X.Y.Z with the version you want
-    curl -LO https://github.com/frostyard/intuneme/releases/latest/download/intuneme_X.Y.Z_linux_amd64.deb
-    sudo dpkg -i intuneme_X.Y.Z_linux_amd64.deb
+    curl -LO https://github.com/frostyard/intuneme/releases/latest/download/frostyard-intuneme_X.Y.Z_amd64.deb
+    sudo dpkg -i frostyard-intuneme_X.Y.Z_amd64.deb
     ```
 
 === "Fedora/RHEL"
@@ -22,8 +22,8 @@ Pre-built packages are available on the [GitHub releases page](https://github.co
 
     ```bash
     # Replace X.Y.Z with the version you want
-    curl -LO https://github.com/frostyard/intuneme/releases/latest/download/intuneme_X.Y.Z_linux_amd64.rpm
-    sudo rpm -i intuneme_X.Y.Z_linux_amd64.rpm
+    curl -LO https://github.com/frostyard/intuneme/releases/latest/download/frostyard-intuneme-X.Y.Z-1.x86_64.rpm
+    sudo rpm -i frostyard-intuneme_X.Y.Z-1_x86_64.rpm
     ```
 
 ## go install
