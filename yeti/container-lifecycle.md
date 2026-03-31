@@ -168,6 +168,14 @@ Installs the GNOME Shell Quick Settings extension for managing the container fro
 
 The extension provides a Quick Settings toggle (start/stop), status display, and shortcuts for shell, Edge, and Intune Portal. It monitors container state via systemd-machined D-Bus signals with a 5-second polling fallback.
 
+## `intuneme broker-proxy`
+
+Runs the D-Bus broker proxy in the foreground. This is the daemon process that forwards `com.microsoft.identity.broker1` method calls from the host session bus to the container session bus.
+
+Normally launched automatically by `start` (as a background process) or by D-Bus service activation. Can be run manually for debugging.
+
+See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
+
 ## `intuneme gendocs` (hidden)
 
 Generates markdown CLI reference pages for the MkDocs documentation site.

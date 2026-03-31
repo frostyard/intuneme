@@ -29,7 +29,7 @@ ubuntu-intune/        Container image definition
 ├── build_files/      Build script (package install, PAM config, patches)
 └── system_files/     Static config files copied into image
 polkit/               Polkit rule reference for machinectl access (actual rule generated inline)
-scripts/              Build helpers (completions, manpages, SELinux, desktop files)
+scripts/              Build helpers (completions, manpages, SELinux, desktop item installer)
 site/                 MkDocs documentation site content (user-facing)
 mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 ```
@@ -51,8 +51,14 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ```
 sudo nsenter -t <leader_pid> -m -u -i -n -p -- \
-  /bin/su -s /bin/bash <user> -c "export DISPLAY=... && nohup <app> >/dev/null 2>&1 &"
+  /bin/su -s /bin/bash <user> -c "export DISPLAY=... XAUTHORITY=... \
+    WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... PULSE_SERVER=... \
+    XDG_RUNTIME_DIR=... DBUS_SESSION_BUS_ADDRESS=... \
+    [__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia] \
+    && nohup <app> >/dev/null 2>&1 &"
 ```
+
+The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU.
 
 A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the GNOME extension can launch apps without a terminal. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
 
@@ -109,9 +115,11 @@ On hosts with Nvidia GPUs, the container needs the device nodes and host userspa
 
 `findXAuthority()` in `nspawn.go` locates the host Xauthority file:
 1. `$XAUTHORITY` environment variable (if file exists)
-2. Glob `$XDG_RUNTIME_DIR/.mutter-Xwaylandauth.*` (Mutter/GNOME Wayland)
-3. Glob `$XDG_RUNTIME_DIR/xauth_*` (other Xwayland implementations)
+2. Glob `/run/user/<uid>/.mutter-Xwaylandauth.*` (Mutter/GNOME Wayland)
+3. Glob `/run/user/<uid>/xauth_*` (other Xwayland implementations)
 4. `~/.Xauthority` (classic X11)
+
+Note: Steps 2–3 hardcode `/run/user/<uid>` rather than reading `$XDG_RUNTIME_DIR`.
 
 ### Render Group GID Conflict Resolution
 

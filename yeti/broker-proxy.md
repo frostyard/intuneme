@@ -69,7 +69,7 @@ The `start` command automatically launches the proxy if the flag is set.
 
 | File | Purpose |
 |------|---------|
-| `internal/broker/proxy.go` | Core proxy logic — bus connections, method forwarding |
-| `internal/broker/session.go` | D-Bus constants, introspection XML, session bus paths, PID management |
-| `cmd/broker_proxy.go` | CLI command that calls `broker.Run()` |
+| `internal/broker/proxy.go` | Core proxy logic — bus connections, method forwarding, D-Bus constants, introspection XML, PID management, service file generation |
+| `internal/broker/session.go` | Runtime directory helpers, session bus socket path, machinectl session/linger args |
+| `cmd/broker_proxy.go` | CLI command (`intuneme broker-proxy`) that runs the proxy in the foreground |
 | `cmd/config.go` | Enable/disable subcommands |

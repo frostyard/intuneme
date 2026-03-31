@@ -19,7 +19,7 @@ The build script (`build_files/build`) adds Microsoft repos and installs:
 |---------|---------|
 | `microsoft-identity-broker` | Microsoft identity broker (device enrollment, token management) |
 | `microsoft-edge-stable` | Microsoft Edge browser |
-| `intune-portal` | Intune Portal app (patched — removes problematic polkit restart in postinst) |
+| `intune-portal` | Intune Portal app (downloaded, patched to remove polkit restart from postinst, installed via `dpkg -i` — not a standard `apt install`) |
 | `pipewire-audio-client-libraries`, `libpulse0` | Audio support (PipeWire forwarded from host) |
 | `mesa-vulkan-drivers`, `mesa-va-drivers`, `intel-media-va-driver` | GPU/Vulkan/VA-API support |
 | `xdg-desktop-portal-gtk` | Desktop integration portal |
@@ -94,13 +94,14 @@ Images are signed with cosign. The build is automated via `.github/workflows/bui
 The container image works in concert with `internal/provision/intuneme-profile.sh` (embedded in the Go binary, written to rootfs during init). This script runs on every login shell session and:
 
 1. Reads host DISPLAY from `/etc/intuneme-host-display`, extends PATH with Intune and Azure VPN bins
-2. Sets `XAUTHORITY=/run/host-xauthority` for X11 auth
-3. Imports display/audio vars into systemd user session so services (broker) see them
-4. Detects Wayland, PipeWire, PulseAudio from `/run/host-*` sockets
-5. Sets Nvidia PRIME offload vars when `/run/host-nvidia` exists
-6. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
+2. Sets accessibility env vars (`NO_AT_BRIDGE=1`, `GTK_A11Y=none`) — also present in `/etc/environment` for non-login contexts
+3. Sets `XAUTHORITY=/run/host-xauthority` for X11 auth
+4. Imports display/audio vars into systemd user session so services (broker) see them
+5. Detects Wayland, PipeWire, PulseAudio from `/run/host-*` sockets
+6. Sets Nvidia PRIME offload vars when `/run/host-nvidia` exists
+7. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
    - Ensures default keyring points to `login`
    - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
    - Stores a test secret via `secret-tool` to force default collection creation
    - Restarts both identity brokers to pick up the initialized keyring
-7. Starts the `intune-agent` timer for compliance checks if not already active
+8. Starts the `intune-agent` timer for compliance checks if not already active
