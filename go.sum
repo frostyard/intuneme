@@ -36,8 +36,8 @@ github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHk
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/frostyard/clix v0.2.0 h1:+mBq3qzHCaWM3hoFSfOPuYqoW8FLjO3UvRe6PPxqUL8=
 github.com/frostyard/clix v0.2.0/go.mod h1:Za1hlBvcDKu+9tZDlVa+NgAkiwPalRdwksDDcHjQUGU=
-github.com/frostyard/std v0.1.0 h1:jLDSaAGoENNGY0rJkB87fG2NYPlO2GXhHdVXu89pqDE=
-github.com/frostyard/std v0.1.0/go.mod h1:K/gk2IXCe/YAGed8MlVaAdlvmAmOzrif2b9pJkZ7mHc=
+github.com/frostyard/std v0.2.0 h1:zO+DRuR5uBUguhiVLjp1gzuPeXmnGTclFwThr9g5VaY=
+github.com/frostyard/std v0.2.0/go.mod h1:K/gk2IXCe/YAGed8MlVaAdlvmAmOzrif2b9pJkZ7mHc=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/go-viper/mapstructure/v2 v2.4.0 h1:EBsztssimR/CONLSZZ04E8qAkxNYq4Qp9LvH92wZUgs=
