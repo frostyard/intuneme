@@ -47,3 +47,9 @@ For other fields, edit `config.toml` directly. Changes to `machine_name` or `roo
 
 !!! warning
     Changing `host_uid` or `host_user` after init is not supported without re-running `intuneme init --force`, as the container user is provisioned to match these values.
+
+## Error handling
+
+If `config.toml` contains invalid TOML syntax, intuneme will report a parse error and refuse to continue. This prevents silent fallback to default values, which could lead to unexpected behavior (e.g., operating on the wrong rootfs path).
+
+If the home directory cannot be determined (e.g., `$HOME` is unset), intuneme reports an error rather than constructing a relative path. This prevents dangerous operations like `sudo rm -rf` on a relative path.

@@ -142,6 +142,41 @@ Common issues and solutions. Click an item to expand it.
     journalctl -t intuneme-hotplug
     ```
 
+??? question "`intuneme start` fails with \"broker proxy failed to start within 5 seconds\""
+    The broker proxy process did not write its PID file in time. This usually means the D-Bus session bus is not available or there is a port/socket conflict.
+
+    Check that the session bus is running:
+
+    ```bash
+    echo $DBUS_SESSION_BUS_ADDRESS
+    ```
+
+    If the variable is empty, you are likely running outside a desktop session. The broker proxy requires an active D-Bus user session.
+
+    You can also check broker proxy logs:
+
+    ```bash
+    journalctl --user -u dbus -n 20
+    ```
+
+    If the container started successfully but the proxy did not, you can disable the proxy and restart:
+
+    ```bash
+    intuneme config broker-proxy disable
+    intuneme stop && intuneme start
+    ```
+
+??? question "`intuneme` commands fail with a config.toml parse error"
+    If `config.toml` contains invalid TOML syntax, intuneme will report the error instead of silently falling back to defaults. This prevents unexpected behavior from a corrupted configuration.
+
+    Check your config file for syntax errors:
+
+    ```bash
+    cat ~/.local/share/intuneme/config.toml
+    ```
+
+    Common causes include unquoted strings, missing closing quotes, or stray characters from a manual edit. Fix the syntax or delete the file and re-run `intuneme init` to regenerate it.
+
 ??? question "YubiKey not detected inside the container"
     Check that udev rules are installed:
 
