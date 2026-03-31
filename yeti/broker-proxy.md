@@ -61,6 +61,7 @@ The `start` command automatically launches the proxy if the flag is set.
 
 - PID file: `~/.local/share/intuneme/broker-proxy.pid`
 - Started as background process with `setsid` for terminal independence
+- Startup verified by polling PID file (up to 5 seconds, 500ms intervals)
 - Stopped gracefully by `stop` command before container poweroff
 - `status` command reports proxy running state
 

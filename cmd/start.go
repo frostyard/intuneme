@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/frostyard/clix"
@@ -242,7 +243,18 @@ var startCmd = &cobra.Command{
 			if err := r.RunBackground("setsid", execPath, "broker-proxy", "--root", root); err != nil {
 				return fmt.Errorf("failed to start broker proxy: %w", err)
 			}
-			time.Sleep(2 * time.Second)
+			pidPath := filepath.Join(root, "broker-proxy.pid")
+			proxyReady := false
+			for range 10 {
+				if _, alive := broker.IsRunningByPIDFile(pidPath); alive {
+					proxyReady = true
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+			if !proxyReady {
+				return fmt.Errorf("broker proxy failed to start within 5 seconds")
+			}
 
 			rep.Message("Container and broker proxy running.")
 			rep.Message("Host apps can now use SSO via com.microsoft.identity.broker1.")

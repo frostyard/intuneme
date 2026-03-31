@@ -48,6 +48,7 @@ Boots the container and sets up runtime environment.
     - Create login session via `machinectl`
     - Wait for session bus socket to appear
     - Launch `intuneme broker-proxy` as background process with PID file
+    - Poll PID file to verify broker proxy started (up to 5 seconds)
 
 ## `intuneme stop`
 
