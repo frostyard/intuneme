@@ -34,9 +34,11 @@ var statusCmd = &cobra.Command{
 
 		// Check initialized
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
-			if clix.OutputJSON(map[string]any{
+			if printed, err := clix.OutputJSON(map[string]any{
 				"initialized": false,
-			}) {
+			}); err != nil {
+				return err
+			} else if printed {
 				return nil
 			}
 			rep.Message("Status: not initialized")
@@ -64,7 +66,7 @@ var statusCmd = &cobra.Command{
 			channel = "insiders"
 		}
 
-		if clix.OutputJSON(map[string]any{
+		if printed, err := clix.OutputJSON(map[string]any{
 			"initialized":  true,
 			"root":         root,
 			"rootfs":       cfg.RootfsPath,
@@ -72,7 +74,9 @@ var statusCmd = &cobra.Command{
 			"container":    containerStatus,
 			"channel":      channel,
 			"broker_proxy": brokerStatus,
-		}) {
+		}); err != nil {
+			return err
+		} else if printed {
 			return nil
 		}
 
