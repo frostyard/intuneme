@@ -202,7 +202,7 @@ jobs:
         run: |
           mkdir -p ${OCI_DIR}/rootfs
           podman container create --replace --name "${IMAGE_NAME}" \
-            "localhost/${IMAGE_NAME}:${DEFAULT_TAG}"
+            "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" /bin/true
           podman export "${IMAGE_NAME}" | sudo tar -C ${OCI_DIR}/rootfs -xf -
           podman container rm "${IMAGE_NAME}"
           SBOM="$(mktemp -d)/sbom.json"
