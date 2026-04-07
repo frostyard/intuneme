@@ -236,6 +236,10 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	if err != nil {
 		return err
 	}
+	unit, err := nspawn.MachineUnit(r, machine)
+	if err != nil {
+		return err
+	}
 
 	// Get major:minor of the device.
 	out, err := r.Run("stat", "-c", "0x%t 0x%T", devnode)
@@ -251,7 +255,7 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	// Allow the device in the container's cgroup. DevicePolicy=auto preserves
 	// the existing nspawn device policy and adds our device on top.
 	if _, err := r.Run("sudo", "systemctl", "set-property",
-		fmt.Sprintf("machine-%s.scope", machine),
+		unit,
 		"DevicePolicy=auto",
 		fmt.Sprintf("DeviceAllow=%s rwm", devnode)); err != nil {
 		return fmt.Errorf("cgroup DeviceAllow for %s: %w", devnode, err)

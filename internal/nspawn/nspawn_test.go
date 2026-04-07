@@ -10,16 +10,29 @@ import (
 type mockRunner struct {
 	commands    []string
 	fileContent string // captured from the source file in the last "install" command
+	outputs     map[string]string
+	errors      map[string]error
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
-	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	cmd := name + " " + strings.Join(args, " ")
+	m.commands = append(m.commands, cmd)
 	// Capture the temp file content before WriteDisplayMarker deletes it.
 	// sudo install <flags> <src> <dst> — src is the second-to-last arg.
 	if name == "sudo" && len(args) >= 4 && args[0] == "install" {
 		src := args[len(args)-2]
 		if data, err := os.ReadFile(src); err == nil {
 			m.fileContent = string(data)
+		}
+	}
+	for prefix, err := range m.errors {
+		if strings.HasPrefix(cmd, prefix) {
+			return nil, err
+		}
+	}
+	for prefix, out := range m.outputs {
+		if strings.HasPrefix(cmd, prefix) {
+			return []byte(out), nil
 		}
 	}
 	return nil, nil
@@ -101,6 +114,38 @@ func TestBuildShellArgs(t *testing.T) {
 	}
 	if !strings.Contains(joined, "/bin/bash --login") {
 		t.Errorf("missing login shell in: %s", joined)
+	}
+}
+
+func TestLeaderPID(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+		},
+	}
+
+	pid, err := LeaderPID(r, "intuneme")
+	if err != nil {
+		t.Fatalf("LeaderPID failed: %v", err)
+	}
+	if pid != "12345" {
+		t.Fatalf("LeaderPID() = %q, want %q", pid, "12345")
+	}
+}
+
+func TestMachineUnit(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Unit --value": "intuneme.scope\n",
+		},
+	}
+
+	unit, err := MachineUnit(r, "intuneme")
+	if err != nil {
+		t.Fatalf("MachineUnit failed: %v", err)
+	}
+	if unit != "intuneme.scope" {
+		t.Fatalf("MachineUnit() = %q, want %q", unit, "intuneme.scope")
 	}
 }
 

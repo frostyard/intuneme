@@ -172,18 +172,28 @@ func BuildShellArgs(machine, user string) []string {
 	return []string{"shell", fmt.Sprintf("%s@%s", user, machine), "/bin/bash", "--login"}
 }
 
-// LeaderPID returns the PID of the container's init process (Leader) as reported
-// by machinectl, which is used to enter the container's namespaces via nsenter.
-func LeaderPID(r runner.Runner, machine string) (string, error) {
-	out, err := r.Run("machinectl", "show", machine, "-p", "Leader", "--value")
+func machinectlValue(r runner.Runner, machine, property string) (string, error) {
+	out, err := r.Run("machinectl", "show", machine, "-p", property, "--value")
 	if err != nil {
 		return "", fmt.Errorf("machinectl show failed: %w", err)
 	}
-	pid := strings.TrimSpace(string(out))
-	if pid == "" || pid == "0" {
-		return "", fmt.Errorf("container %s is not running", machine)
+
+	value := strings.TrimSpace(string(out))
+	if value == "" || value == "0" {
+		return "", fmt.Errorf("container %s property %s is unavailable", machine, property)
 	}
-	return pid, nil
+	return value, nil
+}
+
+// LeaderPID returns the PID of the container's init process (Leader) as reported
+// by machinectl, which is used to enter the container's namespaces via nsenter.
+func LeaderPID(r runner.Runner, machine string) (string, error) {
+	return machinectlValue(r, machine, "Leader")
+}
+
+// MachineUnit returns the systemd unit currently backing the machine.
+func MachineUnit(r runner.Runner, machine string) (string, error) {
+	return machinectlValue(r, machine, "Unit")
 }
 
 // Exec runs a command non-interactively inside the container as the given user.
