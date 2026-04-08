@@ -29,7 +29,11 @@ ubuntu-intune/        Container image definition
 ├── build_files/      Build script (package install, PAM config, patches)
 └── system_files/     Static config files copied into image
 polkit/               Polkit rule reference for machinectl access (actual rule generated inline)
-scripts/              Build helpers (completions, manpages, SELinux, desktop item installer)
+scripts/              Build/install helpers
+├── completions.sh    Generate shell completions
+├── manpages.sh       Generate man pages
+├── fix-selinux.sh    Apply SELinux policy
+└── install-desktop-items.sh  Install desktop shortcuts to host
 site/                 MkDocs documentation site content (user-facing)
 mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 ```
@@ -222,7 +226,7 @@ The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME S
 - Status display (container running/stopped, broker proxy state)
 - Menu shortcuts for shell, Edge, Intune Portal
 - Monitors container state via `org.freedesktop.machine1` D-Bus signals with 5-second polling fallback
-- Finds a terminal emulator (checks `$TERMINAL`, then ghostty/ptyxis/kgx/gnome-terminal/xterm)
+- Finds a terminal emulator (checks `$TERMINAL`, then ghostty/ptyxis/kgx/gnome-terminal/xterm). Uses `-e` for ghostty and xterm, `--` for GNOME terminals (ptyxis, kgx, gnome-terminal)
 
 ## Configuration
 
@@ -237,7 +241,7 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `broker_proxy` | bool | Enable D-Bus broker proxy for host-side SSO |
 | `insiders` | bool | Use insiders channel image |
 
-The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
+The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset. `config.Load()` returns an error for malformed TOML rather than silently falling back to defaults.
 
 ### Key Dependencies
 
@@ -289,6 +293,23 @@ intuneme installs these on the host (all reversible via `destroy`):
 | GNOME extension | `~/.local/share/gnome-shell/extensions/intuneme@frostyard.org/` | `extension install` | `destroy --all` |
 | D-Bus broker service | `~/.local/share/dbus-1/services/com.microsoft.identity.broker1.service` | `config broker-proxy enable` | `config broker-proxy disable`, `destroy --all` |
 | SELinux policy | System policy store | `init` (if SELinux) | Manual |
+
+## CI/CD and Release
+
+**GitHub Actions workflows:**
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `test.yml` | Push/PR | Run tests and linting |
+| `build-container.yml` | Push/PR | Build and publish ubuntu-intune container image (cosign-signed) |
+| `release.yml` | Tag push | Publish releases via goreleaser (deb/rpm/apk packages, cosign-signed) |
+| `snapshot.yml` | Push to main | Nightly dev builds (auto-deletes previous pre-releases) |
+| `docs.yml` | Push | Deploy MkDocs documentation site to GitHub Pages |
+| `scorecard.yml` | Scheduled | OpenSSF Scorecard security audit |
+
+**goreleaser** builds Linux/amd64 with CGO disabled and trimpath. Packages include shell completions and man pages. The nfpm config declares `systemd-container` as a dependency for deb/rpm/apk packages.
+
+**Makefile targets:** `build`, `clean`, `install`, `test`, `fmt`, `lint`, `run`, `completions`, `manpages`, `gendocs`, `docs` (generates all reference artifacts), `deps`, `bump` (creates new version tag via svu).
 
 ## Documentation Site
 
