@@ -327,10 +327,13 @@ func SELinuxEnabled() bool {
 //     devices (user_devpts_t), which is required for machinectl shell to work.
 func InstallSELinuxPolicy(r runner.Runner, rootfsPath string) error {
 	// 1. Persist the file context so restorecon knows the target label.
-	if _, err := r.Run("sudo", "semanage", "fcontext", "-a", "-t", "container_file_t",
+	if out, err := r.Run("sudo", "semanage", "fcontext", "-a", "-t", "container_file_t",
 		rootfsPath+"(/.*)?"); err != nil {
-		// If the context already exists semanage exits non-zero; treat as non-fatal.
-		_ = err
+		// semanage exits non-zero when the context already exists; only suppress that case.
+		msg := strings.ToLower(string(out))
+		if !strings.Contains(msg, "already defined") && !strings.Contains(msg, "already exists") {
+			return fmt.Errorf("semanage fcontext failed: %w", err)
+		}
 	}
 
 	// 2. Relabel the rootfs tree.
