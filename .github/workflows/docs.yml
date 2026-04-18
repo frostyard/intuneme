@@ -40,7 +40,7 @@ jobs:
           python-version: "3.x"
       - run: pip install --break-system-packages mkdocs-materialx
       - run: mkdocs build
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
       - uses: actions/deploy-pages@v5
