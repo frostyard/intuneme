@@ -123,7 +123,7 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 	)
 }
 
-const baseGroups = "adm,sudo,video,audio"
+const baseGroups = "adm,sudo,video,audio,plugdev"
 
 // userGroups returns the group list for the container user.
 // Includes "render" if a render group exists in the container.

@@ -559,3 +559,9 @@ func TestWritePolkitRule(t *testing.T) {
 		t.Errorf("expected sudo commands for polkit installation")
 	}
 }
+
+func TestBaseGroupsContainsPlugdev(t *testing.T) {
+	if !strings.Contains(baseGroups, "plugdev") {
+		t.Errorf("baseGroups = %q, must contain \"plugdev\" so the container user can talk to pcscd (issue #146)", baseGroups)
+	}
+}
