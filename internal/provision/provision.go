@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudo"
 	"github.com/frostyard/std/reporter"
@@ -134,6 +135,54 @@ func userGroups(rootfsPath string) string {
 		return baseGroups + ",render"
 	}
 	return baseGroups
+}
+
+// requiredRuntimeGroups lists groups the running container user must belong to
+// in addition to baseGroups. Currently just plugdev, which gates polkit access
+// to pcscd / smartcards. Kept separate from baseGroups because the call sites
+// differ: baseGroups is consumed at provision time on a stopped rootfs;
+// requiredRuntimeGroups is consumed at start time inside the running container.
+func requiredRuntimeGroups() []string {
+	return []string{"plugdev"}
+}
+
+// EnsureUserGroups reconciles the running container user's group membership
+// against requiredRuntimeGroups. Returns the list of groups it added (possibly
+// empty) and any error encountered. Idempotent: a second call is a no-op once
+// all required groups are present. The caller is expected to log per-added
+// group via reporter.
+//
+// Operates on a *running* container — uses nsenter into the container's
+// mount namespace, matching the pattern in internal/udev/udev.go:ForwardDevice
+// and internal/nvidia/setup.go.
+func EnsureUserGroups(r runner.Runner, machine, user string) ([]string, error) {
+	pid, err := nspawn.LeaderPID(r, machine)
+	if err != nil {
+		return nil, fmt.Errorf("ensure user groups: %w", err)
+	}
+
+	out, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"id", "-nG", user)
+	if err != nil {
+		return nil, fmt.Errorf("read groups for %s: %w", user, err)
+	}
+	current := map[string]bool{}
+	for _, g := range strings.Fields(strings.TrimSpace(string(out))) {
+		current[g] = true
+	}
+
+	var added []string
+	for _, g := range requiredRuntimeGroups() {
+		if current[g] {
+			continue
+		}
+		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+			"usermod", "-aG", g, user); err != nil {
+			return added, fmt.Errorf("add %s to %s: %w", user, g, err)
+		}
+		added = append(added, g)
+	}
+	return added, nil
 }
 
 // CreateContainerUser ensures a user with the matching UID exists inside the rootfs.
