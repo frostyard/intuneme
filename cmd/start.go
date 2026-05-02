@@ -11,6 +11,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/nvidia"
+	"github.com/frostyard/intuneme/internal/provision"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/frostyard/intuneme/internal/udev"
@@ -156,6 +157,19 @@ var startCmd = &cobra.Command{
 			} else if clix.Verbose {
 				rep.Message("Installed passwordless nsenter rule.")
 			}
+		}
+
+		// Ensure the container user is in groups that depend on packages
+		// installed inside the image (currently plugdev for pcscd access).
+		// Self-heals containers provisioned before plugdev was in baseGroups.
+		// EnsureUserGroups returns the list of added groups even on error
+		// (partial-success contract), so log added groups regardless of err.
+		added, err := provision.EnsureUserGroups(r, cfg.MachineName, cfg.HostUser)
+		for _, g := range added {
+			rep.Message("Added %s to %s group", cfg.HostUser, g)
+		}
+		if err != nil {
+			rep.Message("Warning: failed to reconcile user groups (smartcards may not work): %v", err)
 		}
 
 		// Forward already-plugged YubiKeys.

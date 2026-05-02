@@ -148,9 +148,10 @@ func requiredRuntimeGroups() []string {
 
 // EnsureUserGroups reconciles the running container user's group membership
 // against requiredRuntimeGroups. Returns the list of groups it added (possibly
-// empty) and any error encountered. Idempotent: a second call is a no-op once
-// all required groups are present. The caller is expected to log per-added
-// group via reporter.
+// empty) and any error encountered. On error, the returned slice contains any
+// groups that were successfully added before the failure, so callers should
+// log added groups regardless of err. Idempotent: a second call is a no-op
+// once all required groups are present.
 //
 // Operates on a *running* container — uses nsenter into the container's
 // mount namespace, matching the pattern in internal/udev/udev.go:ForwardDevice
