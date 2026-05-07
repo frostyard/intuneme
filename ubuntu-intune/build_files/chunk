@@ -7,11 +7,89 @@ trap 'echo "::endgroup::"' EXIT
 
 apt install -y attr
 
+# Compute an update-interval bucket for a deb package from its changelog.
+# Prints one of: daily, weekly, biweekly, monthly, quarterly, yearly.
+get_update_bucket() {
+  local pkg="$1"
+  local changelog="/usr/share/doc/${pkg}/changelog.Debian.gz"
+  if [[ ! -f "$changelog" ]]; then
+    changelog="/usr/share/doc/${pkg}/changelog.gz"
+  fi
+  if [[ ! -f "$changelog" ]]; then
+    echo "No changelog found to process"
+    return 1
+  fi
+
+  local raw_dates
+  raw_dates=$(zcat "$changelog" 2>/dev/null \
+    | grep -E '^ -- .+>  ' \
+    | head -n 10 \
+    | sed -E 's/^ -- .+>  //') || true
+  if [[ -z "$raw_dates" ]]; then
+    echo "No dates in changelog found to process"
+    return 1
+  fi
+
+  local epochs=()
+  local d epoch
+  while IFS= read -r d; do
+    [[ -z "$d" ]] && continue
+    if epoch=$(date -d "$d" +%s 2>/dev/null); then
+      epochs+=("$epoch")
+    fi
+  done <<< "$raw_dates"
+
+  if (( ${#epochs[@]} < 2 )); then
+    echo "Not enough changelog history to determine update bucket"
+    return 1
+  fi
+
+  local intervals=()
+  local i diff
+  for (( i=0; i < ${#epochs[@]} - 1; i++ )); do
+    diff=$(( (epochs[i] - epochs[i+1]) / 86400 ))
+    (( diff < 0 )) && diff=$(( -diff ))
+    intervals+=("$diff")
+  done
+
+  local sorted
+  sorted=$(printf '%s\n' "${intervals[@]}" | sort -n)
+  local sorted_arr=()
+  while IFS= read -r d; do sorted_arr+=("$d"); done <<< "$sorted"
+
+  local n=${#sorted_arr[@]}
+  local median
+  if (( n % 2 == 1 )); then
+    median=${sorted_arr[$(( n / 2 ))]}
+  else
+    median=$(( (sorted_arr[$(( n / 2 - 1 ))] + sorted_arr[$(( n / 2 ))]) / 2 ))
+  fi
+
+  if   (( median <= 3   )); then echo "daily"
+  elif (( median <= 10  )); then echo "weekly"
+  elif (( median <= 21  )); then echo "biweekly"
+  elif (( median <= 52  )); then echo "monthly"
+  elif (( median <= 180 )); then echo "quarterly"
+  else                           echo "yearly"
+  fi
+
+  printf 'median=%s n=%s\n' "$median" "${#epochs[@]}" >&2
+}
+
 dpkg-query -W -f='${Package}\n' | while read -r pkgname; do
   echo "Setting file attributes for package: $pkgname (chunkah)"
+  if bucket=$(get_update_bucket "$pkgname"); then
+    echo "Using update-interval: $bucket"
+  else
+    echo "Could not determine update bucket, using default update-interval"
+    bucket=""
+  fi
   dpkg -L "$pkgname" | while read -r filepath; do
     if [[ -f "$filepath" ]]; then
       setfattr -n user.component -v "$pkgname" "$filepath" || true
+      if [[ -n "$bucket" ]]; then
+        setfattr -n user.update-interval -v "$bucket" "$filepath" || true
+      fi
     fi
   done
 done
