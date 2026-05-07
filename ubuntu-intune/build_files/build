@@ -55,6 +55,7 @@ apt install -y \
   intel-media-va-driver \
   xdg-desktop-portal-gtk \
   pcscd \
+  pcsc-tools \
   yubikey-manager \
   opensc \
   libnss3-tools \

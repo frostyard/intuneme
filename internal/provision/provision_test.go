@@ -544,6 +544,73 @@ func FuzzFindFreeSystemGID(f *testing.F) {
 	})
 }
 
+func TestRequiredRuntimeGroups_IncludesPlugdev(t *testing.T) {
+	groups := requiredRuntimeGroups()
+	found := false
+	for _, g := range groups {
+		if g == "plugdev" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("requiredRuntimeGroups() = %v, want it to include \"plugdev\"", groups)
+	}
+}
+
+func TestEnsureUserGroups_SkipsWhenPresent(t *testing.T) {
+	r := &mockRunner{
+		outputs: [][]byte{
+			[]byte("4242\n"),                       // machinectl show ... Leader (PID)
+			[]byte("alice adm sudo video plugdev"), // id -nG alice
+		},
+	}
+
+	added, err := EnsureUserGroups(r, "intuneme", "alice")
+	if err != nil {
+		t.Fatalf("EnsureUserGroups returned error: %v", err)
+	}
+	if len(added) != 0 {
+		t.Errorf("added = %v, want empty slice", added)
+	}
+	for _, cmd := range r.commands {
+		if strings.Contains(cmd, "usermod") {
+			t.Errorf("usermod was invoked when not needed: %q", cmd)
+		}
+	}
+}
+
+func TestEnsureUserGroups_AddsWhenMissing(t *testing.T) {
+	r := &mockRunner{
+		outputs: [][]byte{
+			[]byte("4242\n"),         // machinectl show ... Leader (PID)
+			[]byte("alice adm sudo"), // id -nG alice (no plugdev)
+		},
+	}
+
+	added, err := EnsureUserGroups(r, "intuneme", "alice")
+	if err != nil {
+		t.Fatalf("EnsureUserGroups returned error: %v", err)
+	}
+	if len(added) != 1 || added[0] != "plugdev" {
+		t.Errorf("added = %v, want [plugdev]", added)
+	}
+	usermodCount := 0
+	var usermodCmd string
+	for _, cmd := range r.commands {
+		if strings.Contains(cmd, "usermod") {
+			usermodCount++
+			usermodCmd = cmd
+		}
+	}
+	if usermodCount != 1 {
+		t.Errorf("usermod was invoked %d times, want exactly 1", usermodCount)
+	}
+	if !strings.Contains(usermodCmd, "usermod -aG plugdev alice") {
+		t.Errorf("usermod cmd = %q, want it to include \"usermod -aG plugdev alice\"", usermodCmd)
+	}
+}
+
 func TestWritePolkitRule(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, "etc", "polkit-1", "rules.d")
@@ -557,5 +624,11 @@ func TestWritePolkitRule(t *testing.T) {
 	// Basic check — at least some sudo commands were issued
 	if len(r.commands) == 0 {
 		t.Errorf("expected sudo commands for polkit installation")
+	}
+}
+
+func TestBaseGroupsContainsPlugdev(t *testing.T) {
+	if !strings.Contains(baseGroups, "plugdev") {
+		t.Errorf("baseGroups = %q, must contain \"plugdev\" so the container user can talk to pcscd (issue #146)", baseGroups)
 	}
 }
