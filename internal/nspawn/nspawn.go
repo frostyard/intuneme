@@ -219,6 +219,13 @@ if [ -d /run/host-nvidia ]; then
     export __NV_PRIME_RENDER_OFFLOAD=1
     export __GLX_VENDOR_LIBRARY_NAME=nvidia
 fi
+# Initialize the session the same way an interactive login would. This is a
+# non-login shell, so /etc/profile.d is never sourced; without this the D-Bus
+# activation environment lacks DISPLAY/XAUTHORITY and the GTK identity broker
+# crashes on activation (Edge can't authenticate), and the keyring stays locked.
+if [ -x /usr/local/bin/intuneme-session-setup ]; then
+    /usr/local/bin/intuneme-session-setup
+fi
 nohup %s >/dev/null 2>&1 &`,
 		display, uidStr, uidStr, command,
 	)

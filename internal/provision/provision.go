@@ -18,6 +18,14 @@ import (
 //go:embed intuneme-profile.sh
 var intuneProfileScript []byte
 
+//go:embed intuneme-session-setup.sh
+var intuneSessionSetupScript []byte
+
+// sessionSetupPath is the container-side install location of the shared session
+// setup script. It is referenced from /etc/profile.d/intuneme.sh (login path)
+// and from nspawn.Exec (the non-login launch path).
+const sessionSetupPath = "usr/local/bin/intuneme-session-setup"
+
 // sudoMkdirAll creates directories with sudo.
 func sudoMkdirAll(r runner.Runner, path string) error {
 	_, err := r.Run("sudo", "mkdir", "-p", path)
@@ -77,13 +85,9 @@ WantedBy=multi-user.target
 		return fmt.Errorf("symlink fix-home-ownership.service: %w", err)
 	}
 
-	// Install profile.d/intuneme.sh — sets display/audio env on login
-	profileDir := filepath.Join(rootfsPath, "etc", "profile.d")
-	if err := sudoMkdirAll(r, profileDir); err != nil {
-		return fmt.Errorf("mkdir profile.d: %w", err)
-	}
-	if err := sudo.WriteFile(r, filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
-		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
+	// Install the session setup scripts (shared script + profile.d entry point).
+	if err := InstallSessionScripts(r, rootfsPath); err != nil {
+		return err
 	}
 
 	// Passwordless sudo for the container user
@@ -97,6 +101,37 @@ WantedBy=multi-user.target
 	}
 
 	return nil
+}
+
+// InstallSessionScripts writes the shared session-setup script and the
+// profile.d entry point that sources it. Both the interactive login path and
+// the nsenter launch path (nspawn.Exec) rely on the shared script existing at
+// /usr/local/bin/intuneme-session-setup. Idempotent — safe to re-run.
+func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
+	binDir := filepath.Join(rootfsPath, filepath.Dir(sessionSetupPath))
+	if err := sudoMkdirAll(r, binDir); err != nil {
+		return fmt.Errorf("mkdir %s: %w", binDir, err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(rootfsPath, sessionSetupPath), intuneSessionSetupScript, 0755); err != nil {
+		return fmt.Errorf("write %s: %w", sessionSetupPath, err)
+	}
+
+	profileDir := filepath.Join(rootfsPath, "etc", "profile.d")
+	if err := sudoMkdirAll(r, profileDir); err != nil {
+		return fmt.Errorf("mkdir profile.d: %w", err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(profileDir, "intuneme.sh"), intuneProfileScript, 0755); err != nil {
+		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
+	}
+	return nil
+}
+
+// SessionScriptsInstalled reports whether the shared session-setup script is
+// present in the rootfs. Used by `start` to self-heal containers provisioned
+// before the script existed.
+func SessionScriptsInstalled(rootfsPath string) bool {
+	_, err := os.Stat(filepath.Join(rootfsPath, sessionSetupPath))
+	return err == nil
 }
 
 // SetContainerPassword sets the user's password inside the container via chpasswd.

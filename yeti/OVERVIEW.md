@@ -55,10 +55,11 @@ sudo nsenter -t <leader_pid> -m -u -i -n -p -- \
     WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... PULSE_SERVER=... \
     XDG_RUNTIME_DIR=... DBUS_SESSION_BUS_ADDRESS=... \
     [__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia] \
+    && /usr/local/bin/intuneme-session-setup \
     && nohup <app> >/dev/null 2>&1 &"
 ```
 
-The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU.
+The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU. It then runs `intuneme-session-setup` (see [Session Setup](#session-setup-shared-between-login-and-launch-paths)) before launching the app — because this is a non-login shell, that script is what pushes `DISPLAY`/`XAUTHORITY` into the D-Bus activation environment (so the GTK identity broker can start) and unlocks the keyring. Without it the broker crashes on activation and authentication fails.
 
 A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the GNOME extension can launch apps without a terminal. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
 
@@ -148,22 +149,28 @@ Container password is set via a bind-mounted temp file to avoid shell injection:
 
 Password validation (both CLI-side and container PAM): minimum 12 chars, at least one digit, uppercase, lowercase, and special character, no username substring.
 
-### Profile Script Environment
+### Session Setup (shared between login and launch paths)
 
-The container profile script (`/etc/profile.d/intuneme.sh`, embedded in Go binary) runs on every login shell session and:
+All session initialization lives in **`/usr/local/bin/intuneme-session-setup`** (embedded in the Go binary as `intuneme-session-setup.sh`, installed by `provision.InstallSessionScripts`). It is invoked from **both** session-entry paths so they behave identically:
 
-1. Reads `DISPLAY` from `/etc/intuneme-host-display` (written by `start`), defaults to `:0`
-2. Extends `PATH` with `/opt/microsoft/intune/bin` and `/opt/microsoft/microsoft-azurevpnclient`
-3. Sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
-4. Imports display/audio vars into systemd user session so services see them
-5. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`) from `/run/host-*` sockets
-6. Sets `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` when `/run/host-nvidia` exists, and imports them into the systemd user session
-7. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
+- **`/etc/profile.d/intuneme.sh`** *sources* it on interactive login (`machinectl shell`), so the exported env lands in the login shell too.
+- **`nspawn.Exec()`** *executes* it before launching a GUI app via nsenter. **This is the critical part:** the nsenter path is a *non-login* shell, so `/etc/profile.d` is never sourced. Before this script existed, the steps below ran only on login — which is why launching Edge from the GNOME extension (nsenter, no login) left the broker without a display and the keyring locked, so **authentication failed**.
+
+The script (safe to source or execute; idempotent) does:
+
+1. Sets `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` if unset, so it works from any caller
+2. Reads `DISPLAY` from `/etc/intuneme-host-display` (written by `start`), defaults to `:0`
+3. Extends `PATH`; sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
+4. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
+5. Propagates the env with **both** `systemctl --user import-environment` **and `dbus-update-activation-environment --systemd`**. The latter is essential: the identity broker is a **GTK app that the session D-Bus daemon activates on demand**, and it inherits `DISPLAY`/`XAUTHORITY` only from the D-Bus activation environment. Without it the broker dies on startup with `cannot open display` and Edge cannot authenticate.
+6. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:
    - Ensures `~/.local/share/keyrings/default` points to `login`
-   - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
-   - Stores a test secret via `secret-tool` to force default collection creation (without this, `ReadAlias("default")` returns `/` and the broker can't store credentials)
-   - Restarts both `microsoft-identity-broker.service` (user) and `microsoft-identity-device-broker.service` (system) to pick up the initialized keyring
-8. Starts `intune-agent.timer` for compliance checks if not already active
+   - **Kills all keyring daemons (`pkill -x gnome-keyring-d`) and starts exactly one** via `echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d`. The well-known `org.freedesktop.secrets` name is held by whichever daemon claimed it first (often the systemd socket-activated one); a `--replace --unlock` daemon does *not* take that name, so its unlock never reaches the daemon the broker talks to. Note `echo ""` (newline = empty password) — `printf ""` would send EOF = "no password" and create nothing.
+   - Forces default-collection creation via `secret-tool` (without this, `ReadAlias("default")` returns `/` and the broker can't store credentials)
+   - Restarts **only** `microsoft-identity-device-broker.service` (system). The user-session `com.microsoft.identity.broker1` is **D-Bus-activated, not a systemd unit**, so it is not restarted — it re-activates with a fresh process (and now-correct environment) on the next call from Edge. (The previous `systemctl --user restart microsoft-identity-broker.service` always errored with "Unit not found".)
+7. Starts `intune-agent.timer` for compliance checks if not already active
+
+`start` reinstalls the script via `provision.SessionScriptsInstalled` / `InstallSessionScripts` if missing, self-healing containers provisioned before it existed (same pattern as the sudoers rule).
 
 ### State Preservation Across Recreate
 

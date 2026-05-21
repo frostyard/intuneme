@@ -17,7 +17,7 @@ One-time provisioning that creates the container from scratch.
 5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
-8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, `profile.d/intuneme.sh`, `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
+8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
 9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
 10. **Install sudoers rule** — `/etc/sudoers.d/intuneme-exec` for passwordless nsenter (validated with `visudo -c`)
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
@@ -34,13 +34,14 @@ Boots the container and sets up runtime environment.
 3. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
 4. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
 5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
-6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by profile.d script on container login)
+6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by `intuneme-session-setup` on login and on every app launch)
 7. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device cgroup rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
 8. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
 9. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
 10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
 11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
 12. **Ensure sudoers** — Reinstall sudoers rule if missing (handles upgrades from older versions)
+12b. **Ensure session scripts** — Reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` if missing (`provision.SessionScriptsInstalled` / `InstallSessionScripts`); self-heals containers provisioned before the shared script existed
 13. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
 14. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
 15. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
@@ -128,11 +129,11 @@ Supports `--json` for machine-readable output via `clix.OutputJSON()`.
 
 Opens an interactive bash login shell inside the container.
 
-Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sources `/etc/profile.d/intuneme.sh` which sets up DISPLAY, audio, and keyring.
+Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sources `/etc/profile.d/intuneme.sh`, which in turn sources the shared `/usr/local/bin/intuneme-session-setup` to set up DISPLAY, audio, the D-Bus activation environment, and the keyring.
 
 ## `intuneme open edge` / `intuneme open portal`
 
-Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [OVERVIEW.md](OVERVIEW.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory.
+Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [OVERVIEW.md](OVERVIEW.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory. Because the nsenter path is a *non-login* shell, `nspawn.Exec()` runs `/usr/local/bin/intuneme-session-setup` before launching the app — this is what gives the D-Bus-activated identity broker a DISPLAY and an unlocked keyring, without which authentication fails.
 
 ## `intuneme udev install` / `intuneme udev remove`
 
