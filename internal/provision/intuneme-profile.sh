@@ -1,79 +1,14 @@
 #!/bin/bash
-# /etc/profile.d/intuneme.sh — runs on login in the intuneme container.
-# Sets display/audio environment, imports into systemd user session,
-# and initializes gnome-keyring on first login after boot.
-
-# Display environment — read host display from marker written by intuneme start
-if [ -f /etc/intuneme-host-display ]; then
-    . /etc/intuneme-host-display
-    export DISPLAY
-else
-    export DISPLAY=:0
-fi
-export NO_AT_BRIDGE=1
-export GTK_A11Y=none
-export PATH="/opt/microsoft/intune/bin:/opt/microsoft/microsoft-azurevpnclient:$PATH"
-
-# X11 auth — bind-mounted from host at /run/host-xauthority
-if [ -f /run/host-xauthority ]; then
-    export XAUTHORITY=/run/host-xauthority
-fi
-
-# Import into systemd user session so user services (broker) see them
-systemctl --user import-environment DISPLAY XAUTHORITY PATH NO_AT_BRIDGE GTK_A11Y 2>/dev/null
-
-# Wayland socket (bind-mounted from host at /run/host-wayland)
-if [ -S /run/host-wayland ]; then
-    export WAYLAND_DISPLAY=/run/host-wayland
-    systemctl --user import-environment WAYLAND_DISPLAY 2>/dev/null
-fi
-
-# PipeWire socket (bind-mounted from host at /run/host-pipewire)
-if [ -S /run/host-pipewire ]; then
-    export PIPEWIRE_REMOTE=/run/host-pipewire
-    systemctl --user import-environment PIPEWIRE_REMOTE 2>/dev/null
-fi
-
-# PulseAudio socket (bind-mounted from host at /run/host-pulse)
-if [ -S /run/host-pulse ]; then
-    export PULSE_SERVER=unix:/run/host-pulse
-    systemctl --user import-environment PULSE_SERVER 2>/dev/null
-fi
-
-# Nvidia GPU (libraries symlinked from host by intuneme start)
-if [ -d /run/host-nvidia ]; then
-    export __NV_PRIME_RENDER_OFFLOAD=1
-    export __GLX_VENDOR_LIBRARY_NAME=nvidia
-    systemctl --user import-environment __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME 2>/dev/null
-fi
-
-# Initialize gnome-keyring once per boot.
-# The keyring must be unlocked for microsoft-identity-broker to store credentials.
-# Marker lives in /tmp (tmpfs) so it resets on every container boot — the keyring
-# dir is on the persistent bind-mounted home and would survive reboots.
-_keyring_dir="$HOME/.local/share/keyrings"
-_keyring_init_marker="/tmp/.intuneme-keyring-init-done"
-
-if [ ! -f "$_keyring_init_marker" ]; then
-    mkdir -p "$_keyring_dir"
-    if [ ! -f "$_keyring_dir/default" ]; then
-        echo "login" > "$_keyring_dir/default"
-    fi
-    echo "" | gnome-keyring-daemon --replace --unlock --components=secrets,pkcs11 -d 2>/dev/null
-    sleep 1
-    # Store a test secret to force creation of the default collection.
-    # Without this, ReadAlias("default") returns "/" and the broker can't store credentials.
-    if ! secret-tool lookup _keyring_init _keyring_init >/dev/null 2>&1; then
-        echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
-    fi
-    touch "$_keyring_init_marker"
-    # Restart brokers so they pick up the now-initialized keyring.
-    # They start before login and fail with storage_keyring_write_failure.
-    systemctl --user restart microsoft-identity-broker.service 2>/dev/null
-    sudo systemctl restart microsoft-identity-device-broker.service 2>/dev/null
-fi
-
-# Start intune agent timer if not running
-if ! systemctl -q --user is-active intune-agent.timer 2>/dev/null; then
-    systemctl --user start intune-agent.timer 2>/dev/null
+# /etc/profile.d/intuneme.sh — runs on interactive login in the container.
+#
+# All session initialization (display/audio env, D-Bus activation environment,
+# gnome-keyring unlock, intune agent timer) lives in the shared script below so
+# that the login path and the non-login nsenter launch path (nspawn.Exec, used
+# by the GNOME extension) initialize the session identically. See that script
+# for the rationale.
+#
+# Sourced — not executed — so the exported env vars land in the login shell too.
+if [ -r /usr/local/bin/intuneme-session-setup ]; then
+    # shellcheck source=/dev/null
+    . /usr/local/bin/intuneme-session-setup
 fi

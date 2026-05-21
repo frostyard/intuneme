@@ -80,6 +80,65 @@ func TestWriteFixups(t *testing.T) {
 	}
 }
 
+func TestInstallSessionScripts(t *testing.T) {
+	r := &mockRunner{}
+	if err := InstallSessionScripts(r, "/tmp/test-rootfs"); err != nil {
+		t.Fatalf("InstallSessionScripts error: %v", err)
+	}
+	allCmds := strings.Join(r.commands, "\n")
+
+	// Both the shared script (in usr/local/bin) and the profile.d entry point
+	// must be written.
+	for _, want := range []string{
+		"usr/local/bin/intuneme-session-setup",
+		"etc/profile.d/intuneme.sh",
+	} {
+		if !strings.Contains(allCmds, want) {
+			t.Errorf("expected command referencing %q, not found in:\n%s", want, allCmds)
+		}
+	}
+}
+
+func TestSessionScriptsInstalled(t *testing.T) {
+	rootfs := t.TempDir()
+	if SessionScriptsInstalled(rootfs) {
+		t.Fatal("SessionScriptsInstalled = true before install")
+	}
+
+	scriptPath := filepath.Join(rootfs, sessionSetupPath)
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if !SessionScriptsInstalled(rootfs) {
+		t.Error("SessionScriptsInstalled = false after install")
+	}
+}
+
+// TestSessionSetupScriptContent guards the two fixes that make the broker work
+// on the non-login launch path: pushing env into the D-Bus activation
+// environment, and unlocking the keyring with a real empty password.
+func TestSessionSetupScriptContent(t *testing.T) {
+	script := string(intuneSessionSetupScript)
+	for _, want := range []string{
+		"dbus-update-activation-environment", // broker inherits DISPLAY/XAUTHORITY
+		"import-environment",
+		`echo "" | gnome-keyring-daemon --unlock`, // empty pw via newline, not EOF
+		"pkill -u", // reliable single-daemon unlock
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("session-setup script missing required snippet %q", want)
+		}
+	}
+	// The broken restart of the (D-Bus-activated, not a unit) user broker must
+	// not be reintroduced.
+	if strings.Contains(script, "restart microsoft-identity-broker.service") {
+		t.Error("session-setup must not restart the user identity broker (it is D-Bus-activated, not a systemd unit)")
+	}
+}
+
 func TestSetContainerPassword(t *testing.T) {
 	r := &mockRunner{}
 	err := SetContainerPassword(r, "/rootfs", "alice", "H@rdPa$$w0rd!")

@@ -22,6 +22,8 @@ The repository has two main components:
 
 A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme init`, persists across start/stop, removed by `intuneme destroy`) makes the nsenter command passwordless, so the GNOME extension can launch apps without a terminal for sudo prompts. The `start` command reinstalls it idempotently if missing (handles upgrades from older versions).
 
+**Session setup runs on the nsenter path too.** The nsenter shell is *non-login*, so it never sources `/etc/profile.d`. `nspawn.Exec()` therefore runs `/usr/local/bin/intuneme-session-setup` (the shared script that `/etc/profile.d/intuneme.sh` also sources) before launching the app. That script pushes `DISPLAY`/`XAUTHORITY` into the **D-Bus activation environment** (`dbus-update-activation-environment`) and unlocks gnome-keyring. This is mandatory: the Microsoft identity broker is a GTK app that the session D-Bus daemon activates on demand — without a display in the activation environment it dies on startup (`cannot open display`) and **Edge can't authenticate**. `start` reinstalls the script if missing. See `yeti/OVERVIEW.md` → "Session Setup".
+
 ## Before committing
 
 Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
