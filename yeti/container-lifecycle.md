@@ -35,7 +35,7 @@ Boots the container and sets up runtime environment.
 4. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
 5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
 6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by `intuneme-session-setup` on login and on every app launch)
-7. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device cgroup rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
+7. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device binds plus explicit `DeviceAllow=<dev> rwm` rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
 8. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
 9. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
 10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`

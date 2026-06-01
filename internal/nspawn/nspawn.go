@@ -121,9 +121,9 @@ func DetectHostSockets(uid int) []BindMount {
 	return mounts
 }
 
-// DetectDRIDevices scans for DRM card and render devices.
-// Returns individual device bind mounts instead of a directory bind so that
-// nspawn correctly adds each device to the cgroup DeviceAllow list.
+// DetectDRIDevices scans for DRM card and render devices. Returns individual
+// device bind mounts instead of a directory bind so nspawn can grant each node
+// in the cgroup DeviceAllow list.
 func DetectDRIDevices() []BindMount {
 	var mounts []BindMount
 	for _, pattern := range []string{"/dev/dri/card*", "/dev/dri/renderD*"} {
@@ -136,19 +136,25 @@ func DetectDRIDevices() []BindMount {
 }
 
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
-// nvidiaDevices are Nvidia device nodes that need explicit DeviceAllow entries
-// (unlike DRI devices, nspawn does not auto-allow /dev/nvidia* in cgroups).
+// DRI devices are detected internally; nvidiaDevices are detected by the caller
+// because Nvidia also needs host library and ICD setup.
 func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount, nvidiaDevices []BindMount) []string {
+	return buildBootArgs(rootfs, machine, intuneHome, containerHome, sockets, DetectDRIDevices(), nvidiaDevices)
+}
+
+func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, driDevices, nvidiaDevices []BindMount) []string {
 	args := []string{
 		"-D", rootfs,
 		fmt.Sprintf("--machine=%s", machine),
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
 	}
-	// Bind DRI devices individually so nspawn adds them to the cgroup allow list.
-	// A directory bind (--bind=/dev/dri) does not register contained devices.
-	for _, dri := range DetectDRIDevices() {
+	// Bind DRI devices individually and grant rwm in the cgroup. systemd-nspawn's
+	// automatic device policy grants only rw for these nodes, but WebKitGTK's
+	// auth browser needs DRM ioctls that create GBM/KMS buffers.
+	for _, dri := range driDevices {
 		args = append(args, fmt.Sprintf("--bind=%s", dri.Host))
+		args = append(args, fmt.Sprintf("--property=DeviceAllow=%s rwm", dri.Host))
 	}
 	// Bind Nvidia device nodes with explicit cgroup DeviceAllow.
 	for _, dev := range nvidiaDevices {
