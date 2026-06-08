@@ -62,6 +62,7 @@ nav:
   - User Guide:
       - Daily Workflow: user-guide/daily-workflow.md
       - Broker Proxy (SSO): user-guide/broker-proxy.md
+      - MCP Servers: user-guide/mcp-servers.md
       - Device Hotplug: user-guide/device-hotplug.md
       - GNOME Extension: user-guide/gnome-extension.md
       - Nvidia GPU: user-guide/nvidia-gpu.md

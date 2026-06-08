@@ -15,6 +15,17 @@ type Config struct {
 	HostUser    string `toml:"host_user"`
 	BrokerProxy bool   `toml:"broker_proxy"`
 	Insiders    bool   `toml:"insiders"`
+	// MCPBinary is the host path to a self-contained MCP server binary that
+	// `intuneme mcp` runs inside the container. Empty means none is configured
+	// (must be supplied via --binary). The directory holding it is bind-mounted
+	// into the container at runtime, so it lives outside the rootfs and survives
+	// recreate.
+	MCPBinary string `toml:"mcp_binary"`
+	// MCPArgs are the default arguments passed to the MCP server binary when
+	// `intuneme mcp` is invoked without trailing `-- args...`. For example
+	// ["mcp"] makes `intuneme mcp` run `<binary> mcp`. Keeps the VS Code config
+	// minimal (just ["mcp"]) by moving the server's own subcommand here.
+	MCPArgs []string `toml:"mcp_args"`
 }
 
 func DefaultRoot() (string, error) {
