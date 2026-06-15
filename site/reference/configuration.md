@@ -20,6 +20,8 @@ The location can be overridden with the `--root` flag on any command. If you use
 | `host_user` | string | `$USER` | Username of the host user. Set automatically by `intuneme init`. |
 | `broker_proxy` | bool | `false` | Enable the host-side D-Bus broker proxy. When `true`, `intuneme start` sets up the identity broker forwarding so host applications (Edge, VS Code) can use the container's Intune enrollment for SSO. See [Broker Proxy](../user-guide/broker-proxy.md). |
 | `insiders` | bool | `false` | Use the insiders channel container image (`ghcr.io/frostyard/ubuntu-intune:insiders`) instead of the stable release. Can be set at init time with `--insiders` and affects `intuneme recreate`. |
+| `mcp_binary` | string | _(unset)_ | Host path to a self-contained MCP server binary that `intuneme mcp` runs inside the container. Any MCP server works; there is no built-in default. The binary's directory is bind-mounted into the container at runtime, so it stays out of the rootfs and survives `recreate`. Override per-invocation with `intuneme mcp --binary`. See [MCP Servers](../user-guide/mcp-servers.md). |
+| `mcp_args` | array of strings | _(empty)_ | Default arguments passed to the MCP server binary by `intuneme mcp`. For a server whose stdio mode is a subcommand, set e.g. `mcp_args = ["mcp"]` so the VS Code config can be just `["mcp"]`. Trailing `intuneme mcp -- args...` override these. |
 
 ## Example
 
@@ -32,9 +34,9 @@ host_uid = 1000
 host_user = "alice"
 broker_proxy = false
 insiders = false
+mcp_binary = ""
+mcp_args = []
 ```
-
-## Modifying the configuration
 
 Most fields are set once by `intuneme init` and rarely need changing. The `broker_proxy` field is managed by:
 

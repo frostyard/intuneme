@@ -7,6 +7,7 @@
 
 - Container lifecycle management (`init`, `start`, `stop`, `destroy`, `recreate`)
 - Broker proxy for host-side single sign-on (Edge, VS Code, and other MSAL apps)
+- Run MCP servers inside the container, wired to host stdio (`mcp`) — for tools that must authenticate against the container's tenant
 - Device hotplug — YubiKey and webcam passthrough via udev rules
 - GNOME Quick Settings extension for start/stop and app launch without a terminal
 - Desktop shortcuts for Microsoft Edge and Intune Portal

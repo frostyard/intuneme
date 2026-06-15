@@ -63,6 +63,8 @@ The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus v
 
 A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the GNOME extension can launch apps without a terminal. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
 
+`nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same `nsenter` shape (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code) — backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
+
 ### Bind Mount Strategy
 
 | Type | Host Path | Container Path | Lifecycle |
@@ -78,6 +80,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 | Nvidia libs | Host lib dirs (from `ldconfig`) | `/run/host-nvidia/<index>/` | Read-only; when Nvidia detected |
 | Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
 | Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
+| MCP binary dir | dir of `mcp_binary` (or `--binary`) | `/opt/intuneme-mcp` (read-only) | Runtime-only; bound on demand by `intuneme mcp`, survives recreate |
 
 ### Device Hotplug Forwarding
 

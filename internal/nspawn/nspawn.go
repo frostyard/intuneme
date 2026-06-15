@@ -211,9 +211,70 @@ func Exec(r runner.Runner, machine, user string, uid int, command string) error 
 	if err != nil {
 		return err
 	}
+	script := buildSessionEnvScript(uid) +
+		fmt.Sprintf("\nnohup %s >/dev/null 2>&1 &", command)
+	if _, err := r.Run("sudo", buildNsenterArgs(leaderPID, user, script)...); err != nil {
+		return fmt.Errorf("exec in container failed: %w", err)
+	}
+	return nil
+}
+
+// ExecForeground runs a command inside the container in the FOREGROUND with the
+// caller's stdin/stdout/stderr attached. Unlike Exec it does not background the
+// process — this is required for stdio-transport servers (e.g. MCP) where the
+// parent must speak JSON-RPC over the child's stdin/stdout. No TTY is allocated
+// (nsenter here is non-allocating), which keeps the JSON-RPC framing intact.
+// Reuses the same nsenter shape as Exec, so the intuneme-exec sudoers rule
+// authorizes it passwordless.
+func ExecForeground(r runner.Runner, machine, user string, uid int, command string) error {
+	leaderPID, err := LeaderPID(r, machine)
+	if err != nil {
+		return err
+	}
+	script := buildSessionEnvScript(uid) + fmt.Sprintf("\nexec %s", command)
+	if err := r.RunAttached("sudo", buildNsenterArgs(leaderPID, user, script)...); err != nil {
+		return fmt.Errorf("foreground exec in container failed: %w", err)
+	}
+	return nil
+}
+
+// MCPMountDir is the fixed container path where the host directory holding an
+// MCP server binary is bind-mounted by EnsureBind. The mount is runtime-only
+// (gone on poweroff) so the binary never enters the rootfs and survives
+// `intuneme recreate`.
+const MCPMountDir = "/opt/intuneme-mcp"
+
+// EnsureBind makes hostDir available read-only at containerDir inside the running
+// machine, idempotently. It first probes whether probePath already exists inside
+// the container (via nsenter in its mount namespace) and only calls
+// `machinectl bind` if it does not. `machinectl bind` is authorized passwordless
+// by the intuneme polkit rule (org.freedesktop.machine1.manage-machines), so this
+// re-establishes the mount automatically after a recreate without a prompt.
+func EnsureBind(r runner.Runner, machine, user, hostDir, containerDir, probePath string) error {
+	leaderPID, err := LeaderPID(r, machine)
+	if err != nil {
+		return err
+	}
+	probe := buildNsenterArgs(leaderPID, user, "test -e "+ShellQuote(probePath))
+	if _, err := r.Run("sudo", probe...); err == nil {
+		return nil // already bound and visible
+	}
+	if out, err := r.Run("machinectl", "bind", "--read-only", "--mkdir",
+		machine, hostDir, containerDir); err != nil {
+		return fmt.Errorf("bind %s into container %s: %w\n%s", hostDir, machine, err, out)
+	}
+	return nil
+}
+
+// buildSessionEnvScript returns the shell prologue that initializes a container
+// session the same way an interactive login would: display/audio/D-Bus/keyring.
+// Shared by Exec (background GUI apps) and ExecForeground (stdio servers).
+// Session-setup output is redirected to stderr so it never pollutes stdout — for
+// foreground stdio servers stdout must carry only JSON-RPC.
+func buildSessionEnvScript(uid int) string {
 	uidStr := fmt.Sprintf("%d", uid)
 	display := HostDisplay()
-	script := fmt.Sprintf(
+	return fmt.Sprintf(
 		`export DISPLAY=%s
 export XAUTHORITY=/run/host-xauthority
 export WAYLAND_DISPLAY=/run/host-wayland
@@ -230,21 +291,27 @@ fi
 # activation environment lacks DISPLAY/XAUTHORITY and the GTK identity broker
 # crashes on activation (Edge can't authenticate), and the keyring stays locked.
 if [ -x /usr/local/bin/intuneme-session-setup ]; then
-    /usr/local/bin/intuneme-session-setup
-fi
-nohup %s >/dev/null 2>&1 &`,
-		display, uidStr, uidStr, command,
+    /usr/local/bin/intuneme-session-setup >&2
+fi`,
+		display, uidStr, uidStr,
 	)
-	nsenterArgs := []string{
+}
+
+// buildNsenterArgs returns the nsenter argument vector (sans the leading "sudo")
+// that enters the container's namespaces and runs script as user via a non-login
+// bash. The shape matches the intuneme-exec sudoers rule exactly.
+func buildNsenterArgs(leaderPID, user, script string) []string {
+	return []string{
 		"nsenter",
 		"-t", leaderPID,
 		"-m", "-u", "-i", "-n", "-p",
 		"--", "/bin/su", "-s", "/bin/bash", user, "-c", script,
 	}
-	if _, err := r.Run("sudo", nsenterArgs...); err != nil {
-		return fmt.Errorf("exec in container failed: %w", err)
-	}
-	return nil
+}
+
+// ShellQuote single-quotes s for safe interpolation into a /bin/sh command.
+func ShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // Boot starts the nspawn container in the background using sudo.
