@@ -19,7 +19,7 @@ On every `intuneme start`, stale symlinks from a previous Nvidia session are cle
 
 ## Non-Nvidia systems
 
-Systems without Nvidia GPUs are unaffected. The detection check is a simple file existence test (`/dev/nvidiactl`), and all Nvidia-specific steps are skipped when no GPU is found. Standard DRI devices (`/dev/dri/card*`, `/dev/dri/renderD*`) are always forwarded regardless.
+Systems without Nvidia GPUs are unaffected. The detection check is a simple file existence test (`/dev/nvidiactl`), and all Nvidia-specific steps are skipped when no GPU is found. Standard DRI devices (`/dev/dri/card*`, `/dev/dri/renderD*`) are always forwarded regardless, with explicit `rwm` cgroup access so embedded WebKitGTK authentication windows can create GPU buffers.
 
 ## Requirements
 

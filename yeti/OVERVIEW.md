@@ -73,7 +73,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the 
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
 | PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
 | X11 auth | `$XAUTHORITY` (see search order below) | `/run/host-xauthority` | Auto-detected on start |
-| GPU (DRI) | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices for cgroup |
+| GPU (DRI) | `/dev/dri/card*`, `/dev/dri/renderD*` | Same | Individual devices with explicit `DeviceAllow=<dev> rwm` |
 | GPU (Nvidia) | `/dev/nvidia*` | Same | When Nvidia detected; explicit `DeviceAllow` |
 | Nvidia libs | Host lib dirs (from `ldconfig`) | `/run/host-nvidia/<index>/` | Read-only; when Nvidia detected |
 | Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
@@ -105,7 +105,7 @@ YubiKeys and video capture devices (webcams) can be forwarded into the running c
 On hosts with Nvidia GPUs, the container needs the device nodes and host userspace libraries (which must match the kernel module version exactly). This is handled by `internal/nvidia/` using a detect-at-start, bind-mount, symlink approach (similar to distrobox):
 
 1. **Detection** — `nvidia.IsPresent()` checks for `/dev/nvidiactl`
-2. **Device bind mounts** — `DetectDevices()` globs `/dev/nvidia*` and `/dev/nvidia-caps/*`. Unlike DRI devices, nspawn does not auto-allow Nvidia devices in cgroups, so each gets an explicit `--property=DeviceAllow=<dev> rwm` boot arg
+2. **Device bind mounts** — `DetectDevices()` globs `/dev/nvidia*` and `/dev/nvidia-caps/*`. Each gets an explicit `--property=DeviceAllow=<dev> rwm` boot arg. DRI devices use the same explicit `rwm` pattern because nspawn's automatic DRI allowlist may grant only `rw`, which is insufficient for WebKitGTK auth-browser GBM/KMS buffer creation.
 3. **Library discovery** — `HostLibraries()` parses `ldconfig -p` output for Nvidia libraries (x86-64 only), deduplicating by basename
 4. **Library bind mounts** — `LibDirMounts()` maps unique host library directories to `/run/host-nvidia/0/`, `/run/host-nvidia/1/`, etc. (read-only). The indexed paths avoid basename collisions
 5. **ICD files** — `HostICDFiles()` and `ICDMounts()` bind-mount Vulkan/EGL vendor JSON files at their standard paths

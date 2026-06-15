@@ -68,19 +68,29 @@ func TestBuildBootArgs(t *testing.T) {
 	if !strings.Contains(joined, "--bind=/tmp/.X11-unix") {
 		t.Errorf("missing X11 bind in: %s", joined)
 	}
-	// DRI devices are bound individually (not as a directory) so that nspawn
-	// adds them to the cgroup allow list. The exact devices depend on the
-	// host, so just verify at least one DRI bind is present if the host has DRI.
-	if _, err := os.Stat("/dev/dri/renderD128"); err == nil {
-		if !strings.Contains(joined, "--bind=/dev/dri/renderD128") {
-			t.Errorf("missing DRI renderD128 bind in: %s", joined)
-		}
-	}
 	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
 		t.Errorf("missing wayland socket bind in: %s", joined)
 	}
 	if !strings.Contains(joined, "-b") {
 		t.Errorf("missing -b (boot) flag in: %s", joined)
+	}
+}
+
+func TestBuildBootArgs_DRIDevices(t *testing.T) {
+	driDevices := []BindMount{
+		{Host: "/dev/dri/card0", Container: "/dev/dri/card0"},
+		{Host: "/dev/dri/renderD128", Container: "/dev/dri/renderD128"},
+	}
+	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, driDevices, nil)
+
+	joined := strings.Join(args, " ")
+	for _, dev := range driDevices {
+		if !strings.Contains(joined, "--bind="+dev.Host) {
+			t.Errorf("missing DRI bind for %s in: %s", dev.Host, joined)
+		}
+		if !strings.Contains(joined, "--property=DeviceAllow="+dev.Host+" rwm") {
+			t.Errorf("missing DRI DeviceAllow rwm for %s in: %s", dev.Host, joined)
+		}
 	}
 }
 
@@ -266,11 +276,11 @@ func TestBuildBootArgs_ReadOnlyBinds(t *testing.T) {
 }
 
 func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
-	args := BuildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil)
+	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil, nil)
 
 	joined := strings.Join(args, " ")
-	if strings.Contains(joined, "DeviceAllow") {
-		t.Errorf("unexpected DeviceAllow in args with no Nvidia devices: %s", joined)
+	if strings.Contains(joined, "DeviceAllow=/dev/nvidia") {
+		t.Errorf("unexpected Nvidia DeviceAllow in args with no Nvidia devices: %s", joined)
 	}
 	if strings.Contains(joined, "nvidia") {
 		t.Errorf("unexpected nvidia reference in args with no Nvidia devices: %s", joined)
