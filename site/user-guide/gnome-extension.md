@@ -44,14 +44,17 @@ Set the `TERMINAL` environment variable to override the default search order —
 
 ## Passwordless app launch
 
-`intuneme init` installs a sudoers rule at `/etc/sudoers.d/intuneme-exec` that allows the host user to run `nsenter` into the container without a password prompt. This is what enables the extension (and [desktop shortcuts](desktop-shortcuts.md)) to launch Edge and Intune Portal without a terminal window appearing to ask for a sudo password.
+`intuneme init` installs a sudoers rule at `/etc/sudoers.d/intuneme-exec` that allows the host user to launch container apps without a password prompt. This is what enables the extension (and [desktop shortcuts](desktop-shortcuts.md)) to launch Edge and Intune Portal without a terminal window appearing to ask for a sudo password.
+
+Instead of authorizing `nsenter` directly, the rule grants passwordless `sudo` for a single root-owned helper script at `/usr/local/libexec/intuneme/nsenter-exec`. The helper hard-codes the exact `nsenter`/`su` invocation and accepts only the container's process ID and the command to run. This is required because `sudo-rs` (the Rust `sudo`/`su` that ships by default on Ubuntu 25.10 and later) rejects wildcards inside command arguments, which the previous rule relied on and which caused an error on every `sudo` command.
 
 The rule is narrowly scoped:
 
-- It only permits the specific `nsenter` flag pattern used by `intuneme open`.
-- It only allows `su` to the host user (not arbitrary users).
+- It only permits the single fixed helper script; the nsenter flags are baked into the helper, not supplied by the caller.
+- The helper only runs `su` to the host user (not arbitrary users), and is installed root-owned and not user-writable.
 - It persists across `intuneme start` and `intuneme stop` cycles.
-- It is removed when you run `intuneme destroy`.
+- It is removed (along with the helper) when you run `intuneme destroy`.
 
 !!! tip
-    If the rule goes missing (for example, after upgrading from an older version), running `intuneme start` will reinstall it automatically.
+    If the rule or helper goes missing (for example, after upgrading from an older version that used the wildcard rule), running `intuneme start` will reinstall both automatically.
+
