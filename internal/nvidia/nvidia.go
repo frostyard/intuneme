@@ -109,10 +109,10 @@ func HostLibraries(ldconfigOutput []byte) []LibMapping {
 // inside the container, using an index to avoid basename collisions.
 func LibDirMounts(libs []LibMapping) []nspawn.BindMount {
 	dirIdx := libDirIndex(libs)
-	mounts := make([]nspawn.BindMount, 0, len(dirIdx))
+	mounts := make([]nspawn.BindMount, len(dirIdx))
 	for dir, idx := range dirIdx {
 		containerPath := fmt.Sprintf("/run/host-nvidia/%d", idx)
-		mounts = append(mounts, nspawn.BindMount{Host: dir, Container: containerPath, ReadOnly: true})
+		mounts[idx] = nspawn.BindMount{Host: dir, Container: containerPath, ReadOnly: true}
 	}
 	return mounts
 }

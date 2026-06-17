@@ -286,3 +286,42 @@ func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
 		t.Errorf("unexpected nvidia reference in args with no Nvidia devices: %s", joined)
 	}
 }
+
+func TestBuildNsenterArgs(t *testing.T) {
+	args := buildNsenterArgs("4321", "echo hi")
+	want := []string{NsenterHelperPath, "4321", "echo hi"}
+	if len(args) != len(want) {
+		t.Fatalf("expected %d args, got %d: %v", len(want), len(args), args)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("arg %d = %q, want %q", i, args[i], want[i])
+		}
+	}
+	// sudo-rs forbids interior wildcards; the helper indirection must keep the
+	// argv free of any "*".
+	for _, a := range args {
+		if strings.Contains(a, "*") {
+			t.Errorf("nsenter args must not contain wildcards, got %q", a)
+		}
+	}
+}
+
+func TestNsenterHelperScript(t *testing.T) {
+	script := NsenterHelperScript("testuser")
+	if !strings.HasPrefix(script, "#!/bin/bash") {
+		t.Errorf("helper script must start with a bash shebang, got:\n%s", script)
+	}
+	for _, want := range []string{
+		`/usr/bin/nsenter -t "$1" -m -u -i -n -p --`,
+		`/bin/su -s /bin/bash testuser -c "$2"`,
+		"set -euo pipefail",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("helper script missing %q, got:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, "*") {
+		t.Errorf("helper script should not contain wildcards, got:\n%s", script)
+	}
+}

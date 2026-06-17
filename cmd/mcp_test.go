@@ -38,8 +38,8 @@ func (m *mcpMockRunner) Run(name string, args ...string) ([]byte, error) {
 			return nil, fmt.Errorf("machine not found")
 		}
 		return []byte("Name=intuneme\n"), nil
-	case name == "sudo" && len(args) > 0 && args[0] == "nsenter":
-		// EnsureBind probe (test -e <bin>).
+	case name == "sudo" && len(args) > 0 && args[0] == nspawn.NsenterHelperPath:
+		// EnsureBind probe (test -e <bin>), run via the nsenter helper.
 		return nil, m.probeErr
 	case name == "machinectl" && len(args) > 0 && args[0] == "bind":
 		return nil, m.bindErr

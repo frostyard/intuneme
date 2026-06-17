@@ -113,7 +113,7 @@ func DetectHostSockets(uid int) []BindMount {
 		}
 	}
 
-	// Xauthority — required for X11 display access
+	// Xauthority: required for X11 display access
 	if xa := findXAuthority(uid); xa != "" {
 		mounts = append(mounts, BindMount{Host: xa, Container: "/run/host-xauthority"})
 	}
@@ -213,7 +213,7 @@ func Exec(r runner.Runner, machine, user string, uid int, command string) error 
 	}
 	script := buildSessionEnvScript(uid) +
 		fmt.Sprintf("\nnohup %s >/dev/null 2>&1 &", command)
-	if _, err := r.Run("sudo", buildNsenterArgs(leaderPID, user, script)...); err != nil {
+	if _, err := r.Run("sudo", buildNsenterArgs(leaderPID, script)...); err != nil {
 		return fmt.Errorf("exec in container failed: %w", err)
 	}
 	return nil
@@ -221,7 +221,7 @@ func Exec(r runner.Runner, machine, user string, uid int, command string) error 
 
 // ExecForeground runs a command inside the container in the FOREGROUND with the
 // caller's stdin/stdout/stderr attached. Unlike Exec it does not background the
-// process — this is required for stdio-transport servers (e.g. MCP) where the
+// process; this is required for stdio-transport servers (e.g. MCP) where the
 // parent must speak JSON-RPC over the child's stdin/stdout. No TTY is allocated
 // (nsenter here is non-allocating), which keeps the JSON-RPC framing intact.
 // Reuses the same nsenter shape as Exec, so the intuneme-exec sudoers rule
@@ -232,7 +232,7 @@ func ExecForeground(r runner.Runner, machine, user string, uid int, command stri
 		return err
 	}
 	script := buildSessionEnvScript(uid) + fmt.Sprintf("\nexec %s", command)
-	if err := r.RunAttached("sudo", buildNsenterArgs(leaderPID, user, script)...); err != nil {
+	if err := r.RunAttached("sudo", buildNsenterArgs(leaderPID, script)...); err != nil {
 		return fmt.Errorf("foreground exec in container failed: %w", err)
 	}
 	return nil
@@ -255,7 +255,7 @@ func EnsureBind(r runner.Runner, machine, user, hostDir, containerDir, probePath
 	if err != nil {
 		return err
 	}
-	probe := buildNsenterArgs(leaderPID, user, "test -e "+ShellQuote(probePath))
+	probe := buildNsenterArgs(leaderPID, "test -e "+ShellQuote(probePath))
 	if _, err := r.Run("sudo", probe...); err == nil {
 		return nil // already bound and visible
 	}
@@ -269,7 +269,7 @@ func EnsureBind(r runner.Runner, machine, user, hostDir, containerDir, probePath
 // buildSessionEnvScript returns the shell prologue that initializes a container
 // session the same way an interactive login would: display/audio/D-Bus/keyring.
 // Shared by Exec (background GUI apps) and ExecForeground (stdio servers).
-// Session-setup output is redirected to stderr so it never pollutes stdout — for
+// Session-setup output is redirected to stderr so it never pollutes stdout: for
 // foreground stdio servers stdout must carry only JSON-RPC.
 func buildSessionEnvScript(uid int) string {
 	uidStr := fmt.Sprintf("%d", uid)
@@ -297,16 +297,36 @@ fi`,
 	)
 }
 
-// buildNsenterArgs returns the nsenter argument vector (sans the leading "sudo")
-// that enters the container's namespaces and runs script as user via a non-login
-// bash. The shape matches the intuneme-exec sudoers rule exactly.
-func buildNsenterArgs(leaderPID, user, script string) []string {
-	return []string{
-		"nsenter",
-		"-t", leaderPID,
-		"-m", "-u", "-i", "-n", "-p",
-		"--", "/bin/su", "-s", "/bin/bash", user, "-c", script,
-	}
+// NsenterHelperDir is the directory holding the privileged nsenter helper script.
+const NsenterHelperDir = "/usr/local/libexec/intuneme"
+
+// NsenterHelperPath is the fixed, root-owned helper script that performs the
+// nsenter+su into the container. The intuneme-exec sudoers rule authorizes this
+// single path with no wildcards (sudo-rs forbids interior argument wildcards),
+// so all per-call variation (leader PID, script) is passed as arguments instead.
+const NsenterHelperPath = NsenterHelperDir + "/nsenter-exec"
+
+// NsenterHelperScript renders the helper script contents for the given container
+// user. The user is baked in at install time, so the only runtime inputs are the
+// leader PID ($1) and the script to run ($2). The script must be installed
+// root-owned and non-writable by the user, since it runs as root before dropping
+// privileges to the user via su.
+func NsenterHelperScript(user string) string {
+	return fmt.Sprintf(`#!/bin/bash
+# Installed by intuneme. Enters the intuneme container's namespaces and runs the
+# given script as %s via a non-login bash. Invoked through passwordless sudo
+# (the intuneme-exec sudoers rule). Keeping the nsenter+su shape fixed here lets
+# the sudoers rule reference a single wildcard-free path, which sudo-rs requires.
+set -euo pipefail
+exec /usr/bin/nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
+`, user, user)
+}
+
+// buildNsenterArgs returns the argument vector (sans the leading "sudo") that
+// invokes the privileged helper to enter the container's namespaces and run
+// script. The shape matches the intuneme-exec sudoers rule exactly.
+func buildNsenterArgs(leaderPID, script string) []string {
+	return []string{NsenterHelperPath, leaderPID, script}
 }
 
 // ShellQuote single-quotes s for safe interpolation into a /bin/sh command.

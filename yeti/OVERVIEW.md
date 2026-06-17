@@ -47,23 +47,27 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ### Command Execution Inside the Container
 
-`nspawn.Exec()` uses `sudo nsenter` to enter the container's namespaces and run commands as the user via `su`. This is the only reliable approach for launching GUI apps non-interactively:
+`nspawn.Exec()` enters the container's namespaces and runs commands as the user via `su`. Rather than invoking `sudo nsenter …` directly, it calls a fixed, root-owned helper script `/usr/local/libexec/intuneme/nsenter-exec <leader_pid> <script>` through passwordless `sudo`. The helper hard-codes the nsenter+su shape:
 
 ```
-sudo nsenter -t <leader_pid> -m -u -i -n -p -- \
-  /bin/su -s /bin/bash <user> -c "export DISPLAY=... XAUTHORITY=... \
-    WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... PULSE_SERVER=... \
-    XDG_RUNTIME_DIR=... DBUS_SESSION_BUS_ADDRESS=... \
-    [__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia] \
-    && /usr/local/bin/intuneme-session-setup \
-    && nohup <app> >/dev/null 2>&1 &"
+exec /usr/bin/nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash <user> -c "$2"
 ```
 
-The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU. It then runs `intuneme-session-setup` (see [Session Setup](#session-setup-shared-between-login-and-launch-paths)) before launching the app — because this is a non-login shell, that script is what pushes `DISPLAY`/`XAUTHORITY` into the D-Bus activation environment (so the GTK identity broker can start) and unlocks the keyring. Without it the broker crashes on activation and authentication fails.
+so the only per-call variation is the leader PID (`$1`) and the script (`$2`). This indirection exists because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. The previous rule used `*` for the leader PID and script and was rejected, breaking *every* `sudo` invocation. A single wildcard-free helper path satisfies sudo-rs while keeping the same effective authorization (the leader PID and script are still caller-controlled). The helper is installed root-owned and `0755` (not user-writable, since it runs as root before dropping to `<user>`). This is the only reliable approach for launching GUI apps non-interactively. The script the helper runs looks like:
 
-A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes this passwordless so the GNOME extension can launch apps without a terminal. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
+```
+export DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... \
+  PULSE_SERVER=... XDG_RUNTIME_DIR=... DBUS_SESSION_BUS_ADDRESS=... \
+  [__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia]
+/usr/local/bin/intuneme-session-setup
+nohup <app> >/dev/null 2>&1 &
+```
 
-`nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same `nsenter` shape (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code) — backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
+The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU. It then runs `intuneme-session-setup` (see [Session Setup](#session-setup-shared-between-login-and-launch-paths)) before launching the app. Because this is a non-login shell, that script is what pushes `DISPLAY`/`XAUTHORITY` into the D-Bus activation environment (so the GTK identity broker can start) and unlocks the keyring. Without it the broker crashes on activation and authentication fails.
+
+A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless so the GNOME extension can launch apps without a terminal. The rule and the helper are installed together (by `init`, self-healed by `start`); `sudoers.IsInstalled()` requires *both* to exist so an upgrade from the old wildcard-only rule reinstalls the wildcard-free rule and helper. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
+
+`nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same helper invocation (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code); backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
 
 ### Bind Mount Strategy
 
