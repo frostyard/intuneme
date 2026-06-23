@@ -107,6 +107,9 @@ func HostLibraries(ldconfigOutput []byte) []LibMapping {
 // LibDirMounts returns bind mounts for the unique host directories containing
 // Nvidia libraries. Each directory is mounted read-only at /run/host-nvidia/<index>/
 // inside the container, using an index to avoid basename collisions.
+//
+// The returned slice is index-ordered: mounts[i] must bind the directory that
+// Setup links through /run/host-nvidia/i. Keep this in sync with libDirIndex.
 func LibDirMounts(libs []LibMapping) []nspawn.BindMount {
 	dirIdx := libDirIndex(libs)
 	mounts := make([]nspawn.BindMount, len(dirIdx))
@@ -148,8 +151,9 @@ func ICDMounts(files []string) []nspawn.BindMount {
 	return mounts
 }
 
-// libDirIndex returns a map from host directory to its mount index,
-// matching the layout produced by LibDirMounts.
+// libDirIndex returns a map from host directory to its mount index. Both
+// LibDirMounts and Setup rely on this exact mapping so symlinks point into the
+// bind mount for their source library's directory.
 func libDirIndex(libs []LibMapping) map[string]int {
 	idx := 0
 	m := make(map[string]int)

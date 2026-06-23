@@ -1,6 +1,9 @@
 package nvidia
 
 import (
+	"fmt"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -125,6 +128,73 @@ func TestSetup(t *testing.T) {
 	if !foundLdconfig {
 		t.Errorf("expected ldconfig call after symlink creation")
 	}
+}
+
+func TestLibDirMountsAndSetupAgreeOnIndexMapping(t *testing.T) {
+	libs := []LibMapping{
+		{Basename: "libcuda.so.1", HostPath: "/opt/nvidia/0/libcuda.so.1"},
+		{Basename: "libnvidia-glcore.so.560", HostPath: "/opt/nvidia/0/libnvidia-glcore.so.560"},
+		{Basename: "libnvoptix.so.1", HostPath: "/opt/nvidia/1/libnvoptix.so.1"},
+		{Basename: "libnvidia-ml.so.1", HostPath: "/opt/nvidia/2/libnvidia-ml.so.1"},
+		{Basename: "libnvidia-egl.so.1", HostPath: "/opt/nvidia/3/libnvidia-egl.so.1"},
+		{Basename: "libnvidia-fbc.so.1", HostPath: "/opt/nvidia/4/libnvidia-fbc.so.1"},
+		{Basename: "libnvidia-encode.so.1", HostPath: "/opt/nvidia/5/libnvidia-encode.so.1"},
+		{Basename: "libnvidia-decode.so.1", HostPath: "/opt/nvidia/6/libnvidia-decode.so.1"},
+	}
+
+	r := newMockRunner()
+	if err := Setup(r, "intuneme", libs); err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	setupIndexByDir := make(map[string]int)
+	for _, lib := range libs {
+		idx, ok := setupSymlinkIndex(r.commands, lib.Basename)
+		if !ok {
+			t.Fatalf("Setup did not create a symlink for %s; commands: %v", lib.Basename, r.commands)
+		}
+		setupIndexByDir[filepath.Dir(lib.HostPath)] = idx
+	}
+
+	// Re-check several LibDirMounts calls. With the old append-while-ranging-a-map
+	// bug, slice position depended on map iteration and would eventually disagree
+	// with the index Setup used in its /run/host-nvidia/<idx> symlink targets.
+	for attempt := 0; attempt < 25; attempt++ {
+		mounts := LibDirMounts(libs)
+		for dir, idx := range setupIndexByDir {
+			if idx < 0 || idx >= len(mounts) {
+				t.Fatalf("Setup index %d for %s is outside LibDirMounts length %d", idx, dir, len(mounts))
+			}
+			wantContainer := fmt.Sprintf("/run/host-nvidia/%d", idx)
+			if mounts[idx].Container != wantContainer {
+				t.Fatalf("LibDirMounts()[%d].Container = %q, want %q", idx, mounts[idx].Container, wantContainer)
+			}
+			if mounts[idx].Host != dir {
+				t.Fatalf("LibDirMounts()[%d].Host = %q, but Setup uses index %d for %q", idx, mounts[idx].Host, idx, dir)
+			}
+		}
+	}
+}
+
+func setupSymlinkIndex(commands []string, basename string) (int, bool) {
+	for _, cmd := range commands {
+		fields := strings.Fields(cmd)
+		for i := 0; i < len(fields)-2; i++ {
+			if fields[i] != "ln" || fields[i+1] != "-s" {
+				continue
+			}
+			target := fields[i+2]
+			if filepath.Base(target) != basename {
+				continue
+			}
+			idx, err := strconv.Atoi(filepath.Base(filepath.Dir(target)))
+			if err != nil {
+				return 0, false
+			}
+			return idx, true
+		}
+	}
+	return 0, false
 }
 
 func TestCleanStaleLinks_PropagatesErrors(t *testing.T) {
