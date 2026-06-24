@@ -18,16 +18,14 @@ Full documentation is at **https://frostyard.github.io/intuneme/**
 
 ## Quick install
 
-Arch Linux users can install `intuneme` or `intuneme-bin` from the Arch User Repository (AUR):
-
-- [intuneme](https://aur.archlinux.org/packages/intuneme) (build from source)
-- [intuneme-bin](https://aur.archlinux.org/packages/intuneme-bin) (pre-compiled binary)
-
-Alternatively, you can install it using Go:
-
 ```bash
 go install github.com/frostyard/intuneme@latest
 ```
+
+Alternatively, Arch Linux users can install `intuneme` or `intuneme-bin` from the Arch User Repository (AUR):
+
+- [intuneme](https://aur.archlinux.org/packages/intuneme) (build from source)
+- [intuneme-bin](https://aur.archlinux.org/packages/intuneme-bin) (pre-compiled binary)
 
 ## Contributing
 
