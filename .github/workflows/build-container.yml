@@ -151,20 +151,35 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Push To GHCR
-        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c # v2
         if: github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
         id: push
         env:
           REGISTRY_USER: ${{ github.actor }}
           REGISTRY_PASSWORD: ${{ github.token }}
-        with:
-          registry: ${{ env.IMAGE_REGISTRY }}
-          image: ${{ env.IMAGE_NAME }}
-          tags: ${{ steps.metadata.outputs.tags }}
-          username: ${{ env.REGISTRY_USER }}
-          password: ${{ env.REGISTRY_PASSWORD }}
-          extra-args: |
-            --compression-format=zstd:chunked
+          TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          digest_file=$(mktemp)
+          trap 'rm -f "${digest_file}"' EXIT
+          read -r -a tags <<< "${TAGS}"
+          for tag in "${tags[@]}"; do
+            source="${IMAGE_NAME}:${tag}"
+            destination="${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}"
+            podman image exists "${source}"
+
+            for attempt in 1 2 3; do
+              if podman push --quiet --digestfile "${digest_file}" \
+                --compression-format=zstd:chunked \
+                --creds="${REGISTRY_USER}:${REGISTRY_PASSWORD}" \
+                "${source}" "${destination}"; then
+                break
+              fi
+              if [[ "${attempt}" == 3 ]]; then
+                exit 1
+              fi
+              sleep 10
+            done
+          done
+          echo "digest=$(<"${digest_file}")" >> "$GITHUB_OUTPUT"
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2

@@ -88,6 +88,7 @@ Images are published to `ghcr.io/frostyard/ubuntu-intune` with tags:
 - `:latest` — Development builds
 
 Images are signed with cosign. The build is automated via `.github/workflows/build-container.yml`.
+Registry pushes retry transient upload failures so a temporary GHCR error does not fail the scheduled build.
 
 ## Profile Script
 
