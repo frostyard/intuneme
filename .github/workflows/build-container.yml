@@ -164,7 +164,10 @@ jobs:
           for tag in "${tags[@]}"; do
             source="${IMAGE_NAME}:${tag}"
             destination="${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}"
-            podman image exists "${source}"
+            if ! podman image exists "${source}"; then
+              echo "Image ${source} not found locally" >&2
+              exit 1
+            fi
 
             for attempt in 1 2 3; do
               if podman push --quiet --digestfile "${digest_file}" \
