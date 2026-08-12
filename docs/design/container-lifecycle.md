@@ -133,7 +133,7 @@ Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sour
 
 ## `intuneme open edge` / `intuneme open portal`
 
-Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [OVERVIEW.md](OVERVIEW.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory. Because the nsenter path is a *non-login* shell, `nspawn.Exec()` runs `/usr/local/bin/intuneme-session-setup` before launching the app — this is what gives the D-Bus-activated identity broker a DISPLAY and an unlocked keyring, without which authentication fails.
+Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [overview.md](overview.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory. Because the nsenter path is a *non-login* shell, `nspawn.Exec()` runs `/usr/local/bin/intuneme-session-setup` before launching the app — this is what gives the D-Bus-activated identity broker a DISPLAY and an unlocked keyring, without which authentication fails.
 
 ## `intuneme udev install` / `intuneme udev remove`
 

@@ -65,7 +65,7 @@ nohup <app> >/dev/null 2>&1 &
 
 The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU. It then runs `intuneme-session-setup` (see [Session Setup](#session-setup-shared-between-login-and-launch-paths)) before launching the app. Because this is a non-login shell, that script is what pushes `DISPLAY`/`XAUTHORITY` into the D-Bus activation environment (so the GTK identity broker can start) and unlocks the keyring. Without it the broker crashes on activation and authentication fails.
 
-A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless so the GNOME extension can launch apps without a terminal. The rule and the helper are installed together (by `init`, self-healed by `start`); `sudoers.IsInstalled()` requires *both* to exist so an upgrade from the old wildcard-only rule reinstalls the wildcard-free rule and helper. See [CLAUDE.md](../CLAUDE.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
+A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless so the GNOME extension can launch apps without a terminal. The rule and the helper are installed together (by `init`, self-healed by `start`); `sudoers.IsInstalled()` requires *both* to exist so an upgrade from the old wildcard-only rule reinstalls the wildcard-free rule and helper. See [AGENTS.md](../../AGENTS.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
 
 `nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same helper invocation (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code); backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
 
@@ -321,4 +321,4 @@ The container workflow uses `actions/attest` for attestation (matching ublue-os/
 
 - [Container Lifecycle](container-lifecycle.md) — init, start, stop, destroy, recreate flows
 - [Broker Proxy](broker-proxy.md) — D-Bus forwarding for host-side SSO
-- [Container Image](container-image.md) — Build process, packages, and system configuration
+- [Container Image](../specs/container-image.md) — Build process, packages, and system configuration
