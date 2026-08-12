@@ -24,7 +24,7 @@ The repository has two main components:
 
 A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme init`, persists across start/stop, removed by `intuneme destroy`) makes the nsenter command passwordless, so the GNOME extension can launch apps without a terminal for sudo prompts. The rule does not authorize `nsenter` directly: it authorizes a single root-owned helper script `/usr/local/libexec/intuneme/nsenter-exec`, which hard-codes the `nsenter`/`su` shape and takes only the leader PID and the script as arguments. This indirection is required because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. The old rule used `*` for the leader PID and script and was rejected, printing an error on *every* `sudo` call (issue #168). The wildcard-free helper rule keeps the same effective authorization as the old rule (the leader PID and script are still caller-controlled), and the helper is installed `0755` root:root so the user can't edit code that runs as root. The `start` command reinstalls the rule and helper idempotently if missing; `sudoers.IsInstalled()` requires both to exist, so upgrades from the old wildcard rule self-heal.
 
-**Session setup runs on the nsenter path too.** The nsenter shell is *non-login*, so it never sources `/etc/profile.d`. `nspawn.Exec()` therefore runs `/usr/local/bin/intuneme-session-setup` (the shared script that `/etc/profile.d/intuneme.sh` also sources) before launching the app. That script pushes `DISPLAY`/`XAUTHORITY` into the **D-Bus activation environment** (`dbus-update-activation-environment`) and unlocks gnome-keyring. This is mandatory: the Microsoft identity broker is a GTK app that the session D-Bus daemon activates on demand — without a display in the activation environment it dies on startup (`cannot open display`) and **Edge can't authenticate**. `start` reinstalls the script if missing. See `yeti/OVERVIEW.md` → "Session Setup".
+**Session setup runs on the nsenter path too.** The nsenter shell is *non-login*, so it never sources `/etc/profile.d`. `nspawn.Exec()` therefore runs `/usr/local/bin/intuneme-session-setup` (the shared script that `/etc/profile.d/intuneme.sh` also sources) before launching the app. That script pushes `DISPLAY`/`XAUTHORITY` into the **D-Bus activation environment** (`dbus-update-activation-environment`) and unlocks gnome-keyring. This is mandatory: the Microsoft identity broker is a GTK app that the session D-Bus daemon activates on demand — without a display in the activation environment it dies on startup (`cannot open display`) and **Edge can't authenticate**. `start` reinstalls the script if missing. See `docs/design/overview.md` → "Session Setup".
 
 ## Running MCP servers in the container (`intuneme mcp`)
 
@@ -40,10 +40,25 @@ Key design points:
 
 Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
 
-## Documentation
+## Documentation rules
 
-Update `README.md` when adding new commands, flags, or changing existing functionality. The README contains a commands table and feature sections that must stay in sync with the code.
+Engineering docs live in `docs/` in frostyard/core's four-category shape
+(formerly the `yeti/` directory) — see the category table, index, and
+conventions in [docs/README.md](docs/README.md). Read
+[docs/design/overview.md](docs/design/overview.md) for codebase context
+before performing tasks, and write `docs/` content to be maximally useful to
+an AI agent understanding the codebase — detailed architecture, patterns, and
+decision rationale rather than user-facing guides.
 
-**update documentation** After any change to source code, update relevant documentation in CLAUDE.md, README.md and the yeti/ folder. A task is not complete without reviewing and updating relevant documentation.
-
-**yeti/ directory** The `yeti/` directory contains documentation written for AI consumption and context enhancement, not primarily for humans. Jobs like `doc-maintainer` and `issue-worker` instruct the AI to read `yeti/OVERVIEW.md` and related files for codebase context before performing tasks. Write content in this directory to be maximally useful to an AI agent understanding the codebase — detailed architecture, patterns, and decision rationale rather than user-facing guides.
+- Repo-local decisions get an ADR in `docs/adr/` (next free number, from the
+  TEMPLATE); org-wide decisions go to
+  [frostyard/core](https://github.com/frostyard/core/tree/main/docs/adr) plus
+  a line in [docs/org-adrs.md](docs/org-adrs.md).
+- **update documentation** After any change to source code, update relevant
+  documentation in AGENTS.md, README.md, and `docs/`. A task is not complete
+  without reviewing and updating relevant documentation.
+- Update `README.md` when adding new commands, flags, or changing existing
+  functionality. The README contains a commands table and feature sections
+  that must stay in sync with the code.
+- User-facing docs are separate: the MkDocs site content lives in `site/`
+  (`mkdocs.yml`, published to GitHub Pages).
