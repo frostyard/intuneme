@@ -7,7 +7,7 @@ description: Give a frostyard repo core's four-category docs/ shape (adr/, desig
 
 Every frostyard repo keeps one documentation tree, `docs/`, in the same
 shape as frostyard/core's
-([core ADR-0025](../../../docs/adr/0025-consolidate-repository-docs-into-docs.md)):
+([core ADR-0025](https://github.com/frostyard/core/blob/main/docs/adr/0025-consolidate-repository-docs-into-docs.md)):
 
 | Directory | Question | Contents |
 | --- | --- | --- |
