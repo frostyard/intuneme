@@ -74,9 +74,17 @@ Rules:
      to the org apt/rpm repo via `frostyard/repogen`'s `publish-to-r2`
      action (needs the `R2_*` secrets).
    - `snapshot.yml` — nightly GoReleaser `release --nightly --clean` under
-     the `dev` tag after green `main` tests. Keep its concurrency group
-     `cancel-in-progress: true`: overlapping runs recreate the same release
-     and collide uploading identically named assets.
+     the `dev` tag after green `main` tests. Use this exact top-level block:
+
+     ```yaml
+     concurrency:
+       group: goreleaser-nightly
+       cancel-in-progress: true
+     ```
+
+     Concurrency groups are repository-scoped, so do not substitute the
+     project name. Cancelling a stale run selects the newest tested `main`
+     commit and prevents overlapping uploads to the singleton release.
 4. **Write the repo's agent surface** (CLAUDE.md/AGENTS.md per the repo's
    instruction-surface convention): build commands, architecture map,
    code-pattern rules — mirror updex's CLAUDE.md sections.
