@@ -203,3 +203,11 @@ Common issues and solutions. Click an item to expand it.
     ```
 
     If the key was plugged in before the container started, it should have been forwarded automatically at boot. If not, unplug and re-plug the key while the container is running to trigger the hotplug rules.
+
+    If the log says the key was forwarded but tools inside the container still can't see it (pcscd: "No smart card readers found", Edge never prompts for the key), check that the device is allowed by the container's cgroup:
+
+    ```bash
+    systemctl show "$(machinectl show intuneme -p Unit --value)" -p DevicePolicy -p DeviceAllow
+    ```
+
+    The output should list `/dev/hidraw*` and `/dev/bus/usb/...` entries. If it doesn't, the node exists but every `open()` fails with `Operation not permitted`. Run `intuneme stop && intuneme start` to re-forward the key on the correct scope unit (older intuneme releases guessed the unit name, which changed to `<machine>.scope` on systemd 256+).

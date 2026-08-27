@@ -76,4 +76,11 @@ lsusb | grep Yubico
 
 # Check hotplug forwarding logs
 journalctl -t intuneme-hotplug
+
+# The node must also be allowed by the container's device cgroup. Look up the
+# real scope unit (it is "<machine>.scope" on systemd 256+, not
+# "machine-<machine>.scope") and check its allow-list for hidraw/usb entries.
+systemctl show "$(machinectl show intuneme -p Unit --value)" -p DevicePolicy -p DeviceAllow
 ```
+
+If the node exists inside the container but `DeviceAllow` has no matching entry, every `open()` fails with `Operation not permitted`: pcscd reports "No smart card readers found" and Edge never offers the key. Restarting the container (`intuneme stop && intuneme start`) re-forwards the key on the correct unit; hotplug rules from intuneme releases before this fix guessed the unit name and silently failed on newer systemd.

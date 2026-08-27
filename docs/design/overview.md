@@ -100,12 +100,14 @@ YubiKeys and video capture devices (webcams) can be forwarded into the running c
 **Forwarding mechanism** (`udev.ForwardDevice()`):
 1. Get container leader PID via `nspawn.LeaderPID()`
 2. Get device major:minor via `stat`
-3. Add `DeviceAllow` to the container's cgroup scope dynamically (`systemctl set-property machine-<name>.scope DevicePolicy=auto DeviceAllow=<dev> rwm`) — returns error on failure
+3. Resolve the container's cgroup scope unit via `nspawn.MachineUnit()` (`machinectl show <name> -p Unit --value`) and add `DeviceAllow` to it dynamically (`systemctl set-property <unit> DevicePolicy=auto DeviceAllow=<dev> rwm`) — returns error on failure. **The unit name must be looked up, never guessed:** systemd < 256 names it `machine-<name>.scope` (created by machined), but systemd ≥ 256 has nspawn allocate its own scope named `<name>.scope`. nspawn boots with `DevicePolicy=closed`, so a device node that is mknod'd but not in `DeviceAllow` exists in the container yet every `open()` fails with `EPERM` — pcscd reports "No smart card readers found" and Edge's FIDO discovery sees nothing
 4. Create the device node inside the container via `nsenter` + `mknod`
 5. Set permissions (restrictive `0660 root:video` for video devices, `0666` for others)
 6. Record in state directory (`/run/intuneme/devices/`) via `sudo.WriteFile()` for cleanup
 
-**Udev hotplug flow:** The helper script at `/usr/local/lib/intuneme/usb-hotplug` is triggered by udev rules when devices are added/removed. It calls `ForwardDevice()` for adds and cleans up state for removes. All forwarding operations go through `nspawn.LeaderPID()` to locate the container's init process for namespace entry.
+**Udev hotplug flow:** The helper script at `/usr/local/lib/intuneme/usb-hotplug` (bash, rendered from `internal/udev/usb-hotplug.sh.tmpl`) is triggered by udev rules when devices are added/removed. It re-implements the same six steps as `ForwardDevice()` in shell (udev `RUN+=` handlers can't call the Go binary — no config, no sudo, tight timeout), including the `machinectl show -p Unit` lookup, and logs to the journal under the `intuneme-hotplug` tag. A `set-property` failure is logged loudly rather than swallowed, because it is the difference between a working and a dead device. Both paths locate the container's init process via the machine's leader PID for namespace entry.
+
+The USB `remove` rule matches on kernel-supplied uevent variables (`ENV{DEVTYPE}=="usb_device"`, `ENV{PRODUCT}=="1050/*"`) and rebuilds the node path from `%E{BUSNUM}`/`%E{DEVNUM}` rather than relying on udev-db properties (`ID_VENDOR_ID`, `DEVNAME`), which proved unreliable on remove and left stale `/dev/bus/usb/BBB/DDD` nodes and state files behind after a re-enumeration. The hidraw remove rule uses `%k` (kernel name) and is unaffected.
 
 ### Nvidia GPU Support
 
