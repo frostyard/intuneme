@@ -4,7 +4,11 @@
 
 # USB device nodes (/dev/bus/usb/BBB/DDD)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1050", RUN+="/usr/local/lib/intuneme/usb-hotplug add %E{DEVNAME}"
-ACTION=="remove", SUBSYSTEM=="usb", ENV{ID_VENDOR_ID}=="1050", ENV{DEVNAME}=="/dev/bus/usb/*", RUN+="/usr/local/lib/intuneme/usb-hotplug remove %E{DEVNAME}"
+# On remove, sysfs attributes are gone and udev-db properties (ID_VENDOR_ID,
+# DEVNAME) are not reliably available, so match on the kernel-supplied uevent
+# variables instead: PRODUCT=<vendor>/<product>/<bcd> and BUSNUM/DEVNUM
+# (already zero-padded to three digits by the kernel).
+ACTION=="remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="1050/*", RUN+="/usr/local/lib/intuneme/usb-hotplug remove /dev/bus/usb/%E{BUSNUM}/%E{DEVNUM}"
 
 # HID raw interfaces (/dev/hidraw*) — for FIDO2/U2F
 ACTION=="add", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1050", RUN+="/usr/local/lib/intuneme/usb-hotplug add /dev/%k"

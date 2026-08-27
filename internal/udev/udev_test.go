@@ -65,6 +65,10 @@ func TestRulesContent(t *testing.T) {
 	checks := []string{
 		`ATTR{idVendor}=="1050"`,
 		`ENV{ID_VENDOR_ID}=="1050"`,
+		// USB remove must not depend on udev-db properties (issue: stale
+		// /dev/bus/usb nodes left in the container after re-enumeration).
+		`ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="1050/*"`,
+		`remove /dev/bus/usb/%E{BUSNUM}/%E{DEVNUM}`,
 		ScriptDir + "/" + ScriptName,
 		`SUBSYSTEM=="usb"`,
 		`SUBSYSTEM=="hidraw"`,
@@ -95,6 +99,19 @@ func TestScriptContent(t *testing.T) {
 	}
 	if !strings.Contains(content, StateDir) {
 		t.Errorf("script content missing state dir %s", StateDir)
+	}
+	// The cgroup scope unit must be resolved via machined, not guessed:
+	// systemd v256+ names nspawn's scope "<machine>.scope", not
+	// "machine-<machine>.scope". A wrong unit name makes set-property fail
+	// and every open() of the forwarded device return EPERM in the container.
+	if !strings.Contains(content, `machinectl show "$MACHINE" -p Unit --value`) {
+		t.Error("script content must resolve the scope unit via machinectl show -p Unit")
+	}
+	if strings.Contains(content, `machine-${MACHINE}.scope`) {
+		t.Error("script content must not hard-code machine-<name>.scope")
+	}
+	if !strings.Contains(content, `systemctl set-property "$UNIT" DevicePolicy=auto "DeviceAllow=$DEVNODE rwm"`) {
+		t.Error("script content missing DeviceAllow set-property on resolved unit")
 	}
 	// Video/media devices should get restrictive permissions.
 	if !strings.Contains(content, "chgrp video") {

@@ -27,9 +27,19 @@ case "$ACTION" in
     MAJOR=$(stat -c '0x%t' "$DEVNODE" 2>/dev/null) || { log "add: cannot stat $DEVNODE"; exit 0; }
     MINOR=$(stat -c '0x%T' "$DEVNODE" 2>/dev/null) || exit 0
 
-    # Allow the device in the container's cgroup. DevicePolicy=auto preserves
-    # the existing nspawn device policy and adds our device on top.
-    systemctl set-property "machine-${MACHINE}.scope" DevicePolicy=auto "DeviceAllow=$DEVNODE rwm" 2>/dev/null || true
+    # Allow the device in the container's cgroup. The scope unit name is NOT
+    # always "machine-<name>.scope": newer systemd (v256+) has nspawn allocate
+    # its own scope named "<name>.scope", so ask machined for the real unit
+    # (same as nspawn.MachineUnit() in Go). Without this, mknod below still
+    # succeeds but every open() inside the container fails with EPERM because
+    # nspawn's DevicePolicy=closed cgroup filter rejects the device.
+    # DevicePolicy=auto preserves the existing policy and adds our device on top.
+    UNIT=$(machinectl show "$MACHINE" -p Unit --value 2>/dev/null) || UNIT=""
+    if [ -z "$UNIT" ]; then
+      log "add: cannot resolve scope unit for $MACHINE; $DEVNODE will be inaccessible (EPERM) in the container"
+    elif ! systemctl set-property "$UNIT" DevicePolicy=auto "DeviceAllow=$DEVNODE rwm" 2>/dev/null; then
+      log "add: DeviceAllow failed for $DEVNODE on $UNIT; device will be inaccessible (EPERM) in the container"
+    fi
 
     # Create device node inside container.
     nsenter -t "$LEADER" -m -- mkdir -p "$(dirname "$DEVNODE")" 2>/dev/null || true
