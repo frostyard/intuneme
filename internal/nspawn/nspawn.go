@@ -148,6 +148,7 @@ func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, d
 		fmt.Sprintf("--machine=%s", machine),
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
+		"--bind-ro=/etc/machine-id",
 	}
 	// Bind DRI devices individually and grant rwm in the cgroup. systemd-nspawn's
 	// automatic device policy grants only rw for these nodes, but WebKitGTK's
