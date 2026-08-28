@@ -107,7 +107,7 @@ func TestInstall_ValidatesBeforeInstallingRule(t *testing.T) {
 
 	var visudoIdx, ruleInstallIdx = -1, -1
 	for i, c := range r.commands {
-		if strings.HasPrefix(c, "/usr/sbin/visudo -c -f") {
+		if strings.Contains(c, "visudo -c -f") {
 			visudoIdx = i
 		}
 		if strings.Contains(c, "install -m 0440") && strings.Contains(c, filePath) {

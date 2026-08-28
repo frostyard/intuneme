@@ -11,6 +11,9 @@ import (
 	"github.com/frostyard/intuneme/internal/sudo"
 )
 
+// StandardPATH is the standard executable search path expected by Ubuntu.
+const StandardPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 // validDisplay matches X11 display formats: ":N" or ":N.S" or "host:N" or "host:N.S"
 var validDisplay = regexp.MustCompile(`^[a-zA-Z0-9._-]*:[0-9]+(\.[0-9]+)?$`)
 
@@ -148,6 +151,7 @@ func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, d
 		fmt.Sprintf("--machine=%s", machine),
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
+		"--setenv=PATH=" + StandardPATH,
 	}
 	// Bind DRI devices individually and grant rwm in the cgroup. systemd-nspawn's
 	// automatic device policy grants only rw for these nodes, but WebKitGTK's
@@ -275,7 +279,8 @@ func buildSessionEnvScript(uid int) string {
 	uidStr := fmt.Sprintf("%d", uid)
 	display := HostDisplay()
 	return fmt.Sprintf(
-		`export DISPLAY=%s
+		`export PATH=%s
+export DISPLAY=%s
 export XAUTHORITY=/run/host-xauthority
 export WAYLAND_DISPLAY=/run/host-wayland
 export PIPEWIRE_REMOTE=/run/host-pipewire
@@ -293,7 +298,7 @@ fi
 if [ -x /usr/local/bin/intuneme-session-setup ]; then
     /usr/local/bin/intuneme-session-setup >&2
 fi`,
-		display, uidStr, uidStr,
+		StandardPATH, display, uidStr, uidStr,
 	)
 }
 

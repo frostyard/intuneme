@@ -298,8 +298,8 @@ intuneme installs these on the host (all reversible via `destroy`):
 |----------|------|--------------|------------|
 | Polkit rule | `/etc/polkit-1/rules.d/50-intuneme.rules` | `init` | `destroy` |
 | Sudoers rule | `/etc/sudoers.d/intuneme-exec` | `init` (reinstalled by `start`) | `destroy` |
-| Udev rules (YubiKey) | `/etc/udev/rules.d/70-intuneme-yubikey.rules` | `start` | `stop`, `destroy` |
-| Udev rules (video) | `/etc/udev/rules.d/70-intuneme-video.rules` | `start` | `stop`, `destroy` |
+| Udev rules (YubiKey) | `/run/udev/rules.d/70-intuneme-yubikey.rules` | `start` | `stop`, `destroy` |
+| Udev rules (video) | `/run/udev/rules.d/70-intuneme-video.rules` | `start` | `stop`, `destroy` |
 | Udev helper script | `/usr/local/lib/intuneme/usb-hotplug` | `start` | `stop`, `destroy` |
 | Extension polkit policy | `/etc/polkit-1/actions/org.frostyard.intuneme.policy` | `extension install` | `destroy --all` |
 | GNOME extension | `~/.local/share/gnome-shell/extensions/intuneme@frostyard.org/` | `extension install` | `destroy --all` |

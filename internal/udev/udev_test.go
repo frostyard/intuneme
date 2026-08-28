@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/intuneme/internal/nspawn"
 )
 
 type mockRunner struct {
@@ -197,7 +199,7 @@ func TestRemoveGraceful(t *testing.T) {
 
 func TestRulesPath(t *testing.T) {
 	got := RulesPath()
-	want := "/etc/udev/rules.d/70-intuneme-yubikey.rules"
+	want := "/run/udev/rules.d/70-intuneme-yubikey.rules"
 	if got != want {
 		t.Errorf("RulesPath() = %q, want %q", got, want)
 	}
@@ -205,7 +207,7 @@ func TestRulesPath(t *testing.T) {
 
 func TestVideoRulesPath(t *testing.T) {
 	got := VideoRulesPath()
-	want := "/etc/udev/rules.d/70-intuneme-video.rules"
+	want := "/run/udev/rules.d/70-intuneme-video.rules"
 	if got != want {
 		t.Errorf("VideoRulesPath() = %q, want %q", got, want)
 	}
@@ -300,14 +302,14 @@ func TestForwardDeviceVideoPermissions(t *testing.T) {
 	}
 
 	// Video devices should use chgrp video + chmod 0660.
-	if !r.hasCommand("sudo nsenter -t 12345 -m -- chgrp video /dev/video0") {
+	if !r.hasCommand("sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " chgrp video /dev/video0") {
 		t.Error("missing chgrp video for video device")
 	}
-	if !r.hasCommand("sudo nsenter -t 12345 -m -- chmod 0660 /dev/video0") {
+	if !r.hasCommand("sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " chmod 0660 /dev/video0") {
 		t.Error("missing chmod 0660 for video device")
 	}
 	// Should NOT use 0666 for video devices.
-	if r.hasCommand("sudo nsenter -t 12345 -m -- chmod 0666 /dev/video0") {
+	if r.hasCommand("sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " chmod 0666 /dev/video0") {
 		t.Error("video device should not use 0666")
 	}
 }
@@ -324,10 +326,10 @@ func TestForwardDeviceMediaPermissions(t *testing.T) {
 	}
 
 	// Media devices should also use chgrp video + chmod 0660.
-	if !r.hasCommand("sudo nsenter -t 12345 -m -- chgrp video /dev/media0") {
+	if !r.hasCommand("sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " chgrp video /dev/media0") {
 		t.Error("missing chgrp video for media device")
 	}
-	if !r.hasCommand("sudo nsenter -t 12345 -m -- chmod 0660 /dev/media0") {
+	if !r.hasCommand("sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " chmod 0660 /dev/media0") {
 		t.Error("missing chmod 0660 for media device")
 	}
 }

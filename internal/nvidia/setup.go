@@ -24,6 +24,7 @@ func CleanStaleLinks(r runner.Runner, machine string) error {
 
 	// Remove symlinks targeting /run/host-nvidia/*.
 	if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"find", containerLibDir, "-maxdepth", "1",
 		"-lname", "/run/host-nvidia/*", "-delete"); err != nil {
 		return fmt.Errorf("removing stale nvidia symlinks: %w", err)
@@ -31,6 +32,7 @@ func CleanStaleLinks(r runner.Runner, machine string) error {
 
 	// Remove the mount point directory itself if it exists.
 	if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"rm", "-rf", "/run/host-nvidia"); err != nil {
 		return fmt.Errorf("removing /run/host-nvidia: %w", err)
 	}
@@ -57,6 +59,7 @@ func Setup(r runner.Runner, machine string, libs []LibMapping) error {
 		// Skip if a regular file (not a symlink) already exists — don't
 		// clobber package-owned files.
 		out, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"test", "-f", linkPath, "-a", "!", "-L", linkPath)
 		if err == nil && len(strings.TrimSpace(string(out))) == 0 {
 			// Regular file exists, skip.
@@ -65,8 +68,10 @@ func Setup(r runner.Runner, machine string, libs []LibMapping) error {
 
 		// Remove any existing file/symlink and create the new symlink.
 		_, _ = r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"rm", "-f", linkPath)
 		if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"ln", "-s", target, linkPath); err != nil {
 			return fmt.Errorf("symlink %s -> %s: %w", linkPath, target, err)
 		}
@@ -74,6 +79,7 @@ func Setup(r runner.Runner, machine string, libs []LibMapping) error {
 
 	// Update the dynamic linker cache.
 	if _, err := r.Run("sudo", "nsenter", "-t", leaderPID, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"ldconfig"); err != nil {
 		return fmt.Errorf("ldconfig failed: %w", err)
 	}
