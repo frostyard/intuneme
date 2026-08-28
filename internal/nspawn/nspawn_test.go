@@ -81,7 +81,7 @@ func TestBuildBootArgs_DRIDevices(t *testing.T) {
 		{Host: "/dev/dri/card0", Container: "/dev/dri/card0"},
 		{Host: "/dev/dri/renderD128", Container: "/dev/dri/renderD128"},
 	}
-	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, driDevices, nil)
+	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, driDevices, nil, nil)
 
 	joined := strings.Join(args, " ")
 	for _, dev := range driDevices {
@@ -275,8 +275,26 @@ func TestBuildBootArgs_ReadOnlyBinds(t *testing.T) {
 	}
 }
 
+func TestBuildBootArgs_BlockDevices(t *testing.T) {
+	blockDevices := []BindMount{
+		{Host: "/dev/sda", Container: "/dev/sda"},
+		{Host: "/dev/nvme0n1", Container: "/dev/nvme0n1"},
+	}
+	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil, blockDevices, nil)
+
+	joined := strings.Join(args, " ")
+	for _, dev := range blockDevices {
+		if !strings.Contains(joined, "--bind-ro="+dev.Host) {
+			t.Errorf("missing block device bind for %s in: %s", dev.Host, joined)
+		}
+		if !strings.Contains(joined, "--property=DeviceAllow="+dev.Host+" r") {
+			t.Errorf("missing block device DeviceAllow r for %s in: %s", dev.Host, joined)
+		}
+	}
+}
+
 func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
-	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil, nil)
+	args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", nil, nil, nil, nil)
 
 	joined := strings.Join(args, " ")
 	if strings.Contains(joined, "DeviceAllow=/dev/nvidia") {
