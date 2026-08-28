@@ -168,7 +168,7 @@ func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, d
 			args = append(args, fmt.Sprintf("--bind=%s:%s", s.Host, s.Container))
 		}
 	}
-	args = append(args, "--console=pipe", "-b")
+	args = append(args, "-q", "--console=pipe", "-b")
 	return args
 }
 
