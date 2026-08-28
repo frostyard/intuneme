@@ -64,7 +64,8 @@ apt install -y \
   libpulse0 \
   sudo \
   cracklib-runtime \
-  upower
+  upower \
+  efitools
 
 # Edge needs fixes to install properly
 # Download Edge deb without installing

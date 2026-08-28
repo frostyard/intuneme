@@ -149,6 +149,10 @@ func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, d
 		fmt.Sprintf("--bind=%s:%s", intuneHome, containerHome),
 		"--bind=/tmp/.X11-unix",
 	}
+	// Bind EFI into the container so that Secure Boot status can be interrogated.
+	if _, err := os.Stat("/sys/firmware/efi"); err == nil {
+		args = append(args, "--bind-ro=/sys/firmware/efi")
+	}
 	// Bind DRI devices individually and grant rwm in the cgroup. systemd-nspawn's
 	// automatic device policy grants only rw for these nodes, but WebKitGTK's
 	// auth browser needs DRM ioctls that create GBM/KMS buffers.
