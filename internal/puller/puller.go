@@ -5,9 +5,43 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/frostyard/intuneme/internal/runner"
 )
+
+// VerifyRootOwned checks that an extracted rootfs really is owned by uid 0.
+//
+// Extraction runs `sudo tar`/`umoci` and faithfully preserves whatever UIDs
+// the archive carries. If the pull ran inside a nested user namespace — a
+// rootless container, `podman unshare`, distrobox/toolbox, a sandboxed shell
+// — then "root" in that namespace is the invoking host user, and every
+// container-root file lands owned by that user instead of 0. Nothing later in
+// provisioning notices: the container still boots, but `sudo` inside it is
+// broken (`/usr/bin/sudo must be owned by uid 0`), and since the container
+// runs without --private-users, container root IS host root — so the host
+// user can write code that later executes as real root.
+//
+// Fail loudly here rather than hand back a silently poisoned rootfs.
+func VerifyRootOwned(rootfsPath string) error {
+	sentinel := filepath.Join(rootfsPath, "etc", "passwd")
+	fi, err := os.Stat(sentinel)
+	if err != nil {
+		return fmt.Errorf("extracted rootfs looks incomplete: %w", err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	if st.Uid != 0 || st.Gid != 0 {
+		return fmt.Errorf(
+			"extracted rootfs is owned by %d:%d, not root: the image was unpacked inside a user namespace. "+
+				"Re-run from a plain host shell (not distrobox/toolbox, `podman unshare`, a rootless container, "+
+				"or a sandboxed agent shell); `cat /proc/self/uid_map` must read \"0 0 4294967295\"",
+			st.Uid, st.Gid)
+	}
+	return nil
+}
 
 // Puller pulls a container image from a registry and extracts it to a rootfs directory.
 type Puller interface {
