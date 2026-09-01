@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"path/filepath"
 	"time"
 
@@ -50,22 +49,11 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 	}
 
 	rep.Message("Stopping container...")
-	if err := nspawn.Stop(r, cfg.MachineName); err != nil {
+	if err := nspawn.StopAndWait(r, cfg.MachineName, pollInterval, maxAttempts); err != nil {
 		return err
 	}
-
-	// Wait for the container to fully deregister from systemd-machined.
-	// machinectl poweroff returns before the machine is fully gone.
-	for range maxAttempts {
-		if !nspawn.IsRunning(r, cfg.MachineName) {
-			rep.Message("Container stopped.")
-			return nil
-		}
-		time.Sleep(pollInterval)
-	}
-
-	timeout := pollInterval * time.Duration(maxAttempts)
-	return fmt.Errorf("container %s did not stop within %s", cfg.MachineName, timeout)
+	rep.Message("Container stopped.")
+	return nil
 }
 
 var stopCmd = &cobra.Command{

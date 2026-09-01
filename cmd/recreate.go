@@ -71,7 +71,7 @@ var recreateCmd = &cobra.Command{
 				rep.Message("Broker proxy stopped.")
 			}
 			rep.Message("Stopping container...")
-			if err := nspawn.Stop(r, cfg.MachineName); err != nil {
+			if err := nspawn.StopAndWait(r, cfg.MachineName, nspawn.DefaultStopPoll, nspawn.DefaultStopAttempts); err != nil {
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
 			rep.Message("Container stopped.")
@@ -93,8 +93,18 @@ var recreateCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("backup device broker state: %w", err)
 		}
+		// The backup is the only copy of the enrollment once the rootfs is
+		// deleted below, so it is kept — and its location reported — on every
+		// failure path. Only a successful restore may discard it.
+		brokerRestored := false
 		if brokerBackupDir != "" {
-			defer func() { _ = os.RemoveAll(brokerBackupDir) }()
+			defer func() {
+				if brokerRestored {
+					_ = os.RemoveAll(brokerBackupDir)
+					return
+				}
+				rep.Warning("Device broker state was NOT restored. Enrollment backup kept at %s", brokerBackupDir)
+			}()
 			if clix.Verbose {
 				rep.Message("Device broker state backed up.")
 			}
@@ -131,6 +141,9 @@ var recreateCmd = &cobra.Command{
 		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirRecreate); err != nil {
 			return err
 		}
+		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
+			return err
+		}
 
 		// Re-provision
 		hostname, _ := os.Hostname()
@@ -153,6 +166,8 @@ var recreateCmd = &cobra.Command{
 			}
 			if err := provision.RestoreDeviceBrokerState(r, cfg.RootfsPath, brokerBackupDir); err != nil {
 				rep.Warning("restore device broker state failed: %v", err)
+			} else {
+				brokerRestored = true
 			}
 		}
 

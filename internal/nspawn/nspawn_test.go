@@ -1,10 +1,12 @@
 package nspawn
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type mockRunner struct {
@@ -323,5 +325,52 @@ func TestNsenterHelperScript(t *testing.T) {
 	}
 	if strings.Contains(script, "*") {
 		t.Errorf("helper script should not contain wildcards, got:\n%s", script)
+	}
+}
+
+// deregisteringRunner reports the machine as registered for the first
+// showsBeforeGone `machinectl show` calls, then as gone.
+type deregisteringRunner struct {
+	mockRunner
+	showsBeforeGone int
+	shows           int
+}
+
+func (d *deregisteringRunner) Run(name string, args ...string) ([]byte, error) {
+	cmd := name + " " + strings.Join(args, " ")
+	d.commands = append(d.commands, cmd)
+	if strings.HasPrefix(cmd, "machinectl show ") {
+		d.shows++
+		if d.shows > d.showsBeforeGone {
+			return nil, errors.New("no machine 'intuneme' known")
+		}
+	}
+	return nil, nil
+}
+
+func TestStopAndWaitBlocksUntilDeregistered(t *testing.T) {
+	r := &deregisteringRunner{showsBeforeGone: 3}
+	if err := StopAndWait(r, "intuneme", time.Millisecond, 60); err != nil {
+		t.Fatalf("StopAndWait: %v", err)
+	}
+	if r.commands[0] != "machinectl poweroff intuneme" {
+		t.Errorf("expected poweroff first, got %q", r.commands[0])
+	}
+	// It must keep polling past the point where the machine is still
+	// registered; returning after the first probe is the rootfs-deletion race.
+	if r.shows != 4 {
+		t.Errorf("expected 4 registration probes, got %d", r.shows)
+	}
+}
+
+func TestStopAndWaitTimesOut(t *testing.T) {
+	// showsBeforeGone larger than maxAttempts: the machine never deregisters.
+	r := &deregisteringRunner{showsBeforeGone: 100}
+	err := StopAndWait(r, "intuneme", time.Millisecond, 3)
+	if err == nil {
+		t.Fatal("expected timeout error when the machine never deregisters")
+	}
+	if !strings.Contains(err.Error(), "did not stop") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
