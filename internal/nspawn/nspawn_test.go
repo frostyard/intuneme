@@ -70,6 +70,9 @@ func TestBuildBootArgs(t *testing.T) {
 	if !strings.Contains(joined, "--bind=/tmp/.X11-unix") {
 		t.Errorf("missing X11 bind in: %s", joined)
 	}
+	if !strings.Contains(joined, "--bind-ro=/etc/machine-id") {
+		t.Errorf("missing machine-id bind in: %s", joined)
+	}
 	if !strings.Contains(joined, "--bind=/run/user/1000/wayland-0:/run/host-wayland") {
 		t.Errorf("missing wayland socket bind in: %s", joined)
 	}
