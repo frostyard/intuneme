@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudo"
@@ -364,4 +365,33 @@ func Stop(r runner.Runner, machine string) error {
 		return fmt.Errorf("machinectl poweroff failed: %w\n%s", err, out)
 	}
 	return nil
+}
+
+// DefaultStopPoll and DefaultStopAttempts bound the wait for a machine to
+// deregister from systemd-machined (30s total).
+const (
+	DefaultStopPoll     = 500 * time.Millisecond
+	DefaultStopAttempts = 60
+)
+
+// StopAndWait powers off the container and blocks until systemd-machined has
+// deregistered it, or the poll budget is exhausted.
+//
+// Every caller that touches the rootfs afterwards MUST use this rather than
+// Stop: `machinectl poweroff` only signals the container's init and returns
+// immediately, so systemd-nspawn is still tearing down the rootfs (and its
+// /sys, /proc and cgroup mounts) when Stop returns. Deleting the rootfs in
+// that window fails partway through with "Directory not empty", leaving a
+// half-erased tree behind.
+func StopAndWait(r runner.Runner, machine string, pollInterval time.Duration, maxAttempts int) error {
+	if err := Stop(r, machine); err != nil {
+		return err
+	}
+	for range maxAttempts {
+		if !IsRunning(r, machine) {
+			return nil
+		}
+		time.Sleep(pollInterval)
+	}
+	return fmt.Errorf("container %s did not stop within %s", machine, pollInterval*time.Duration(maxAttempts))
 }

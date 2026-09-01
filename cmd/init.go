@@ -101,6 +101,9 @@ var initCmd = &cobra.Command{
 		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirInit); err != nil {
 			return err
 		}
+		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
+			return err
+		}
 
 		hostname, _ := os.Hostname()
 

@@ -56,11 +56,30 @@ if [ -d /run/host-nvidia ]; then
     export __GLX_VENDOR_LIBRARY_NAME=nvidia
 fi
 
+# WebKitGTK rendering workaround for the identity broker's sign-in window.
+#
+# The broker (microsoft-identity-broker) renders its interactive auth window
+# with WebKitGTK 4.1. Because WAYLAND_DISPLAY is exported above, GTK picks the
+# Wayland backend and WebKit connects straight to the *host* compositor,
+# handing it dmabufs produced by the container's Mesa across the container
+# boundary. That combination paints nothing: the window maps, the web process
+# starts (it even activates at-spi), no EGL/GBM error is logged — and the page
+# stays blank white, so sign-in is impossible.
+#
+# The GPU stack itself is fine (gbm_create_device + eglInitialize both succeed
+# inside the container), so this is a buffer-handoff problem, not a driver one.
+# Forcing WebKit onto its SHM path sidesteps it. Only the auth window uses
+# WebKit here — Edge is Chromium and unaffected — so the lost acceleration
+# costs nothing that matters.
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+
 # Propagate the environment to the systemd user manager AND the D-Bus activation
 # environment. The latter is what D-Bus-activated services (the identity broker)
 # inherit — without it the broker has no DISPLAY and crashes on activation.
 _env_vars="DISPLAY XAUTHORITY NO_AT_BRIDGE GTK_A11Y PATH WAYLAND_DISPLAY \
-PIPEWIRE_REMOTE PULSE_SERVER __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME"
+PIPEWIRE_REMOTE PULSE_SERVER __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME \
+WEBKIT_DISABLE_DMABUF_RENDERER WEBKIT_DISABLE_COMPOSITING_MODE"
 # Only pass variables that are actually set, so we don't clear them.
 _set_vars=""
 for _v in $_env_vars; do

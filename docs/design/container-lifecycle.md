@@ -13,7 +13,7 @@ One-time provisioning that creates the container from scratch.
 1. **Check prerequisites** — Verify `systemd-nspawn` and `machinectl` are available (`prereq.Check()`)
 2. **Create home bind mount** — `mkdir ~/Intune`
 3. **Pull OCI image** — Auto-detect puller (podman → skopeo+umoci → docker), pull from `ghcr.io/frostyard/ubuntu-intune:<tag>`
-4. **Extract rootfs** — Unpack image to `~/.local/share/intuneme/rootfs/`
+4. **Extract rootfs** — Unpack image to `~/.local/share/intuneme/rootfs/`, then assert with `puller.VerifyRootOwned()` that `rootfs/etc/passwd` is owned by `0:0`
 5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
@@ -22,6 +22,28 @@ One-time provisioning that creates the container from scratch.
 10. **Install sudoers rule + helper**: root-owned helper at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`) plus `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
 12. **Save config** — Write `config.toml`
+
+### Extraction must produce a root-owned rootfs
+
+Extraction (`sudo tar -xf`, `sudo umoci raw unpack`) preserves whatever UIDs
+the archive carries. If the pull runs inside a nested user namespace — a
+rootless container, `podman unshare`, distrobox/toolbox, a sandboxed agent
+shell — then "root" in that namespace is the invoking host user, so every
+container-root file is extracted owned by that user instead of `0`.
+
+Nothing downstream notices on its own. The container still boots, but `sudo`
+inside it is dead (`/usr/bin/sudo must be owned by uid 0 and have the setuid
+bit set`), `/etc/sudoers*` is rejected, and because the container runs without
+`--private-users` (see `nspawn.buildBootArgs`) container root **is** host
+root — so the host user owns ~23k files that later execute as real root.
+
+`puller.VerifyRootOwned()` therefore hard-fails `init` and `recreate` right
+after extraction rather than handing back a silently poisoned rootfs. The
+diagnostic is the invoking shell's own `cat /proc/self/uid_map`, which must
+read `0 0 4294967295` (the initial user namespace). Do **not** check this
+through `podman unshare`: that subcommand exists to enter a user namespace,
+so under rootless podman it always reports `0 <your-uid> 1` regardless of
+where it is run.
 
 ## `intuneme start`
 
@@ -41,7 +63,7 @@ Boots the container and sets up runtime environment.
 10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
 11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
 12. **Ensure sudoers**: Reinstall sudoers rule and nsenter helper if either is missing (handles upgrades from the old wildcard-only rule; `IsInstalled` requires both)
-12b. **Ensure session scripts** — Reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` if missing (`provision.SessionScriptsInstalled` / `InstallSessionScripts`); self-heals containers provisioned before the shared script existed
+12b. **Ensure session scripts** — Unconditionally reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` (`provision.InstallSessionScripts`, idempotent), so the rootfs copy always matches the embedded one and CLI upgrades reach existing containers without a `recreate`
 13. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
 14. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
 15. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
@@ -60,8 +82,7 @@ Graceful shutdown via `runStop()` (shared between `stop` command and internal us
 
 1. **Stop broker proxy** (if enabled) — Kill process by PID file, remove PID file
 2. **Remove udev rules** — Delete rules files, helper script, and state dir (`/run/intuneme/devices`), reload udev (idempotent)
-3. **Power off container** — `machinectl poweroff <machine>`
-4. **Wait for deregistration** — Poll `machinectl` every 500ms, up to 60 attempts (30 seconds max)
+3. **Power off container and wait** — `nspawn.StopAndWait()`: `machinectl poweroff <machine>`, then poll `machinectl show` every 500ms for up to 60 attempts (30 seconds max) until the machine deregisters from `systemd-machined`
 
 ## `intuneme destroy`
 
@@ -72,7 +93,7 @@ Removes container and host modifications. By default preserves user files in `~/
 **Flow (default):**
 
 1. **Stop broker proxy** (if enabled) — Kill process by PID file
-2. **Stop container** if running — `nspawn.Stop()`
+2. **Stop container** if running — `nspawn.StopAndWait()`
 3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
 4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
 5. **Remove sudoers rule + helper**: Delete `/etc/sudoers.d/intuneme-exec` and `/usr/local/libexec/intuneme/nsenter-exec`
@@ -103,7 +124,7 @@ Updates the container image while preserving enrollment. Can switch channels.
 **Flow:**
 
 1. **Early validation** — Verify initialized, validate sudo access
-2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.Stop()` directly
+2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
 3. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
    - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` to temp dir (`provision.BackupDeviceBrokerState()`)
@@ -116,6 +137,17 @@ Updates the container image while preserving enrollment. Can switch channels.
 8. **Update config** — Save with potentially new insiders flag
 
 Note: `recreate` reinstalls the host polkit rule but does NOT reinstall the host sudoers rule — `start` handles that idempotently.
+
+`machinectl poweroff` only signals the container's init and returns
+immediately, so `systemd-nspawn` is still unwinding the rootfs (its `/sys`,
+`/proc` and cgroup mounts) when it does. Both commands that delete the rootfs
+— `recreate` and `destroy` — must therefore go through
+`nspawn.StopAndWait()`, never bare `nspawn.Stop()`. Calling `rm -rf` inside
+that window aborts partway with `Directory not empty` and leaves a
+half-erased tree; in `recreate` that used to also discard the only copy of
+the enrollment, because the deferred cleanup deleted the device-broker backup
+on the error path. The backup is now retained (and its path reported) unless
+the restore actually succeeded.
 
 ## `intuneme status`
 

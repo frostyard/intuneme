@@ -77,7 +77,7 @@ intuneme artifacts.`,
 		// Stop if running
 		if nspawn.IsRunning(r, cfg.MachineName) {
 			rep.Message("Stopping running container...")
-			if err := nspawn.Stop(r, cfg.MachineName); err != nil {
+			if err := nspawn.StopAndWait(r, cfg.MachineName, nspawn.DefaultStopPoll, nspawn.DefaultStopAttempts); err != nil {
 				return fmt.Errorf("failed to stop container: %w", err)
 			}
 		}

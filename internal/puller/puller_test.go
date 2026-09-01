@@ -2,6 +2,8 @@ package puller
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -194,5 +196,36 @@ func TestDetectErrorsWhenNoneAvailable(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no container tool found") {
 		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestVerifyRootOwnedRejectsUserOwnedRootfs(t *testing.T) {
+	// A rootfs unpacked inside a user namespace has container-root files owned
+	// by the invoking host user. Files created by this (unprivileged) test have
+	// exactly that shape.
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc", "passwd"), []byte("root:x:0:0::/root:/bin/sh\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := VerifyRootOwned(root)
+	if err == nil {
+		t.Fatal("expected a user-owned rootfs to be rejected")
+	}
+	if !strings.Contains(err.Error(), "user namespace") {
+		t.Errorf("error should explain the user-namespace cause, got: %v", err)
+	}
+}
+
+func TestVerifyRootOwnedRejectsEmptyRootfs(t *testing.T) {
+	err := VerifyRootOwned(t.TempDir())
+	if err == nil {
+		t.Fatal("expected an empty rootfs to be rejected")
+	}
+	if !strings.Contains(err.Error(), "incomplete") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

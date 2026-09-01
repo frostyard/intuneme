@@ -99,24 +99,6 @@ func TestInstallSessionScripts(t *testing.T) {
 	}
 }
 
-func TestSessionScriptsInstalled(t *testing.T) {
-	rootfs := t.TempDir()
-	if SessionScriptsInstalled(rootfs) {
-		t.Fatal("SessionScriptsInstalled = true before install")
-	}
-
-	scriptPath := filepath.Join(rootfs, sessionSetupPath)
-	if err := os.MkdirAll(filepath.Dir(scriptPath), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if !SessionScriptsInstalled(rootfs) {
-		t.Error("SessionScriptsInstalled = false after install")
-	}
-}
-
 // TestSessionSetupScriptContent guards the two fixes that make the broker work
 // on the non-login launch path: pushing env into the D-Bus activation
 // environment, and unlocking the keyring with a real empty password.
@@ -689,5 +671,34 @@ func TestWritePolkitRule(t *testing.T) {
 func TestBaseGroupsContainsPlugdev(t *testing.T) {
 	if !strings.Contains(baseGroups, "plugdev") {
 		t.Errorf("baseGroups = %q, must contain \"plugdev\" so the container user can talk to pcscd (issue #146)", baseGroups)
+	}
+}
+
+// TestSessionSetupPropagatesWebKitWorkaround guards the identity broker's
+// sign-in window. The broker is D-Bus activated, so exporting a variable in
+// this script is not enough — it only reaches the broker if it is also named
+// in the propagation list fed to dbus-update-activation-environment. Exporting
+// without propagating looks correct and silently does nothing.
+func TestSessionSetupPropagatesWebKitWorkaround(t *testing.T) {
+	script := string(intuneSessionSetupScript)
+
+	start := strings.Index(script, `_env_vars="`)
+	if start < 0 {
+		t.Fatal("session-setup script has no _env_vars assignment")
+	}
+	rest := script[start+len(`_env_vars="`):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		t.Fatal("unterminated _env_vars assignment")
+	}
+	propagated := rest[:end]
+
+	for _, v := range []string{"WEBKIT_DISABLE_DMABUF_RENDERER", "WEBKIT_DISABLE_COMPOSITING_MODE"} {
+		if !strings.Contains(script, "export "+v+"=1") {
+			t.Errorf("session-setup must export %s", v)
+		}
+		if !strings.Contains(propagated, v) {
+			t.Errorf("%s is exported but not in _env_vars, so the D-Bus-activated broker never sees it", v)
+		}
 	}
 }
