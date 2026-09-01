@@ -3,6 +3,7 @@ package nspawn
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -139,14 +140,38 @@ func DetectDRIDevices() []BindMount {
 	return mounts
 }
 
+// DetectBlockDevices scans for all block devices and resolves
+// their block device paths. Intune reads these directly to verify encryption
+// and requires the full block topology to be present in the container.
+func DetectBlockDevices() []BindMount {
+	out, err := exec.Command("lsblk", "-o", "NAME,FSTYPE", "-p", "-r").Output()
+	if err != nil {
+		return nil
+	}
+	var mounts []BindMount
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.Split(line, " ")
+		if len(parts) >= 1 && strings.HasPrefix(parts[0], "/dev/") {
+			devPath := parts[0]
+			if target, err := filepath.EvalSymlinks(devPath); err == nil {
+				mounts = append(mounts, BindMount{Host: target, Container: target})
+			} else {
+				mounts = append(mounts, BindMount{Host: devPath, Container: devPath})
+			}
+		}
+	}
+	return mounts
+}
+
 // BuildBootArgs returns the systemd-nspawn arguments to boot the container.
 // DRI devices are detected internally; nvidiaDevices are detected by the caller
 // because Nvidia also needs host library and ICD setup.
 func BuildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets []BindMount, nvidiaDevices []BindMount) []string {
-	return buildBootArgs(rootfs, machine, intuneHome, containerHome, sockets, DetectDRIDevices(), nvidiaDevices)
+	return buildBootArgs(rootfs, machine, intuneHome, containerHome, sockets, DetectDRIDevices(), DetectBlockDevices(), nvidiaDevices)
 }
 
-func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, driDevices, nvidiaDevices []BindMount) []string {
+func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, driDevices, blockDevices, nvidiaDevices []BindMount) []string {
 	args := []string{
 		"-D", rootfs,
 		fmt.Sprintf("--machine=%s", machine),
@@ -164,6 +189,16 @@ func buildBootArgs(rootfs, machine, intuneHome, containerHome string, sockets, d
 	for _, dri := range driDevices {
 		args = append(args, fmt.Sprintf("--bind=%s", dri.Host))
 		args = append(args, fmt.Sprintf("--property=DeviceAllow=%s rwm", dri.Host))
+	}
+	// Bind all used block devices into the container so Intune can see the full topology.
+	for _, blk := range blockDevices {
+		args = append(args, fmt.Sprintf("--bind-ro=%s", blk.Host))
+		args = append(args, fmt.Sprintf("--property=DeviceAllow=%s r", blk.Host))
+	}
+	// Bind the LVM mappers into the container so Intune can investigate provenance
+	if _, err := os.Stat("/dev/mapper"); err == nil {
+		args = append(args, "--bind-ro=/dev/mapper")
+		args = append(args, "--property=DeviceAllow=/dev/mapper/control r")
 	}
 	// Bind Nvidia device nodes with explicit cgroup DeviceAllow.
 	for _, dev := range nvidiaDevices {
