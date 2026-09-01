@@ -144,11 +144,15 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 		return fmt.Errorf("close chpasswd temp file: %w", err)
 	}
 
-	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe",
+	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe",
 		"--bind-ro="+tmp.Name()+":/run/chpasswd-input",
 		"-D", rootfsPath,
 		"bash", "-c", "chpasswd < /run/chpasswd-input",
 	)
+	if err != nil {
+		return fmt.Errorf("chpasswd in container failed: %w\n%s", err, out)
+	}
+	return nil
 }
 
 const baseGroups = "adm,sudo,video,audio,plugdev"
@@ -229,20 +233,20 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 	if existingUser != "" && existingUser != user {
 		// Rename the existing user and fix up their home directory
 		rep.Message("Renaming existing user %q to %q...", existingUser, user)
-		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"usermod", "--login", user, "--home", fmt.Sprintf("/home/%s", user), "--move-home", existingUser,
 		); err != nil {
-			return fmt.Errorf("usermod (rename) failed: %w", err)
+			return fmt.Errorf("usermod (rename) failed: %w\n%s", err, out)
 		}
 		// Ensure correct groups
-		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
-			return fmt.Errorf("usermod (groups) failed: %w", err)
+			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
 		}
 	} else if existingUser == "" {
 		// No user with this UID — create one
-		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"useradd",
 			"--uid", fmt.Sprintf("%d", uid),
 			"--create-home",
@@ -250,14 +254,14 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 			"--groups", userGroups(rootfsPath),
 			user,
 		); err != nil {
-			return fmt.Errorf("useradd in container failed: %w", err)
+			return fmt.Errorf("useradd in container failed: %w\n%s", err, out)
 		}
 	} else {
 		// User already exists with the right name — just ensure groups
-		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
-			return fmt.Errorf("usermod (groups) failed: %w", err)
+			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
 		}
 	}
 	return nil
@@ -371,19 +375,27 @@ func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string
 			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
 		}
 		rep.Message("Reassigning group %q from GID %d to %d...", conflicting, gid, freeGID)
-		if err := r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
-			return fmt.Errorf("reassign group %s: %w", conflicting, err)
+			return fmt.Errorf("reassign group %s: %w\n%s", conflicting, err, out)
 		}
 	}
 
 	gidStr := fmt.Sprintf("%d", gid)
 	if existingGID >= 0 {
-		return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+		out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 			"groupmod", "--gid", gidStr, "render")
+		if err != nil {
+			return fmt.Errorf("groupmod render: %w\n%s", err, out)
+		}
+		return nil
 	}
-	return r.RunAttached("sudo", "systemd-nspawn", "--console=pipe", "-D", rootfsPath,
+	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
 		"groupadd", "--gid", gidStr, "render")
+	if err != nil {
+		return fmt.Errorf("groupadd render: %w\n%s", err, out)
+	}
+	return nil
 }
 
 // SELinuxEnabled reports whether SELinux is currently in enforcing or permissive mode.
