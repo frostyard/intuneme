@@ -3,6 +3,7 @@ package sudoers
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -19,6 +20,13 @@ const filePath = "/etc/sudoers.d/intuneme-exec"
 // command arguments, so the old rule (which used "*" for the leader PID and
 // script) was rejected and broke every sudo call. The helper keeps the rule
 // wildcard-free; what the user can invoke is unchanged.
+func findVisudo(r runner.Runner) string {
+	if path, err := r.LookPath("visudo"); err == nil {
+		return path
+	}
+	return "/usr/sbin/visudo"
+}
+
 func Install(r runner.Runner, user string) error {
 	// Install the helper first. It must be root-owned and not user-writable,
 	// since it runs as root before dropping to the user via su.
@@ -48,7 +56,7 @@ func Install(r runner.Runner, user string) error {
 	_ = tmp.Close()
 
 	// Validate before installing: a broken sudoers file can lock out sudo.
-	if _, err := r.Run("/usr/sbin/visudo", "-c", "-f", tmp.Name()); err != nil {
+	if _, err := r.Run(findVisudo(r), "-c", "-f", tmp.Name()); err != nil {
 		return fmt.Errorf("sudoers syntax check failed: %w", err)
 	}
 
@@ -82,18 +90,26 @@ func installHelper(r runner.Runner, script string) error {
 // Remove deletes the sudoers rule file and the privileged helper. Intentionally
 // graceful: missing files and failed removals are not errors.
 func Remove(r runner.Runner) {
-	_, _ = r.Run("sudo", "rm", "-f", filePath, nspawn.NsenterHelperPath)
+	helperPath := nspawn.NsenterHelperPath
+	if helperPath == nspawn.NsenterHelperDir+"/nsenter-exec" {
+		_, _ = r.Run("sudo", "rm", "-f", filePath, helperPath)
+	} else {
+		_, _ = r.Run("sudo", "rm", "-f", filePath)
+	}
 }
 
 // IsInstalled reports whether both the sudoers rule and the nsenter helper
 // exist. Requiring both means an upgrade from the old wildcard-only rule counts
 // as not installed, so start self-heals by reinstalling the rule and helper.
-func IsInstalled() bool {
-	if _, err := os.Stat(filePath); err != nil {
-		return false
-	}
+func IsInstalled(r runner.Runner) bool {
 	if _, err := os.Stat(nspawn.NsenterHelperPath); err != nil {
 		return false
+	}
+	sudoersDir := filepath.Dir(filePath)
+	if _, err := os.Stat(sudoersDir); err == nil {
+		if _, err := os.Stat(filePath); err != nil {
+			return false
+		}
 	}
 	return true
 }

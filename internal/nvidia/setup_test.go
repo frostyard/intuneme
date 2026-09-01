@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/intuneme/internal/nspawn"
 )
 
 type mockRunner struct {
@@ -236,7 +238,7 @@ func TestSetup_SkipsExistingRegularFile(t *testing.T) {
 	}
 
 	// Make the regular-file check succeed (file exists and is not a symlink).
-	testCmd := "sudo nsenter -t 42 -m -- test -f /usr/lib/x86_64-linux-gnu/libcuda.so.1 -a ! -L /usr/lib/x86_64-linux-gnu/libcuda.so.1"
+	testCmd := "sudo nsenter -t 42 -m -- /usr/bin/env PATH=" + nspawn.StandardPATH + " test -f /usr/lib/x86_64-linux-gnu/libcuda.so.1 -a ! -L /usr/lib/x86_64-linux-gnu/libcuda.so.1"
 	r.outputs[testCmd] = []byte("")
 
 	if err := Setup(r, "intuneme", libs); err != nil {

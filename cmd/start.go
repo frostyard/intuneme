@@ -151,7 +151,7 @@ var startCmd = &cobra.Command{
 		// Ensure the sudoers rule for passwordless app launch exists.
 		// Normally installed by init; reinstall here if missing (upgrade
 		// from older version, or manual deletion).
-		if !sudoers.IsInstalled() {
+		if !sudoers.IsInstalled(r) {
 			if err := sudoers.Install(r, cfg.HostUser); err != nil {
 				rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
 			} else if clix.Verbose {

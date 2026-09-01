@@ -190,6 +190,7 @@ func EnsureUserGroups(r runner.Runner, machine, user string) ([]string, error) {
 	}
 
 	out, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"id", "-nG", user)
 	if err != nil {
 		return nil, fmt.Errorf("read groups for %s: %w", user, err)
@@ -205,6 +206,7 @@ func EnsureUserGroups(r runner.Runner, machine, user string) ([]string, error) {
 			continue
 		}
 		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"usermod", "-aG", g, user); err != nil {
 			return added, fmt.Errorf("add %s to %s: %w", user, g, err)
 		}

@@ -16,7 +16,7 @@ import (
 const (
 	RulesFile      = "70-intuneme-yubikey.rules"
 	VideoRulesFile = "70-intuneme-video.rules"
-	RulesDir       = "/etc/udev/rules.d"
+	RulesDir       = "/run/udev/rules.d"
 	ScriptDir      = "/usr/local/lib/intuneme"
 	ScriptName     = "usb-hotplug"
 	StateDir       = "/run/intuneme/devices"
@@ -84,6 +84,9 @@ func Install(r runner.Runner, machineName string) error {
 	}
 
 	// Write udev rules.
+	if _, err := r.Run("sudo", "mkdir", "-p", RulesDir); err != nil {
+		return fmt.Errorf("create udev rules dir: %w", err)
+	}
 	if err := sudo.WriteFile(r, RulesPath(), []byte(rulesTemplate), 0644); err != nil {
 		return fmt.Errorf("install yubikey udev rule: %w", err)
 	}
@@ -264,10 +267,13 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	// Create the device node inside the container.
 	dir := filepath.Dir(devnode)
 	_, _ = r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"mkdir", "-p", dir)
 	_, _ = r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"rm", "-f", devnode)
 	if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 		"mknod", devnode, "c", major, minor); err != nil {
 		return fmt.Errorf("mknod %s: %w", devnode, err)
 	}
@@ -275,15 +281,18 @@ func ForwardDevice(r runner.Runner, machine, devnode string) error {
 	// matching the typical host access model. Other devices use 0666.
 	if isVideoDevice(devnode) {
 		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"chgrp", "video", devnode); err != nil {
 			return fmt.Errorf("chgrp %s: %w", devnode, err)
 		}
 		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"chmod", "0660", devnode); err != nil {
 			return fmt.Errorf("chmod %s: %w", devnode, err)
 		}
 	} else {
 		if _, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+			"/usr/bin/env", "PATH="+nspawn.StandardPATH,
 			"chmod", "0666", devnode); err != nil {
 			return fmt.Errorf("chmod %s: %w", devnode, err)
 		}
