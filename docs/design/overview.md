@@ -172,14 +172,43 @@ The script (safe to source or execute; idempotent) does:
 3. Extends `PATH`; sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
 4. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
 5. Propagates the env with **both** `systemctl --user import-environment` **and `dbus-update-activation-environment --systemd`**. The latter is essential: the identity broker is a **GTK app that the session D-Bus daemon activates on demand**, and it inherits `DISPLAY`/`XAUTHORITY` only from the D-Bus activation environment. Without it the broker dies on startup with `cannot open display` and Edge cannot authenticate.
-6. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:
+6. Sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1` — see below
+7. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:
    - Ensures `~/.local/share/keyrings/default` points to `login`
    - **Kills all keyring daemons (`pkill -x gnome-keyring-d`) and starts exactly one** via `echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d`. The well-known `org.freedesktop.secrets` name is held by whichever daemon claimed it first (often the systemd socket-activated one); a `--replace --unlock` daemon does *not* take that name, so its unlock never reaches the daemon the broker talks to. Note `echo ""` (newline = empty password) — `printf ""` would send EOF = "no password" and create nothing.
    - Forces default-collection creation via `secret-tool` (without this, `ReadAlias("default")` returns `/` and the broker can't store credentials)
    - Restarts **only** `microsoft-identity-device-broker.service` (system). The user-session `com.microsoft.identity.broker1` is **D-Bus-activated, not a systemd unit**, so it is not restarted — it re-activates with a fresh process (and now-correct environment) on the next call from Edge. (The previous `systemctl --user restart microsoft-identity-broker.service` always errored with "Unit not found".)
-7. Starts `intune-agent.timer` for compliance checks if not already active
+8. Starts `intune-agent.timer` for compliance checks if not already active
 
-`start` reinstalls the script via `provision.SessionScriptsInstalled` / `InstallSessionScripts` if missing, self-healing containers provisioned before it existed (same pattern as the sudoers rule).
+`start` reinstalls the script via `provision.InstallSessionScripts` on **every**
+boot, unconditionally, so the copy in the rootfs always matches the embedded
+one. It used to install only when the file was *missing*, which froze the
+script at whatever CLI version first created the container: later fixes (the
+WebKit workaround below, for instance) could not reach an existing container
+without a full `recreate`. `InstallSessionScripts` is idempotent, so
+re-running it costs two small writes.
+
+#### WebKitGTK sign-in window
+
+The identity broker renders its interactive sign-in window with **WebKitGTK
+4.1** (`libwebkit2gtk-4.1`). Because the script exports `WAYLAND_DISPLAY`, GTK
+selects the Wayland backend and WebKit talks straight to the *host*
+compositor, handing it dmabufs produced by the container's Mesa across the
+container boundary. On a GNOME/Wayland host that paints nothing: the window
+maps, the web process starts and even activates at-spi, nothing is logged —
+and the page stays blank white, so sign-in is impossible.
+
+This is not a driver fault. Inside the container `gbm_create_device()` and
+`eglInitialize()` on `/dev/dri/renderD128` both succeed (Mesa 25.2.8, EGL
+1.5), and no EGL/GBM/dmabuf error appears in the container journal. The
+failure is in the buffer handoff, so forcing WebKit onto its SHM path fixes
+it. Only the auth window uses WebKit in this container — Edge is Chromium and
+unaffected — so the lost acceleration costs nothing.
+
+Both variables **must** appear in the script's `_env_vars` propagation list,
+not merely be exported: the broker is D-Bus activated, so a plain `export`
+never reaches it. `TestSessionSetupPropagatesWebKitWorkaround` guards exactly
+that distinction.
 
 ### State Preservation Across Recreate
 

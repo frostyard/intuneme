@@ -159,16 +159,16 @@ var startCmd = &cobra.Command{
 			}
 		}
 
-		// Ensure the shared session-setup script exists. Normally installed by
-		// init; reinstall here if missing (upgrade from a version before it
-		// existed). Without it, GUI apps launched via the GNOME extension would
-		// have no DISPLAY in the broker's environment and couldn't authenticate.
-		if !provision.SessionScriptsInstalled(cfg.RootfsPath) {
-			if err := provision.InstallSessionScripts(r, cfg.RootfsPath); err != nil {
-				rep.Message("Warning: failed to install session setup script (auth may fail when launching from the extension): %v", err)
-			} else if clix.Verbose {
-				rep.Message("Installed session setup script.")
-			}
+		// Reinstall the shared session-setup script on every start, so the
+		// copy in the rootfs always matches the embedded one. This is the only
+		// thing that carries CLI upgrades into an existing container: gating on
+		// mere existence froze the script at whatever version first created it,
+		// so fixes (e.g. the WebKit sign-in-window workaround) never landed
+		// without a full `recreate`. InstallSessionScripts is idempotent.
+		if err := provision.InstallSessionScripts(r, cfg.RootfsPath); err != nil {
+			rep.Message("Warning: failed to install session setup script (auth may fail when launching from the extension): %v", err)
+		} else if clix.Verbose {
+			rep.Message("Installed session setup script.")
 		}
 
 		// Ensure the container user is in groups that depend on packages

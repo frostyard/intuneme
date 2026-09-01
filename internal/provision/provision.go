@@ -126,14 +126,6 @@ func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
 	return nil
 }
 
-// SessionScriptsInstalled reports whether the shared session-setup script is
-// present in the rootfs. Used by `start` to self-heal containers provisioned
-// before the script existed.
-func SessionScriptsInstalled(rootfsPath string) bool {
-	_, err := os.Stat(filepath.Join(rootfsPath, sessionSetupPath))
-	return err == nil
-}
-
 // SetContainerPassword sets the user's password inside the container via chpasswd.
 // Without a password, the account is locked and machinectl shell/login won't work interactively.
 // The password is passed via a temp file bound read-only into the container to avoid shell injection.
