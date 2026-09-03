@@ -57,17 +57,18 @@ Boots the container and sets up runtime environment.
 4. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
 5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
 6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by `intuneme-session-setup` on login and on every app launch)
-7. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device binds plus explicit `DeviceAllow=<dev> rwm` rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
-8. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
-9. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
-10. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
-11. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
-12. **Ensure sudoers**: Reinstall sudoers rule and nsenter helper if either is missing (handles upgrades from the old wildcard-only rule; `IsInstalled` requires both)
-12b. **Ensure session scripts** — Unconditionally reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` (`provision.InstallSessionScripts`, idempotent), so the rootfs copy always matches the embedded one and CLI upgrades reach existing containers without a `recreate`
-13. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
-14. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
-15. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
-16. **Start broker proxy** (if enabled):
+7. **Override X11 tmpfiles rule** — `provision.OverrideX11Tmpfiles()` writes `/etc/tmpfiles.d/x11.conf` into the rootfs: the vendor `x11.conf` minus its `/tmp/.X11-unix` directive. That directory is bind-mounted from the host, and the vendor `D!` type would empty it on every container boot, costing the host its Xwayland socket. Fails the start if it cannot be written. See [overview.md](overview.md) → "The X11 Socket Directory Is the Host's"
+8. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device binds plus explicit `DeviceAllow=<dev> rwm` rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag
+9. **Wait for registration** — Poll `machinectl` up to 30 seconds until container is listed
+10. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
+11. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
+12. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
+13. **Ensure sudoers**: Reinstall sudoers rule and nsenter helper if either is missing (handles upgrades from the old wildcard-only rule; `IsInstalled` requires both)
+13b. **Ensure session scripts** — Unconditionally reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` (`provision.InstallSessionScripts`, idempotent), so the rootfs copy always matches the embedded one and CLI upgrades reach existing containers without a `recreate`
+14. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
+15. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
+16. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
+17. **Start broker proxy** (if enabled):
     - Enable systemd linger for container user
     - Create login session via `machinectl`
     - Wait for session bus socket to appear

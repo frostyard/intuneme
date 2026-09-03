@@ -702,3 +702,59 @@ func TestSessionSetupPropagatesWebKitWorkaround(t *testing.T) {
 		}
 	}
 }
+
+func TestOverrideX11Tmpfiles(t *testing.T) {
+	r := &mockRunner{}
+	if err := OverrideX11Tmpfiles(r, "/tmp/test-rootfs"); err != nil {
+		t.Fatalf("OverrideX11Tmpfiles error: %v", err)
+	}
+	allCmds := strings.Join(r.commands, "\n")
+	if !strings.Contains(allCmds, "etc/tmpfiles.d/x11.conf") {
+		t.Errorf("expected the override to be written, commands were:\n%s", allCmds)
+	}
+}
+
+// TestX11TmpfilesOverrideOmitsX11Unix guards the whole point of the file: it
+// replaces the base image's x11.conf and must not name /tmp/.X11-unix. A
+// directive on that path would re-create the rule that wipes the host's X11
+// socket, because the container shares that directory with the host.
+func TestX11TmpfilesOverrideOmitsX11Unix(t *testing.T) {
+	for _, line := range directives(string(x11TmpfilesOverride)) {
+		if fields := strings.Fields(line); len(fields) > 1 && fields[1] == "/tmp/.X11-unix" {
+			t.Errorf("override must not carry a /tmp/.X11-unix directive, found: %q", line)
+		}
+	}
+}
+
+// TestX11TmpfilesOverrideKeepsVendorDirectives checks the override is a copy of
+// the vendor file rather than a mask of it. Those paths are container-private,
+// so dropping them would break X11 session and input-method clients inside the
+// container for no gain.
+func TestX11TmpfilesOverrideKeepsVendorDirectives(t *testing.T) {
+	got := directives(string(x11TmpfilesOverride))
+	for _, want := range []string{"/tmp/.ICE-unix", "/tmp/.XIM-unix", "/tmp/.font-unix", "/tmp/.X[0-9]*-lock"} {
+		found := false
+		for _, line := range got {
+			if fields := strings.Fields(line); len(fields) > 1 && fields[1] == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("override drops the vendor directive for %s", want)
+		}
+	}
+}
+
+// directives returns the active (non-blank, non-comment) lines of a
+// tmpfiles.d fragment.
+func directives(conf string) []string {
+	var out []string
+	for _, line := range strings.Split(conf, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
