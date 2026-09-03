@@ -98,6 +98,33 @@ func WriteDisplayMarker(r runner.Runner, rootfs, display string) error {
 	return sudo.WriteFile(r, path, []byte(content), 0644)
 }
 
+// defaultWaylandSocket is the socket name assumed when $WAYLAND_DISPLAY is
+// unset. It is Mutter's name, and the one a bare X11 session will not have.
+const defaultWaylandSocket = "wayland-0"
+
+// HostWaylandSocket returns the host path of the session's Wayland socket.
+//
+// The name is not fixed. Compositors number their socket by the first free
+// slot, so Mutter typically lands on wayland-0 while Sway and Hyprland
+// commonly use wayland-1. Assuming wayland-0 means the bind is silently
+// skipped on those sessions, /run/host-wayland never appears in the
+// container, and the session script leaves WAYLAND_DISPLAY unset — so Edge
+// fails to connect to any compositor and GTK apps fall back to X11.
+//
+// $WAYLAND_DISPLAY is the authoritative answer. Per the Wayland protocol it
+// holds either a socket name relative to $XDG_RUNTIME_DIR or an absolute
+// path; both are accepted here.
+func HostWaylandSocket(runtimeDir string) string {
+	display := os.Getenv("WAYLAND_DISPLAY")
+	if display == "" {
+		return filepath.Join(runtimeDir, defaultWaylandSocket)
+	}
+	if filepath.IsAbs(display) {
+		return display
+	}
+	return filepath.Join(runtimeDir, display)
+}
+
 // DetectHostSockets checks which optional host sockets/files exist and returns
 // bind mount pairs for them.
 func DetectHostSockets(uid int) []BindMount {
@@ -106,7 +133,7 @@ func DetectHostSockets(uid int) []BindMount {
 		hostPath      string
 		containerPath string
 	}{
-		{runtimeDir + "/wayland-0", "/run/host-wayland"},
+		{HostWaylandSocket(runtimeDir), "/run/host-wayland"},
 		{runtimeDir + "/pipewire-0", "/run/host-pipewire"},
 		{runtimeDir + "/pulse/native", "/run/host-pulse"},
 	}

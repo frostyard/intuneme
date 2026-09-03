@@ -75,7 +75,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 |------|-----------|----------------|-----------|
 | Home directory | `~/Intune` | `/home/<user>` | Persistent (survives recreate) |
 | X11 sockets | `/tmp/.X11-unix` | `/tmp/.X11-unix` | Always |
-| Wayland | `$XDG_RUNTIME_DIR/wayland-0` | `/run/host-wayland` | Auto-detected on start |
+| Wayland | `$WAYLAND_DISPLAY` (see search order below) | `/run/host-wayland` | Auto-detected on start |
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
 | PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
 | X11 auth | `$XAUTHORITY` (see search order below) | `/run/host-xauthority` | Auto-detected on start |
@@ -120,6 +120,28 @@ On hosts with Nvidia GPUs, the container needs the device nodes and host userspa
 5. **ICD files** — `HostICDFiles()` and `ICDMounts()` bind-mount Vulkan/EGL vendor JSON files at their standard paths
 6. **Post-boot setup** — After boot, `CleanStaleLinks()` removes any symlinks from previous Nvidia sessions (always, even on non-Nvidia boots). Then `Setup()` creates symlinks in `/usr/lib/x86_64-linux-gnu/` pointing into `/run/host-nvidia/<index>/`, skipping package-owned regular files. Finishes with `ldconfig`
 7. **Environment** — Both the profile script and `Exec()` set `__NV_PRIME_RENDER_OFFLOAD=1` and `__GLX_VENDOR_LIBRARY_NAME=nvidia` when `/run/host-nvidia` exists
+
+### Wayland Socket Discovery
+
+`HostWaylandSocket()` in `nspawn.go` resolves the host's Wayland socket from
+`$WAYLAND_DISPLAY`:
+
+1. Unset — assume `<runtime dir>/wayland-0`.
+2. Absolute path — used as given.
+3. Anything else — a socket name, joined onto the runtime dir.
+
+The name must be read from the environment, never assumed. A compositor takes
+the first free socket number, so Mutter usually lands on `wayland-0` while
+Sway and Hyprland commonly use `wayland-1`. Assuming `wayland-0` makes
+`DetectHostSockets()` find nothing, so the `--bind` is skipped,
+`/run/host-wayland` never exists in the container, and
+`intuneme-session-setup` leaves `WAYLAND_DISPLAY` unset. Edge then fails to
+connect to any compositor, and GTK apps silently fall back to X11.
+
+Both forms are accepted because the Wayland protocol permits either, and
+libwayland takes an absolute path in `WAYLAND_DISPLAY` as-is.
+
+`os.Stat` resolves the path, so a symlinked socket name works.
 
 ### X11 Authority File Search Order
 

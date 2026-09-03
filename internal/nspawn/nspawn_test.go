@@ -395,3 +395,27 @@ func TestStopAndWaitTimesOut(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// TestHostWaylandSocket covers the socket names real compositors pick. Mutter
+// lands on wayland-0, Sway and Hyprland commonly on wayland-1, and the
+// protocol also permits an absolute path.
+func TestHostWaylandSocket(t *testing.T) {
+	tests := []struct {
+		name           string
+		waylandDisplay string
+		want           string
+	}{
+		{"unset falls back to wayland-0", "", "/run/user/1000/wayland-0"},
+		{"mutter", "wayland-0", "/run/user/1000/wayland-0"},
+		{"sway and hyprland", "wayland-1", "/run/user/1000/wayland-1"},
+		{"absolute path used as-is", "/tmp/custom/wayland-9", "/tmp/custom/wayland-9"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WAYLAND_DISPLAY", tt.waylandDisplay)
+			if got := HostWaylandSocket("/run/user/1000"); got != tt.want {
+				t.Errorf("HostWaylandSocket() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
