@@ -21,10 +21,17 @@ var intuneProfileScript []byte
 //go:embed intuneme-session-setup.sh
 var intuneSessionSetupScript []byte
 
+//go:embed x11-tmpfiles-override.conf
+var x11TmpfilesOverride []byte
+
 // sessionSetupPath is the container-side install location of the shared session
 // setup script. It is referenced from /etc/profile.d/intuneme.sh (login path)
 // and from nspawn.Exec (the non-login launch path).
 const sessionSetupPath = "usr/local/bin/intuneme-session-setup"
+
+// x11TmpfilesOverridePath is the container-side path of the override that
+// replaces the base image's /usr/lib/tmpfiles.d/x11.conf.
+const x11TmpfilesOverridePath = "etc/tmpfiles.d/x11.conf"
 
 // sudoMkdirAll creates directories with sudo.
 func sudoMkdirAll(r runner.Runner, path string) error {
@@ -100,6 +107,34 @@ WantedBy=multi-user.target
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
 	}
 
+	return nil
+}
+
+// OverrideX11Tmpfiles replaces the container's /usr/lib/tmpfiles.d/x11.conf
+// with a copy that drops the `D! /tmp/.X11-unix 1777 root root 10d` line and
+// keeps every other directive of the vendor file.
+//
+// Type D empties the directory when systemd-tmpfiles runs with --remove —
+// which the container's systemd-tmpfiles-setup.service does on every boot.
+// Because the container bind-mounts the host's /tmp/.X11-unix rather than a
+// copy of it, the cleanup reaches out of the container and deletes the host's
+// Xwayland socket. The listening socket object survives and already-connected
+// clients keep working, but the pathname is gone, so no new X11 client can
+// connect anywhere on the host until the display server restarts.
+//
+// The other directives cover /tmp/.ICE-unix, /tmp/.XIM-unix, /tmp/.font-unix
+// and the X11 lock files. None of those are bind-mounted, so the container
+// keeps managing them.
+//
+// This must run before the container boots. Idempotent — safe to re-run.
+func OverrideX11Tmpfiles(r runner.Runner, rootfsPath string) error {
+	dir := filepath.Join(rootfsPath, filepath.Dir(x11TmpfilesOverridePath))
+	if err := sudoMkdirAll(r, dir); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(rootfsPath, x11TmpfilesOverridePath), x11TmpfilesOverride, 0644); err != nil {
+		return fmt.Errorf("write %s: %w", x11TmpfilesOverridePath, err)
+	}
 	return nil
 }
 

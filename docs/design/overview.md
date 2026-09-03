@@ -74,7 +74,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 | Type | Host Path | Container Path | Lifecycle |
 |------|-----------|----------------|-----------|
 | Home directory | `~/Intune` | `/home/<user>` | Persistent (survives recreate) |
-| X11 sockets | `/tmp/.X11-unix` | `/tmp/.X11-unix` | Always |
+| X11 sockets | `/tmp/.X11-unix` | `/tmp/.X11-unix` | Always (see the tmpfiles note below) |
 | Wayland | `$WAYLAND_DISPLAY` (see search order below) | `/run/host-wayland` | Auto-detected on start |
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
 | PulseAudio | `$XDG_RUNTIME_DIR/pulse/native` | `/run/host-pulse` | Auto-detected on start |
@@ -142,6 +142,50 @@ Both forms are accepted because the Wayland protocol permits either, and
 libwayland takes an absolute path in `WAYLAND_DISPLAY` as-is.
 
 `os.Stat` resolves the path, so a symlinked socket name works.
+
+### The X11 Socket Directory Is the Host's
+
+`/tmp/.X11-unix` is bind-mounted, not copied, so anything the container does
+to that directory happens to the host. The base image's x11-common package
+ships `/usr/lib/tmpfiles.d/x11.conf`, whose first directive is:
+
+```
+D! /tmp/.X11-unix 1777 root root 10d
+```
+
+Type `D` empties the directory when `systemd-tmpfiles` runs with `--remove`,
+and the container's `systemd-tmpfiles-setup.service` runs exactly that at
+every boot. With that directive in force, starting the container deletes the
+host's Xwayland socket. Xwayland keeps the listening socket object and
+already-connected clients survive, but the pathname is gone, so no new X11
+client can connect anywhere on the host until the display server restarts. It
+is a host-wide break, not an intuneme one.
+
+The same file also carries `D!` directives for `/tmp/.ICE-unix`,
+`/tmp/.XIM-unix` and `/tmp/.font-unix`, and an `r!` rule that unlinks
+`/tmp/.X[0-9]*-lock`. Those paths are container-private and must keep working.
+`/tmp/.X11-unix` is the only bind under `/tmp`, and nspawn gives the container
+its own tmpfs on `/tmp`, so the rest of the file reaches nothing on the host.
+Container `/proc/<leader>/mounts` shows both: a private tmpfs on `/tmp`, and
+the host's tmpfs on `/tmp/.X11-unix` alone.
+
+`provision.OverrideX11Tmpfiles()` therefore writes a copy of the vendor file
+to `/etc/tmpfiles.d/x11.conf` in the rootfs, with the `/tmp/.X11-unix` line
+dropped and every other directive reproduced. A file in `/etc/tmpfiles.d`
+replaces the same-named file in `/usr/lib/tmpfiles.d`, so the copy wins as a
+whole. `start` calls it before `nspawn.Boot()` and fails the start if it
+cannot, since booting anyway costs the user their X11 session. Writing it on
+every start also repairs a rootfs created by an older CLI without a
+`recreate`.
+
+Two tests hold the shape. `TestX11TmpfilesOverrideOmitsX11Unix` fails if any
+directive names `/tmp/.X11-unix`.
+`TestX11TmpfilesOverrideKeepsVendorDirectives` fails if one of the other four
+paths goes missing.
+
+Binding only the single socket file instead would scope the damage, but the
+container would then be stuck with whichever socket existed at boot: a
+directory bind picks up an Xwayland that starts later.
 
 ### X11 Authority File Search Order
 

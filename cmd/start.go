@@ -110,6 +110,15 @@ var startCmd = &cobra.Command{
 			return fmt.Errorf("write display marker: %w", err)
 		}
 
+		// Drop the container's /tmp/.X11-unix tmpfiles directive before boot.
+		// Left in place it empties that directory during container startup,
+		// and the directory is bind-mounted from the host, so the host loses
+		// its Xwayland socket. Refuse to boot rather than break the host
+		// session.
+		if err := provision.OverrideX11Tmpfiles(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("override container x11 tmpfiles rule: %w", err)
+		}
+
 		rep.Message("Booting container...")
 		if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets, nvidiaDevices); err != nil {
 			return fmt.Errorf("failed to start container: %w", err)
