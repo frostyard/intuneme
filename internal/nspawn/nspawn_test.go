@@ -332,13 +332,13 @@ func TestBuildNsenterArgs(t *testing.T) {
 
 func TestNsenterHelperScript(t *testing.T) {
 	script := NsenterHelperScript("testuser")
-	if !strings.HasPrefix(script, "#!/bin/bash") {
-		t.Errorf("helper script must start with a bash shebang, got:\n%s", script)
+	if !strings.HasPrefix(script, "#!/bin/sh") {
+		t.Errorf("helper script must start with a /bin/sh shebang, got:\n%s", script)
 	}
 	for _, want := range []string{
-		`/usr/bin/nsenter -t "$1" -m -u -i -n -p --`,
+		`exec nsenter -t "$1" -m -u -i -n -p --`,
 		`/bin/su -s /bin/bash testuser -c "$2"`,
-		"set -euo pipefail",
+		"set -eu\nPATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH",
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("helper script missing %q, got:\n%s", want, script)
