@@ -384,13 +384,15 @@ const NsenterHelperPath = NsenterHelperDir + "/nsenter-exec"
 // root-owned and non-writable by the user, since it runs as root before dropping
 // privileges to the user via su.
 func NsenterHelperScript(user string) string {
-	return fmt.Sprintf(`#!/bin/bash
+	return fmt.Sprintf(`#!/bin/sh
 # Installed by intuneme. Enters the intuneme container's namespaces and runs the
 # given script as %s via a non-login bash. Invoked through passwordless sudo
 # (the intuneme-exec sudoers rule). Keeping the nsenter+su shape fixed here lets
 # the sudoers rule reference a single wildcard-free path, which sudo-rs requires.
-set -euo pipefail
-exec /usr/bin/nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
+set -eu
+PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+exec env -i PATH="$PATH" nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
 `, user, user)
 }
 
