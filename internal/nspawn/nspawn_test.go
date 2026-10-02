@@ -336,7 +336,7 @@ func TestNsenterHelperScript(t *testing.T) {
 		t.Errorf("helper script must start with a /bin/sh shebang, got:\n%s", script)
 	}
 	for _, want := range []string{
-		`exec nsenter -t "$1" -m -u -i -n -p --`,
+		`exec env -i PATH="$PATH" nsenter -t "$1" -m -u -i -n -p --`,
 		`/bin/su -s /bin/bash testuser -c "$2"`,
 		"set -eu\nPATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH",
 	} {

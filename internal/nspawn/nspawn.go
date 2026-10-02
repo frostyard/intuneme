@@ -392,7 +392,7 @@ func NsenterHelperScript(user string) string {
 set -eu
 PATH=/run/current-system/sw/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
-exec nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
+exec env -i PATH="$PATH" nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
 `, user, user)
 }
 
