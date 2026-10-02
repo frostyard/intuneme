@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/std/reporter"
 )
 
@@ -855,4 +856,100 @@ func TestSessionRestartDoesNotNeedPrivilegeElevation(t *testing.T) {
 	if !strings.Contains(strings.Join(r.commands, "\n"), "/fixture/etc/polkit-1/rules.d/49-intuneme-broker.rules") {
 		t.Fatal("upgrade did not install restart policy")
 	}
+}
+
+// nspawn takes PATH from the host systemd default unless the command sets it,
+// and that default has no /usr/sbin on NixOS, so every provisioning exec needs it.
+func TestProvisioningNspawnCommandsSetPATH(t *testing.T) {
+	want := "--setenv=PATH=" + nspawn.StandardPATH
+
+	assertPATH := func(t *testing.T, r *mockRunner) {
+		t.Helper()
+		seen := 0
+		for _, cmd := range r.commands {
+			if !strings.HasPrefix(cmd, "sudo systemd-nspawn ") {
+				continue
+			}
+			seen++
+			if !strings.Contains(cmd, want) {
+				t.Errorf("nspawn command without %s: %s", want, cmd)
+			}
+		}
+		if seen == 0 {
+			t.Fatalf("expected at least one nspawn command, got: %v", r.commands)
+		}
+	}
+
+	rootfs := func(t *testing.T, passwd, group string) string {
+		t.Helper()
+		tmp := t.TempDir()
+		etc := filepath.Join(tmp, "etc")
+		if err := os.MkdirAll(etc, 0755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(etc, "passwd"), []byte(passwd), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(etc, "group"), []byte(group), 0644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		return tmp
+	}
+
+	const rootOnly = "root:x:0:0:root:/root:/bin/bash\n"
+	const rootPasswd = "root:x:0:0:root:/root:/bin/bash\nubuntu:x:1000:1000::/home/ubuntu:/bin/bash\n"
+	const rootGroup = "root:x:0:\nvideo:x:44:\n"
+
+	t.Run("useradd", func(t *testing.T) {
+		r := &mockRunner{}
+		if err := CreateContainerUser(r, reporter.NoopReporter{}, rootfs(t, rootOnly, rootGroup), "alice", 1000, 1000); err != nil {
+			t.Fatalf("CreateContainerUser: %v", err)
+		}
+		assertPATH(t, r)
+	})
+
+	t.Run("usermod rename", func(t *testing.T) {
+		r := &mockRunner{}
+		if err := CreateContainerUser(r, reporter.NoopReporter{}, rootfs(t, rootPasswd, rootGroup), "alice", 1000, 1000); err != nil {
+			t.Fatalf("CreateContainerUser: %v", err)
+		}
+		assertPATH(t, r)
+	})
+
+	t.Run("usermod groups", func(t *testing.T) {
+		r := &mockRunner{}
+		const alicePasswd = "root:x:0:0:root:/root:/bin/bash\nalice:x:1000:1000::/home/alice:/bin/bash\n"
+		if err := CreateContainerUser(r, reporter.NoopReporter{}, rootfs(t, alicePasswd, rootGroup), "alice", 1000, 1000); err != nil {
+			t.Fatalf("CreateContainerUser: %v", err)
+		}
+		assertPATH(t, r)
+	})
+
+	t.Run("groupadd render", func(t *testing.T) {
+		r := &mockRunner{}
+		if err := EnsureRenderGroup(r, reporter.NoopReporter{}, rootfs(t, rootOnly, rootGroup), 991); err != nil {
+			t.Fatalf("EnsureRenderGroup: %v", err)
+		}
+		assertPATH(t, r)
+	})
+
+	t.Run("groupmod render and conflicting group", func(t *testing.T) {
+		r := &mockRunner{}
+		const conflictGroup = "root:x:0:\nrender:x:990:\nsystemd-resolve:x:991:\n"
+		if err := EnsureRenderGroup(r, reporter.NoopReporter{}, rootfs(t, rootOnly, conflictGroup), 991); err != nil {
+			t.Fatalf("EnsureRenderGroup: %v", err)
+		}
+		if len(r.commands) < 2 {
+			t.Fatalf("expected reassign and groupmod, got: %v", r.commands)
+		}
+		assertPATH(t, r)
+	})
+
+	t.Run("chpasswd", func(t *testing.T) {
+		r := &mockRunner{}
+		if err := SetContainerPassword(r, rootfs(t, rootOnly, rootGroup), "alice", "Passw0rd!Passw0rd"); err != nil {
+			t.Fatalf("SetContainerPassword: %v", err)
+		}
+		assertPATH(t, r)
+	})
 }

@@ -23,6 +23,17 @@ One-time provisioning that creates the container from scratch.
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`). A real `semanage` failure aborts `init` before the config save with the `semanage` output; the error names `policycoreutils-python-utils` and `intuneme init --force`, because the rootfs now exists. Only a single legacy "already defined"/"already exists" line is ignored (`cmd.finishInit`, `provision.InstallSELinuxPolicy`)
 12. **Save config and report success** — Write `config.toml`, then print "Initialized intuneme at <root>"; neither happens when the SELinux step fails
 
+### Provisioning execs must set `PATH`
+
+Every provisioning step that runs a container tool (`groupmod`, `groupadd`,
+`useradd`, `usermod`, `chpasswd`) goes through `provision.containerExec`, which
+passes `--setenv=PATH=<nspawn.StandardPATH>` to `systemd-nspawn -D`. Without it
+nspawn hands the command the host systemd's default `PATH`, which on NixOS has
+no `/usr/sbin` and no `/usr/bin`; `init` then dies with
+`execv(groupmod) failed: No such file or directory`. A new provisioning exec
+must use `containerExec` rather than calling `systemd-nspawn` directly —
+`TestProvisioningNspawnCommandsSetPATH` fails otherwise.
+
 ### Extraction must produce a root-owned rootfs
 
 Extraction (`sudo tar -xf`, `sudo umoci raw unpack`) preserves whatever UIDs
