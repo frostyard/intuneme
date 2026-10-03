@@ -26,7 +26,8 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 
 - [Overview](design/overview.md) — purpose, architecture, key patterns
   (nsenter exec, bind mounts, hotplug, Nvidia, session setup), configuration,
-  storage layout, host modifications (the entry-point doc)
+  storage layout, host modifications, release and package publication (the
+  entry-point doc)
 - [Container Lifecycle](design/container-lifecycle.md) — how each command
   works: init, start, stop, destroy, recreate, status, shell, open, udev,
   extension, broker-proxy

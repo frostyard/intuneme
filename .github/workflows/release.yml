@@ -59,26 +59,17 @@ jobs:
             dist/*.sbom.json
             dist/checksums.txt
 
-      - name: Publish to frostyard repo
-        uses: frostyard/repogen/.github/actions/publish-to-r2@1fcb45da32aa302f191bcfdf9de541adf9625aa8 # main
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: frostyardrepo
-          purge-cache: "true"
-          cloudflare-zone: ${{ secrets.CLOUDFLARE_ZONE }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          gpg-private-key: ${{ secrets.REPOGEN_GPG_KEY }}
-          packages-dir: ./dist
-          package-type: deb # or sysext
-          base-url: https://repository.frostyard.org # required for sysext
-
-      - name: snosi
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-        continue-on-error: true
+      # The .deb is published by frostyard/apt-publisher, the single Debian
+      # writer (frostyard/core ADR-0055). It downloads this release's .deb
+      # assets, verifies the build provenance attested above against this tag,
+      # publishes them to https://repository.frostyard.org/debian/, and then
+      # dispatches `build` to frostyard/snosi once they are installable
+      # (ADR-0056). Not continue-on-error: if this request fails, nothing was
+      # published and the release run must fail.
+      - name: Request APT publication
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4
         with:
-          token: ${{ secrets.ORG_PAT }}
-          repository: frostyard/snosi
-          event-type: build
+          token: ${{ secrets.APT_PUBLISH_TOKEN }}
+          repository: frostyard/apt-publisher
+          event-type: publish-deb
+          client-payload: '{"repo": "${{ github.repository }}", "tag": "${{ github.ref_name }}"}'

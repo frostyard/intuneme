@@ -36,6 +36,14 @@ Key design points:
 - **Binary stays out of the rootfs.** The server binary lives on the host (`mcp_binary` config key or `--binary`). Its directory is bind-mounted read-only at `/opt/intuneme-mcp` via `machinectl bind` (authorized passwordless by the polkit `manage-machines` rule). The bind is runtime-only and re-established on demand, so it **survives `intuneme recreate`** — nothing is added to `ubuntu-intune/`.
 - **Server-agnostic.** No assumption about a particular tool; any self-contained MCP server works. The server's own arguments come from the `mcp_args` config key (e.g. `["mcp"]` for `workiq mcp`), with trailing `intuneme mcp -- args...` overriding them — this keeps the VS Code config to just `["mcp"]`. A `DOTNET_BUNDLE_EXTRACT_BASE_DIR` env var is set (harmless for non-.NET) so single-file .NET servers extract to ephemeral `/tmp` and the mount can stay read-only.
 
+## Release automation
+
+`make bump` tags a release with svu and pushes the tag. `.github/workflows/release.yml` runs only for tag pushes: GoReleaser Pro creates the GitHub release (including `frostyard-intuneme_<version>_amd64.deb`), `actions/attest-build-provenance` attests the assets including `dist/*.deb`, and the last step requests APT publication. That request is a `repository_dispatch` of type `publish-deb` to `frostyard/apt-publisher` with `repo` and `tag`, authenticated by `APT_PUBLISH_TOKEN`. It has no ref guard (a tag run's ref is `refs/tags/<tag>`, never `refs/heads/<default>`) and is not `continue-on-error`.
+
+apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/core ADR-0055](https://github.com/frostyard/core/blob/main/docs/adr/0055-publish-debian-packages-through-the-apt-publisher.md)). It verifies each `.deb`'s provenance against the tag, publishes it to `https://repository.frostyard.org/debian/`, and then dispatches `build` to frostyard/snosi ([ADR-0056](https://github.com/frostyard/core/blob/main/docs/adr/0056-rebuild-images-after-apt-publication.md)). So this workflow never uses repogen or dispatches to snosi itself. Renaming the package, or adding another `.deb` to the release, needs a change to intuneme's registration in apt-publisher's `config/producers.tsv` first: every `.deb` asset is published or the whole request is refused. `snapshot.yml` (the rolling `dev` prerelease) must never request publication.
+
+`release_workflow_contract_test.go` pins this contract; the workflows only run on tags and `main`, so the test is their pull-request gate. See `docs/design/overview.md` → "Release and Package Publication".
+
 ## Before committing
 
 Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
