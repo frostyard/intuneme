@@ -181,7 +181,7 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 
 	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe",
 		"--bind-ro="+tmp.Name()+":/run/chpasswd-input",
-		"-D", rootfsPath,
+		"-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 		"bash", "-c", "chpasswd < /run/chpasswd-input",
 	)
 	if err != nil {
@@ -268,20 +268,20 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 	if existingUser != "" && existingUser != user {
 		// Rename the existing user and fix up their home directory
 		rep.Message("Renaming existing user %q to %q...", existingUser, user)
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"usermod", "--login", user, "--home", fmt.Sprintf("/home/%s", user), "--move-home", existingUser,
 		); err != nil {
 			return fmt.Errorf("usermod (rename) failed: %w\n%s", err, out)
 		}
 		// Ensure correct groups
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
 		}
 	} else if existingUser == "" {
 		// No user with this UID — create one
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"useradd",
 			"--uid", fmt.Sprintf("%d", uid),
 			"--create-home",
@@ -293,7 +293,7 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 		}
 	} else {
 		// User already exists with the right name — just ensure groups
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
@@ -410,7 +410,7 @@ func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string
 			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
 		}
 		rep.Message("Reassigning group %q from GID %d to %d...", conflicting, gid, freeGID)
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
 			return fmt.Errorf("reassign group %s: %w\n%s", conflicting, err, out)
 		}
@@ -418,14 +418,14 @@ func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string
 
 	gidStr := fmt.Sprintf("%d", gid)
 	if existingGID >= 0 {
-		out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 			"groupmod", "--gid", gidStr, "render")
 		if err != nil {
 			return fmt.Errorf("groupmod render: %w\n%s", err, out)
 		}
 		return nil
 	}
-	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath, "--setenv=PATH="+nspawn.StandardPATH,
 		"groupadd", "--gid", gidStr, "render")
 	if err != nil {
 		return fmt.Errorf("groupadd render: %w\n%s", err, out)
