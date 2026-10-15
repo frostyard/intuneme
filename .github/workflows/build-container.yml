@@ -1,10 +1,12 @@
-name: Build ubuntu-intune container image
+name: Build Ubuntu identity container images
 on:
   pull_request:
     branches:
       - main
     paths:
       - "ubuntu-intune/**"
+      - "ubuntu-himmelblau/**"
+      - ".github/workflows/build-container.yml"
   schedule:
     - cron: "0 10 * * *"
   push:
@@ -14,13 +16,12 @@ on:
       - "v*"
     paths:
       - "ubuntu-intune/**"
+      - "ubuntu-himmelblau/**"
+      - ".github/workflows/build-container.yml"
   workflow_dispatch:
 
 env:
-  IMAGE_DESC: "Intune Container"
-  IMAGE_KEYWORDS: "ubuntu,intune"
   IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/234627017?s=200&v=4"
-  IMAGE_NAME: "ubuntu-intune"
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
 
 permissions: {}
@@ -35,17 +36,22 @@ jobs:
       - id: set
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo 'include=[{"channel":"","tag":"latest"}]' >> "$GITHUB_OUTPUT"
+            echo 'include=[{"image_name":"ubuntu-intune","image_dir":"ubuntu-intune","image_desc":"Intune Container","image_keywords":"ubuntu,intune","channel":"","tag":"latest"},{"image_name":"ubuntu-himmelblau","image_dir":"ubuntu-himmelblau","image_desc":"Experimental Himmelblau Container","image_keywords":"ubuntu,himmelblau,entra,experimental","channel":"","tag":"latest"}]' >> "$GITHUB_OUTPUT"
           else
-            echo 'include=[{"channel":"","tag":"latest"},{"channel":"insiders","tag":"insiders"}]' >> "$GITHUB_OUTPUT"
+            echo 'include=[{"image_name":"ubuntu-intune","image_dir":"ubuntu-intune","image_desc":"Intune Container","image_keywords":"ubuntu,intune","channel":"","tag":"latest"},{"image_name":"ubuntu-intune","image_dir":"ubuntu-intune","image_desc":"Intune Container","image_keywords":"ubuntu,intune","channel":"insiders","tag":"insiders"},{"image_name":"ubuntu-himmelblau","image_dir":"ubuntu-himmelblau","image_desc":"Experimental Himmelblau Container","image_keywords":"ubuntu,himmelblau,entra,experimental","channel":"","tag":"latest"}]' >> "$GITHUB_OUTPUT"
           fi
 
   build_push:
-    name: Build and push image (${{ matrix.tag }})
+    name: Build and push ${{ matrix.image_name }} (${{ matrix.tag }})
     needs: matrix
     runs-on: ubuntu-24.04
+    env:
+      IMAGE_NAME: ${{ matrix.image_name }}
+      IMAGE_DIR: ${{ matrix.image_dir }}
+      IMAGE_DESC: ${{ matrix.image_desc }}
+      IMAGE_KEYWORDS: ${{ matrix.image_keywords }}
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.tag }}
+      group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.image_name }}-${{ matrix.tag }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
@@ -63,7 +69,10 @@ jobs:
       - name: Prepare environment
         run: |
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
+          echo "IMAGE_NAME=${{ matrix.image_name }}" >> ${GITHUB_ENV}
+          echo "IMAGE_DIR=${{ matrix.image_dir }}" >> ${GITHUB_ENV}
+          echo "IMAGE_DESC=${{ matrix.image_desc }}" >> ${GITHUB_ENV}
+          echo "IMAGE_KEYWORDS=${{ matrix.image_keywords }}" >> ${GITHUB_ENV}
           echo "DEFAULT_TAG=${{ matrix.tag }}" >> ${GITHUB_ENV}
 
       - name: Checkout
@@ -94,8 +103,8 @@ jobs:
         id: metadata
         with:
           tags: |
-            type=raw,value=${{ env.DEFAULT_TAG }},enable=${{ github.event_name != 'schedule' }}
-            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}},enable=${{ github.event_name != 'schedule' }}
+            type=raw,value=${{ env.DEFAULT_TAG }},enable=${{ github.event_name != 'schedule' || matrix.image_name == 'ubuntu-himmelblau' }}
+            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}},enable=${{ github.event_name != 'schedule' || matrix.image_name == 'ubuntu-himmelblau' }}
             type=raw,value=${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' && matrix.tag == 'latest' }}
             type=raw,value=${{ env.CHECKED_OUT_TAG }}-{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' && matrix.tag == 'latest' }}
             type=raw,value=${{ matrix.tag }}-${{ env.CHECKED_OUT_TAG }},enable=${{ github.event_name == 'schedule' && matrix.tag != 'latest' }}
@@ -106,13 +115,13 @@ jobs:
             type=ref,event=tag
             type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/') }}
           labels: |
-            io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ github.sha }}/ubuntu-intune/README.md
+            io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/intuneme/${{ github.sha }}/${{ matrix.image_dir }}/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
             org.opencontainers.image.description=${{ env.IMAGE_DESC }}
-            org.opencontainers.image.documentation=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ github.sha }}/ubuntu-intune/README.md
-            org.opencontainers.image.source=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/blob/${{ github.sha }}/ubuntu-intune/Containerfile
+            org.opencontainers.image.documentation=https://raw.githubusercontent.com/${{ github.repository_owner }}/intuneme/${{ github.sha }}/${{ matrix.image_dir }}/README.md
+            org.opencontainers.image.source=https://github.com/${{ github.repository_owner }}/intuneme/blob/${{ github.sha }}/${{ matrix.image_dir }}/Containerfile
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/tree/${{ github.sha }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/intuneme/tree/${{ github.sha }}/${{ matrix.image_dir }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
             org.opencontainers.image.version=${{ env.CHECKED_OUT_TAG || env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
             io.artifacthub.package.deprecated=false
@@ -132,7 +141,7 @@ jobs:
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
         with:
           containerfiles: |
-            ./ubuntu-intune/Containerfile
+            ./${{ matrix.image_dir }}/Containerfile
           image: ${{ env.IMAGE_NAME }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
