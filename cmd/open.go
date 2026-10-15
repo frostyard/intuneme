@@ -58,9 +58,9 @@ func validateOpenAppForImage(cfg *config.Config, command string) error {
 	}
 	switch command {
 	case "intune-portal":
-		return fmt.Errorf("Intune Portal is not included in Himmelblau mode; use 'intuneme enroll --user <UPN>' to start Himmelblau enrollment")
+		return fmt.Errorf("intune portal is not included in Himmelblau mode; use 'intuneme enroll --user <UPN>' to start Himmelblau enrollment")
 	case "microsoft-edge":
-		return fmt.Errorf("Microsoft Edge is not included in the Himmelblau image")
+		return fmt.Errorf("microsoft edge is not included in the Himmelblau image")
 	default:
 		return nil
 	}

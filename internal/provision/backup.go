@@ -115,7 +115,7 @@ func BackupHimmelblauState(r runner.Runner, rootfs string) (backupDir string, re
 		case err != nil:
 			return "", fmt.Errorf("stat Himmelblau state %s: %w", sourcePath, err)
 		case !info.IsDir():
-			return "", fmt.Errorf("Himmelblau state path %s is not a directory", sourcePath)
+			return "", fmt.Errorf("himmelblau state path %s is not a directory", sourcePath)
 		}
 
 		dest := filepath.Join(tmpDir, statePath.source)
@@ -186,7 +186,7 @@ func RemoveHimmelblauStateBackup(r runner.Runner, backupDir string) error {
 		return fmt.Errorf("remove Himmelblau backup %s: %w\n%s", cleanPath, err, out)
 	}
 	if _, err := os.Lstat(cleanPath); err == nil {
-		return fmt.Errorf("Himmelblau backup still exists after privileged removal: %s", cleanPath)
+		return fmt.Errorf("himmelblau backup still exists after privileged removal: %s", cleanPath)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("verify Himmelblau backup removal: %w", err)
 	}
@@ -212,7 +212,7 @@ func verifyHimmelblauCredentialKey(r runner.Runner, rootfs string) error {
 	keyPath := filepath.Join(rootfs, systemdCredentialKeyPath)
 	keyInfo, err := os.Stat(keyPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("Himmelblau's encrypted HSM PIN exists but %s is missing; recreate cannot decrypt it safely. Restore the key from a backup or reinitialize an unenrolled container", filepath.Join("/", systemdCredentialKeyPath))
+		return fmt.Errorf("himmelblau's encrypted HSM PIN exists but %s is missing; recreate cannot decrypt it safely. Restore the key from a backup or reinitialize an unenrolled container", filepath.Join("/", systemdCredentialKeyPath))
 	}
 	if err != nil {
 		return fmt.Errorf("inspect systemd credential key: %w", err)
@@ -314,7 +314,7 @@ func verifyHimmelblauBackupCredentialKey(backupDir string) error {
 	keyPath := filepath.Join(backupDir, systemdCredentialKeyPath)
 	keyInfo, err := os.Lstat(keyPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("Himmelblau backup contains an encrypted HSM PIN but is missing %s; the PIN cannot be restored safely", filepath.Join("/", systemdCredentialKeyPath))
+		return fmt.Errorf("himmelblau backup contains an encrypted HSM PIN but is missing %s; the PIN cannot be restored safely", filepath.Join("/", systemdCredentialKeyPath))
 	}
 	if err != nil {
 		return fmt.Errorf("inspect systemd credential key backup: %w", err)

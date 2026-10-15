@@ -47,14 +47,14 @@ container after editing to apply the new settings.`,
 			return fmt.Errorf("load intuneme config: %w", err)
 		}
 		if !cfg.Himmelblau {
-			return fmt.Errorf("Himmelblau mode is not enabled — run 'intuneme init --himmelblau' first")
+			return fmt.Errorf("himmelblau mode is not enabled — run 'intuneme init --himmelblau' first")
 		}
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
 			return fmt.Errorf("not initialized — run 'intuneme init --himmelblau' first")
 		}
 		cfg.HimmelblauDomain, err = config.NormalizeHimmelblauDomain(cfg.HimmelblauDomain)
 		if err != nil {
-			return fmt.Errorf("Himmelblau domain is not configured: %w", err)
+			return fmt.Errorf("himmelblau domain is not configured: %w", err)
 		}
 		if clix.DryRun {
 			rep.Message("[dry-run] Would edit Himmelblau configuration")

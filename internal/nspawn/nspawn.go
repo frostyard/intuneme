@@ -477,7 +477,7 @@ func HimmelblauPAMAuthenticate(r runner.Runner, machine, user, systemBusAddress 
 		script = fmt.Sprintf("export DBUS_SYSTEM_BUS_ADDRESS=%s; %s", ShellQuote(systemBusAddress), script)
 	}
 	if err := r.RunAttached("sudo", buildNsenterArgs(leaderPID, script)...); err != nil {
-		return fmt.Errorf("Himmelblau PAM authentication failed: %w", err)
+		return fmt.Errorf("himmelblau PAM authentication failed: %w", err)
 	}
 	return nil
 }

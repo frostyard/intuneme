@@ -16,8 +16,8 @@ func TestValidateOpenAppForImage(t *testing.T) {
 	}{
 		{name: "Microsoft Edge in Microsoft image", command: "microsoft-edge"},
 		{name: "Intune Portal in Microsoft image", command: "intune-portal"},
-		{name: "Microsoft Edge unavailable in Himmelblau image", himmelblau: true, command: "microsoft-edge", wantErr: "Microsoft Edge is not included"},
-		{name: "Intune Portal unavailable in Himmelblau image", himmelblau: true, command: "intune-portal", wantErr: "Intune Portal is not included"},
+		{name: "Microsoft Edge unavailable in Himmelblau image", himmelblau: true, command: "microsoft-edge", wantErr: "microsoft edge is not included"},
+		{name: "Intune Portal unavailable in Himmelblau image", himmelblau: true, command: "intune-portal", wantErr: "intune portal is not included"},
 		{name: "other Himmelblau application", himmelblau: true, command: "other-app"},
 	}
 

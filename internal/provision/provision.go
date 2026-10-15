@@ -192,7 +192,7 @@ func VerifyHimmelblauMappedPAMAllowlist(rootfsPath, hostUser string) error {
 		return fmt.Errorf("read Himmelblau PAM allowlist: %w", err)
 	}
 	if string(content) != "root\n" {
-		return fmt.Errorf("Himmelblau PAM allowlist must contain only root before mapped login; local user %q must not be allowlisted", hostUser)
+		return fmt.Errorf("himmelblau PAM allowlist must contain only root before mapped login; local user %q must not be allowlisted", hostUser)
 	}
 	return nil
 }
@@ -309,7 +309,7 @@ exit 1`
 		}
 	}
 	if !ready {
-		return fmt.Errorf("Himmelblau services did not become active\n%s", out)
+		return fmt.Errorf("himmelblau services did not become active\n%s", out)
 	}
 	return nil
 }
@@ -340,13 +340,13 @@ func VerifyHimmelblauPAMTester(rootfsPath string) error {
 	path := filepath.Join(rootfsPath, strings.TrimPrefix(helperPath, string(filepath.Separator)))
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("Himmelblau image is missing %s; rebuild or pull an image containing the pamtester package before enrolling", helperPath)
+		return fmt.Errorf("himmelblau image is missing %s; rebuild or pull an image containing the pamtester package before enrolling", helperPath)
 	}
 	if err != nil {
 		return fmt.Errorf("inspect Himmelblau PAM helper %s: %w", helperPath, err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
-		return fmt.Errorf("Himmelblau image helper %s is not an executable file", helperPath)
+		return fmt.Errorf("himmelblau image helper %s is not an executable file", helperPath)
 	}
 	return nil
 }
@@ -364,7 +364,7 @@ func ReadHimmelblauTerminalPasskeySource(rootfsPath string) (string, bool, error
 		return "", false, fmt.Errorf("read Himmelblau terminal-passkey fork marker: %w", err)
 	}
 	if !info.Mode().IsRegular() {
-		return "", false, fmt.Errorf("Himmelblau terminal-passkey fork marker is not a regular file")
+		return "", false, fmt.Errorf("himmelblau terminal-passkey fork marker is not a regular file")
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -373,7 +373,7 @@ func ReadHimmelblauTerminalPasskeySource(rootfsPath string) (string, bool, error
 	source := strings.TrimSpace(string(content))
 	decoded, err := hex.DecodeString(source)
 	if err != nil || len(source) != 40 || len(decoded) != 20 || source != strings.ToLower(source) {
-		return "", false, fmt.Errorf("Himmelblau terminal-passkey image has an invalid fork source marker %q", source)
+		return "", false, fmt.Errorf("himmelblau terminal-passkey image has an invalid fork source marker %q", source)
 	}
 	return source, true, nil
 }
@@ -386,10 +386,10 @@ func VerifyHimmelblauTerminalPasskey(rootfsPath, expectedSource string) error {
 		return err
 	}
 	if !found {
-		return fmt.Errorf("Himmelblau rootfs is missing the terminal-passkey fork marker; recreate it with the matching image")
+		return fmt.Errorf("himmelblau rootfs is missing the terminal-passkey fork marker; recreate it with the matching image")
 	}
 	if source != expectedSource {
-		return fmt.Errorf("Himmelblau terminal-passkey image uses source commit %q, expected %q; recreate with the matching image", source, expectedSource)
+		return fmt.Errorf("himmelblau terminal-passkey image uses source commit %q, expected %q; recreate with the matching image", source, expectedSource)
 	}
 	return nil
 }
@@ -431,13 +431,13 @@ func ValidateHimmelblauConfig(content []byte, domain string) error {
 		return err
 	}
 	if !strings.EqualFold(settings["domain"], normalized) {
-		return fmt.Errorf("Himmelblau configuration must keep global.domain = %q", normalized)
+		return fmt.Errorf("himmelblau configuration must keep global.domain = %q", normalized)
 	}
 	if !strings.EqualFold(settings["cn_name_mapping"], "false") {
-		return fmt.Errorf("Himmelblau configuration must keep global.cn_name_mapping = false")
+		return fmt.Errorf("himmelblau configuration must keep global.cn_name_mapping = false")
 	}
 	if settings["user_map_file"] != "/etc/himmelblau/user-map" {
-		return fmt.Errorf("Himmelblau configuration must keep global.user_map_file = /etc/himmelblau/user-map")
+		return fmt.Errorf("himmelblau configuration must keep global.user_map_file = /etc/himmelblau/user-map")
 	}
 	return nil
 }
@@ -490,7 +490,7 @@ func himmelblauGlobalSettings(content []byte, keys ...string) (map[string]string
 			currentSection = strings.ToLower(strings.TrimSpace(trimmed[1 : len(trimmed)-1]))
 			if currentSection == "global" {
 				if globalFound {
-					return nil, fmt.Errorf("Himmelblau configuration has duplicate [global] sections")
+					return nil, fmt.Errorf("himmelblau configuration has duplicate [global] sections")
 				}
 				globalFound = true
 			}
@@ -508,12 +508,12 @@ func himmelblauGlobalSettings(content []byte, keys ...string) (map[string]string
 			continue
 		}
 		if _, exists := settings[key]; exists {
-			return nil, fmt.Errorf("Himmelblau configuration has duplicate global.%s settings", key)
+			return nil, fmt.Errorf("himmelblau configuration has duplicate global.%s settings", key)
 		}
 		settings[key] = strings.TrimSpace(value)
 	}
 	if !globalFound {
-		return nil, fmt.Errorf("Himmelblau configuration has no [global] section")
+		return nil, fmt.Errorf("himmelblau configuration has no [global] section")
 	}
 	return settings, nil
 }
@@ -589,7 +589,7 @@ func setHimmelblauGlobalSetting(content []byte, key, value string) ([]byte, erro
 		section = strings.TrimSpace(section[1 : len(section)-1])
 		if section == "global" {
 			if globalStart != -1 {
-				return nil, fmt.Errorf("Himmelblau configuration has duplicate [global] sections")
+				return nil, fmt.Errorf("himmelblau configuration has duplicate [global] sections")
 			}
 			globalStart = i
 			continue
@@ -600,7 +600,7 @@ func setHimmelblauGlobalSetting(content []byte, key, value string) ([]byte, erro
 		}
 	}
 	if globalStart == -1 {
-		return nil, fmt.Errorf("Himmelblau configuration has no [global] section")
+		return nil, fmt.Errorf("himmelblau configuration has no [global] section")
 	}
 
 	activeLine, commentedLine := -1, -1
@@ -622,7 +622,7 @@ func setHimmelblauGlobalSetting(content []byte, key, value string) ([]byte, erro
 			continue
 		}
 		if activeLine != -1 {
-			return nil, fmt.Errorf("Himmelblau configuration has duplicate global.%s settings", key)
+			return nil, fmt.Errorf("himmelblau configuration has duplicate global.%s settings", key)
 		}
 		activeLine = i
 	}

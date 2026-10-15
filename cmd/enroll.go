@@ -46,7 +46,7 @@ separate join API.`,
 			return err
 		}
 		if !cfg.Himmelblau {
-			return fmt.Errorf("Himmelblau mode is not enabled — run 'intuneme init --himmelblau' first")
+			return fmt.Errorf("himmelblau mode is not enabled — run 'intuneme init --himmelblau' first")
 		}
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
 			return fmt.Errorf("not initialized — run 'intuneme init --himmelblau' first")
@@ -81,7 +81,7 @@ separate join API.`,
 			return err
 		}
 		if cfg.HimmelblauUPN != "" && cfg.HimmelblauUPN != upn {
-			return fmt.Errorf("Himmelblau is already configured for %q; use 'intuneme destroy' before enrolling a different account", cfg.HimmelblauUPN)
+			return fmt.Errorf("himmelblau is already configured for %q; use 'intuneme destroy' before enrolling a different account", cfg.HimmelblauUPN)
 		}
 
 		if err := provision.InstallHimmelblauUserMap(r, cfg.RootfsPath, cfg.HostUser, upn); err != nil {
@@ -230,7 +230,7 @@ func validateHimmelblauUPN(upn string) error {
 func validateHimmelblauUPNDomain(upn, configuredDomain string) error {
 	domain, err := config.NormalizeHimmelblauDomain(configuredDomain)
 	if err != nil {
-		return fmt.Errorf("Himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
+		return fmt.Errorf("himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
 	}
 	_, upnDomain, _ := strings.Cut(upn, "@")
 	if upnDomain != domain {

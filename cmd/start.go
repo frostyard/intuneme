@@ -44,7 +44,7 @@ var startCmd = &cobra.Command{
 		if cfg.Himmelblau {
 			cfg.HimmelblauDomain, err = config.NormalizeHimmelblauDomain(cfg.HimmelblauDomain)
 			if err != nil {
-				return fmt.Errorf("Himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
+				return fmt.Errorf("himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
 			}
 			if cfg.HimmelblauUPN != "" {
 				if err := validateHimmelblauUPNDomain(cfg.HimmelblauUPN, cfg.HimmelblauDomain); err != nil {
