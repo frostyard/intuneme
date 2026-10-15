@@ -12,6 +12,7 @@ import (
 type mockRunner struct {
 	commands    []string
 	fileContent string // captured from the source file in the last "install" command
+	attachedErr error
 	outputs     map[string]string
 	errors      map[string]error
 }
@@ -42,7 +43,7 @@ func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 
 func (m *mockRunner) RunAttached(name string, args ...string) error {
 	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
-	return nil
+	return m.attachedErr
 }
 
 func (m *mockRunner) RunBackground(name string, args ...string) error {
@@ -117,6 +118,48 @@ func TestBuildBootArgsNoSockets(t *testing.T) {
 	}
 }
 
+func TestDetectUdevDataBind(t *testing.T) {
+	t.Run("existing directory becomes a read-only self bind", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "run", "udev", "data")
+		if err := os.MkdirAll(path, 0755); err != nil {
+			t.Fatalf("create udev data directory: %v", err)
+		}
+
+		got, found, err := detectUdevDataBind(path)
+		if err != nil {
+			t.Fatalf("detectUdevDataBind() error: %v", err)
+		}
+		if !found {
+			t.Fatal("detectUdevDataBind() found = false, want true")
+		}
+		if got != (BindMount{Host: path, Container: path, ReadOnly: true}) {
+			t.Fatalf("detectUdevDataBind() = %+v", got)
+		}
+		args := buildBootArgs("/tmp/rootfs", "intuneme", "/home/testuser/Intune", "/home/testuser", []BindMount{got}, nil, nil, nil)
+		if joined := strings.Join(args, " "); !strings.Contains(joined, "--bind-ro="+path+":"+path) {
+			t.Fatalf("boot args missing read-only udev data bind: %s", joined)
+		}
+	})
+
+	t.Run("missing directory is optional", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing")
+		if _, found, err := detectUdevDataBind(path); err != nil || found {
+			t.Fatalf("detectUdevDataBind() = found %v, error %v; want false, nil", found, err)
+		}
+	})
+
+	t.Run("non-directory path is an error", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "udev-data")
+		if err := os.WriteFile(path, nil, 0644); err != nil {
+			t.Fatalf("create file: %v", err)
+		}
+
+		if _, _, err := detectUdevDataBind(path); err == nil {
+			t.Fatal("detectUdevDataBind() error = nil, want error for non-directory path")
+		}
+	})
+}
+
 func TestBuildShellArgs(t *testing.T) {
 	args := BuildShellArgs("intuneme", "testuser")
 
@@ -124,11 +167,110 @@ func TestBuildShellArgs(t *testing.T) {
 	if !strings.Contains(joined, "shell") {
 		t.Errorf("missing shell subcommand in: %s", joined)
 	}
+
 	if !strings.Contains(joined, "testuser@intuneme") {
 		t.Errorf("missing user@machine in: %s", joined)
 	}
 	if !strings.Contains(joined, "/bin/bash --login") {
 		t.Errorf("missing login shell in: %s", joined)
+	}
+}
+
+func TestHimmelblauPAMAuthenticateUsesForegroundNsenter(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+		},
+	}
+
+	if err := HimmelblauPAMAuthenticate(r, "intuneme", "mi", ""); err != nil {
+		t.Fatalf("HimmelblauPAMAuthenticate() error: %v", err)
+	}
+
+	const want = "sudo " + NsenterHelperPath + " 12345 exec /usr/bin/pamtester machine-shell 'mi' authenticate"
+	if len(r.commands) != 2 || r.commands[1] != want {
+		t.Fatalf("attached command = %q, want %q", r.commands, want)
+	}
+}
+
+func TestHimmelblauPAMAuthenticateSetsFilteredSystemBusAddress(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+		},
+	}
+
+	if err := HimmelblauPAMAuthenticate(r, "intuneme", "mi", "unix:path=/run/intuneme/bluez-proxy/system-bus"); err != nil {
+		t.Fatalf("HimmelblauPAMAuthenticate() error: %v", err)
+	}
+
+	const want = "sudo " + NsenterHelperPath + " 12345 export DBUS_SYSTEM_BUS_ADDRESS='unix:path=/run/intuneme/bluez-proxy/system-bus'; exec /usr/bin/pamtester machine-shell 'mi' authenticate"
+	if len(r.commands) != 2 || r.commands[1] != want {
+		t.Fatalf("attached command = %q, want %q", r.commands, want)
+	}
+}
+
+func TestHimmelblauPAMAuthenticateReturnsFailure(t *testing.T) {
+	wantErr := errors.New("authentication rejected")
+	r := &mockRunner{
+		attachedErr: wantErr,
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+		},
+	}
+
+	err := HimmelblauPAMAuthenticate(r, "intuneme", "mi", "")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("HimmelblauPAMAuthenticate() error = %v, want wrapped %v", err, wantErr)
+	}
+}
+
+func TestUserUIDUsesContainerNSS(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value":                                                         "12345\n",
+			"sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + StandardPATH + " getent passwd alice@example.com": "alice@example.com:x:1000:1000:Alice:/home/alice@example.com:/bin/bash\n",
+		},
+	}
+
+	uid, err := UserUID(r, "intuneme", "alice@example.com")
+	if err != nil {
+		t.Fatalf("UserUID() error: %v", err)
+	}
+	if uid != 1000 {
+		t.Fatalf("UserUID() = %d, want 1000", uid)
+	}
+}
+
+func TestUserUIDIgnoresPAMDiagnosticsInCombinedOutput(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+			"sudo nsenter -t 12345 -m -- /usr/bin/env PATH=" + StandardPATH + " getent passwd alice@example.com": "2026-10-09T11:13:24.124903Z ERROR Unix socket stream setup error: connection refused\n" +
+				"alice:x:1000:1000:Alice:/home/alice:/bin/bash\n",
+		},
+	}
+
+	uid, err := UserUID(r, "intuneme", "alice@example.com")
+	if err != nil {
+		t.Fatalf("UserUID() error: %v", err)
+	}
+	if uid != 1000 {
+		t.Fatalf("UserUID() = %d, want 1000", uid)
+	}
+}
+
+func TestSessionBusReady(t *testing.T) {
+	r := &mockRunner{
+		outputs: map[string]string{
+			"machinectl show intuneme -p Leader --value": "12345\n",
+		},
+	}
+	if !SessionBusReady(r, "intuneme", 1000) {
+		t.Fatal("SessionBusReady() = false, want true")
+	}
+	if !strings.Contains(r.commands[1], "test -S /run/user/1000/bus") {
+		t.Fatalf("session bus probe = %q", r.commands[1])
 	}
 }
 
@@ -335,9 +477,10 @@ func TestNsenterHelperScript(t *testing.T) {
 	if !strings.HasPrefix(script, "#!/bin/bash") {
 		t.Errorf("helper script must start with a bash shebang, got:\n%s", script)
 	}
+
 	for _, want := range []string{
 		`/usr/bin/nsenter -t "$1" -m -u -i -n -p --`,
-		`/bin/su -s /bin/bash testuser -c "$2"`,
+		`/bin/su -s /bin/bash 'testuser' -c "$2"`,
 		"set -euo pipefail",
 	} {
 		if !strings.Contains(script, want) {
@@ -346,6 +489,13 @@ func TestNsenterHelperScript(t *testing.T) {
 	}
 	if strings.Contains(script, "*") {
 		t.Errorf("helper script should not contain wildcards, got:\n%s", script)
+	}
+}
+
+func TestNsenterHelperScriptQuotesContainerUser(t *testing.T) {
+	script := NsenterHelperScript("alice@example.com")
+	if !strings.Contains(script, `/bin/su -s /bin/bash 'alice@example.com' -c "$2"`) {
+		t.Fatalf("helper did not pass the container UPN as one argument:\n%s", script)
 	}
 }
 

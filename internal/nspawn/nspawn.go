@@ -1,11 +1,13 @@
 package nspawn
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +26,27 @@ type BindMount struct {
 	Host      string
 	Container string
 	ReadOnly  bool
+}
+
+// DetectHostUdevDataBind returns a read-only bind mount for the host's udev
+// database when it exists. The database supplies filesystem metadata for
+// Himmelblau's compliance checks without exposing the host directory writable.
+func DetectHostUdevDataBind() (BindMount, bool, error) {
+	return detectUdevDataBind("/run/udev/data")
+}
+
+func detectUdevDataBind(path string) (BindMount, bool, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return BindMount{}, false, nil
+	}
+	if err != nil {
+		return BindMount{}, false, fmt.Errorf("stat udev data directory %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return BindMount{}, false, fmt.Errorf("udev data path %s is not a directory", path)
+	}
+	return BindMount{Host: path, Container: path, ReadOnly: true}, true, nil
 }
 
 // xauthorityPatterns are searched in XDG_RUNTIME_DIR when $XAUTHORITY is unset.
@@ -386,12 +409,13 @@ const NsenterHelperPath = NsenterHelperDir + "/nsenter-exec"
 func NsenterHelperScript(user string) string {
 	return fmt.Sprintf(`#!/bin/bash
 # Installed by intuneme. Enters the intuneme container's namespaces and runs the
-# given script as %s via a non-login bash. Invoked through passwordless sudo
+# given script as the configured container identity via a non-login bash.
+# Invoked through passwordless sudo
 # (the intuneme-exec sudoers rule). Keeping the nsenter+su shape fixed here lets
 # the sudoers rule reference a single wildcard-free path, which sudo-rs requires.
 set -euo pipefail
 exec /usr/bin/nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash %s -c "$2"
-`, user, user)
+`, ShellQuote(user))
 }
 
 // buildNsenterArgs returns the argument vector (sans the leading "sudo") that
@@ -423,10 +447,68 @@ func IsRunning(r runner.Runner, machine string) bool {
 	return err == nil
 }
 
+// SessionBusReady reports whether the container user's session bus socket exists.
+func SessionBusReady(r runner.Runner, machine string, uid int) bool {
+	pid, err := LeaderPID(r, machine)
+	if err != nil {
+		return false
+	}
+	_, err = r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"test", "-S", fmt.Sprintf("/run/user/%d/bus", uid))
+	return err == nil
+}
+
 // Shell opens an interactive session in the container via machinectl shell.
 func Shell(r runner.Runner, machine, user string) error {
 	args := BuildShellArgs(machine, user)
 	return r.RunAttached("machinectl", args...)
+}
+
+// HimmelblauPAMAuthenticate invokes the fail-closed PAM auth stack directly.
+// It uses the foreground nsenter path because machinectl shell masks remote
+// command exit status, including authentication cancellation.
+func HimmelblauPAMAuthenticate(r runner.Runner, machine, user, systemBusAddress string) error {
+	leaderPID, err := LeaderPID(r, machine)
+	if err != nil {
+		return err
+	}
+	script := fmt.Sprintf("exec /usr/bin/pamtester machine-shell %s authenticate", ShellQuote(user))
+	if systemBusAddress != "" {
+		script = fmt.Sprintf("export DBUS_SYSTEM_BUS_ADDRESS=%s; %s", ShellQuote(systemBusAddress), script)
+	}
+	if err := r.RunAttached("sudo", buildNsenterArgs(leaderPID, script)...); err != nil {
+		return fmt.Errorf("Himmelblau PAM authentication failed: %w", err)
+	}
+	return nil
+}
+
+// UserUID resolves a container account's UID through NSS, including
+// Himmelblau's local-account-to-UPN mapping, from the running mount namespace.
+func UserUID(r runner.Runner, machine, user string) (int, error) {
+	pid, err := LeaderPID(r, machine)
+	if err != nil {
+		return 0, err
+	}
+	out, err := r.Run("sudo", "nsenter", "-t", pid, "-m", "--",
+		"/usr/bin/env", "PATH="+StandardPATH, "getent", "passwd", user)
+	if err != nil {
+		return 0, fmt.Errorf("resolve account %q in container: %w\n%s", user, err, out)
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) != 7 || fields[0] == "" {
+			continue
+		}
+		uid, uidErr := strconv.Atoi(fields[2])
+		_, gidErr := strconv.Atoi(fields[3])
+		if uidErr != nil || gidErr != nil ||
+			(fields[5] != "" && !strings.HasPrefix(fields[5], "/")) ||
+			(fields[6] != "" && !strings.HasPrefix(fields[6], "/")) {
+			continue
+		}
+		return uid, nil
+	}
+	return 0, fmt.Errorf("NSS returned no valid passwd entry for %q", user)
 }
 
 // Stop powers off the container.
