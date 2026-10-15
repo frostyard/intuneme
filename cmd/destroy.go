@@ -56,6 +56,9 @@ intuneme artifacts.`,
 			rep.Message("[dry-run] Would remove udev rules")
 			rep.Message("[dry-run] Would remove polkit rule")
 			rep.Message("[dry-run] Would remove rootfs at %s", cfg.RootfsPath)
+			if cfg.Himmelblau {
+				rep.Message("[dry-run] Would remove saved Himmelblau config if present")
+			}
 			if destroyAll {
 				rep.Message("[dry-run] Would disable and remove GNOME extension")
 				rep.Message("[dry-run] Would remove polkit policy action")
@@ -104,6 +107,9 @@ intuneme artifacts.`,
 
 		// Remove config
 		_ = os.Remove(fmt.Sprintf("%s/config.toml", root))
+		if err := os.Remove(savedHimmelblauConfigPath(root)); err != nil && !os.IsNotExist(err) {
+			rep.Warning("failed to remove saved Himmelblau config: %v", err)
+		}
 
 		// Clean intune state from ~/Intune (persists via bind mount)
 		home, err := os.UserHomeDir()

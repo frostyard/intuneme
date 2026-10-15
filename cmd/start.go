@@ -20,7 +20,7 @@ import (
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Boot the Intune container",
+	Short: "Boot the identity container",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
 		root := rootDir
@@ -35,6 +35,22 @@ var startCmd = &cobra.Command{
 		cfg, err := config.Load(root)
 		if err != nil {
 			return err
+		}
+		if cfg.Himmelblau && cfg.HimmelblauUPN != "" {
+			if err := validateHimmelblauUPN(cfg.HimmelblauUPN); err != nil {
+				return fmt.Errorf("invalid configured Himmelblau UPN: %w", err)
+			}
+		}
+		if cfg.Himmelblau {
+			cfg.HimmelblauDomain, err = config.NormalizeHimmelblauDomain(cfg.HimmelblauDomain)
+			if err != nil {
+				return fmt.Errorf("himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
+			}
+			if cfg.HimmelblauUPN != "" {
+				if err := validateHimmelblauUPNDomain(cfg.HimmelblauUPN, cfg.HimmelblauDomain); err != nil {
+					return fmt.Errorf("configured Himmelblau UPN does not match the sign-in domain: %w", err)
+				}
+			}
 		}
 
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
@@ -54,6 +70,15 @@ var startCmd = &cobra.Command{
 		intuneHome := home + "/Intune"
 		containerHome := fmt.Sprintf("/home/%s", cfg.HostUser)
 		sockets := nspawn.DetectHostSockets(cfg.HostUID)
+		if cfg.Himmelblau {
+			udevData, found, err := nspawn.DetectHostUdevDataBind()
+			if err != nil {
+				return fmt.Errorf("detect host udev data for Himmelblau compliance: %w", err)
+			}
+			if found {
+				sockets = append(sockets, udevData)
+			}
+		}
 
 		// When broker proxy is enabled, bind-mount a host directory to
 		// /run/user/<uid> inside the container so the session bus socket
@@ -117,6 +142,32 @@ var startCmd = &cobra.Command{
 		// session.
 		if err := provision.OverrideX11Tmpfiles(r, cfg.RootfsPath); err != nil {
 			return fmt.Errorf("override container x11 tmpfiles rule: %w", err)
+		}
+
+		if cfg.Himmelblau {
+			if cfg.HimmelblauTerminalPasskey {
+				if err := provision.VerifyHimmelblauTerminalPasskey(cfg.RootfsPath, cfg.HimmelblauTerminalPasskeySource); err != nil {
+					return err
+				}
+			}
+			if err := provision.ConfigureHimmelblauDomain(r, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+				return fmt.Errorf("configure Himmelblau domain: %w", err)
+			}
+			if err := installSavedHimmelblauConfig(r, root, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+				return err
+			}
+			if cfg.HimmelblauUPN != "" {
+				if err := provision.InstallHimmelblauUserMap(r, cfg.RootfsPath, cfg.HostUser, cfg.HimmelblauUPN); err != nil {
+					return fmt.Errorf("install Himmelblau user mapping: %w", err)
+				}
+			} else {
+				if err := provision.EnsureHimmelblauUserMap(r, cfg.RootfsPath); err != nil {
+					return fmt.Errorf("initialize Himmelblau user map: %w", err)
+				}
+			}
+			if err := provision.InstallHimmelblauPAMAllowlist(r, cfg.RootfsPath, cfg.HostUser, cfg.HimmelblauUPN != ""); err != nil {
+				return fmt.Errorf("install Himmelblau PAM allowlist: %w", err)
+			}
 		}
 
 		rep.Message("Booting container...")
@@ -239,19 +290,41 @@ var startCmd = &cobra.Command{
 			rep.Message("No video devices detected.")
 		}
 
-		if cfg.BrokerProxy {
+		if cfg.BrokerProxy || (cfg.Himmelblau && cfg.HimmelblauUPN != "") {
 			rep.Message("Enabling linger for container user...")
 			if _, err := r.Run("machinectl", broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
 				return fmt.Errorf("failed to enable linger: %w", err)
 			}
 
-			if clix.Verbose {
-				rep.Message("Creating login session...")
-			}
-			if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
-				return fmt.Errorf("failed to create login session: %w", err)
+			if !cfg.Himmelblau {
+				if clix.Verbose {
+					rep.Message("Creating login session...")
+				}
+				if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+					return fmt.Errorf("failed to create login session: %w", err)
+				}
 			}
 
+			rep.Message("Waiting for container session bus...")
+			busReady := false
+			for range 30 {
+				if nspawn.SessionBusReady(r, cfg.MachineName, cfg.HostUID) {
+					busReady = true
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
+			if !busReady {
+				return fmt.Errorf("container session bus not available after 30 seconds")
+			}
+			if cfg.Himmelblau && cfg.HimmelblauUPN != "" {
+				if err := nspawn.Exec(r, cfg.MachineName, cfg.HostUser, cfg.HostUID, ":"); err != nil {
+					return fmt.Errorf("initialize Himmelblau session environment: %w", err)
+				}
+			}
+		}
+
+		if cfg.BrokerProxy {
 			rep.Message("Waiting for container session bus...")
 			busPath := broker.SessionBusSocketPath(root)
 			busReady := false

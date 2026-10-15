@@ -19,6 +19,7 @@ import (
 
 var insidersRecreate bool
 var tmpDirRecreate string
+var himmelblauLocalImageRecreate string
 
 var recreateCmd = &cobra.Command{
 	Use:   "recreate",
@@ -39,6 +40,42 @@ var recreateCmd = &cobra.Command{
 			return err
 		}
 
+		if cmd.Flags().Changed("himmelblau-local-image") {
+			if !cfg.Himmelblau {
+				return fmt.Errorf("--himmelblau-local-image requires Himmelblau mode")
+			}
+			if err := config.ValidateHimmelblauLocalImage(himmelblauLocalImageRecreate); err != nil {
+				return err
+			}
+			cfg.HimmelblauLocalImage = himmelblauLocalImageRecreate
+			if err := cfg.Save(root); err != nil {
+				return fmt.Errorf("save local Himmelblau image selection: %w", err)
+			}
+		}
+		if err := requireLocalTerminalPasskeyImage(cfg.HimmelblauTerminalPasskey, cfg.HimmelblauLocalImage); err != nil {
+			return err
+		}
+
+		if cfg.Himmelblau && cmd.Flags().Changed("insiders") {
+			return fmt.Errorf("--insiders is not available for the experimental Himmelblau image")
+		}
+		if cfg.Himmelblau {
+			cfg.HimmelblauDomain, err = config.NormalizeHimmelblauDomain(cfg.HimmelblauDomain)
+			if err != nil {
+				return fmt.Errorf("himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
+			}
+			if cfg.HimmelblauUPN != "" {
+				if err := validateHimmelblauUPNDomain(cfg.HimmelblauUPN, cfg.HimmelblauDomain); err != nil {
+					return fmt.Errorf("configured Himmelblau UPN does not match the sign-in domain: %w", err)
+				}
+			}
+			if cfg.HimmelblauLocalImage != "" {
+				if err := config.ValidateHimmelblauLocalImage(cfg.HimmelblauLocalImage); err != nil {
+					return err
+				}
+			}
+		}
+
 		// Verify initialized
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
 			return fmt.Errorf("not initialized — run 'intuneme init' first")
@@ -51,7 +88,11 @@ var recreateCmd = &cobra.Command{
 
 		if clix.DryRun {
 			rep.Message("[dry-run] Would stop container (if running)")
-			rep.Message("[dry-run] Would backup shadow entry and broker state")
+			stateName := "device broker"
+			if cfg.Himmelblau {
+				stateName = "Himmelblau"
+			}
+			rep.Message("[dry-run] Would backup shadow entry and %s state", stateName)
 			rep.Message("[dry-run] Would remove old rootfs at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would pull new image and re-provision")
 			return nil
@@ -86,27 +127,37 @@ var recreateCmd = &cobra.Command{
 			return fmt.Errorf("backup shadow entry: %w", err)
 		}
 
-		if clix.Verbose {
-			rep.Message("Backing up device broker state...")
+		stateName := "device broker"
+		backupState := provision.BackupDeviceBrokerState
+		if cfg.Himmelblau {
+			stateName = "Himmelblau"
+			backupState = provision.BackupHimmelblauState
 		}
-		brokerBackupDir, err := provision.BackupDeviceBrokerState(r, cfg.RootfsPath)
+		if clix.Verbose {
+			rep.Message("Backing up %s state...", stateName)
+		}
+		brokerBackupDir, err := backupState(r, cfg.RootfsPath)
 		if err != nil {
-			return fmt.Errorf("backup device broker state: %w", err)
+			return fmt.Errorf("backup %s state: %w", stateName, err)
 		}
 		// The backup is the only copy of the enrollment once the rootfs is
 		// deleted below, so it is kept — and its location reported — on every
 		// failure path. Only a successful restore may discard it.
 		brokerRestored := false
+		backupCleaned := false
 		if brokerBackupDir != "" {
 			defer func() {
-				if brokerRestored {
-					_ = os.RemoveAll(brokerBackupDir)
+				if backupCleaned {
 					return
 				}
-				rep.Warning("Device broker state was NOT restored. Enrollment backup kept at %s", brokerBackupDir)
+				if brokerRestored {
+					rep.Warning("%s state was restored, but its backup could not be cleaned. Backup kept at %s", stateName, brokerBackupDir)
+					return
+				}
+				rep.Warning("%s state was NOT restored. Enrollment backup kept at %s", stateName, brokerBackupDir)
 			}()
 			if clix.Verbose {
-				rep.Message("Device broker state backed up.")
+				rep.Message("%s state backed up.", stateName)
 			}
 		} else {
 			if clix.Verbose {
@@ -128,8 +179,11 @@ var recreateCmd = &cobra.Command{
 				return fmt.Errorf("save config: %w", err)
 			}
 		}
-		image := pkgversion.ImageRef(cfg.Insiders)
-		p, err := puller.Detect(r)
+		image := pkgversion.ImageRef(cfg.Insiders, cfg.Himmelblau)
+		if cfg.HimmelblauLocalImage != "" {
+			image = cfg.HimmelblauLocalImage
+		}
+		p, err := puller.DetectForImage(r, image)
 		if err != nil {
 			return err
 		}
@@ -144,12 +198,60 @@ var recreateCmd = &cobra.Command{
 		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
 			return err
 		}
+		if cfg.Himmelblau {
+			if err := provision.VerifyHimmelblauPAMTester(cfg.RootfsPath); err != nil {
+				return err
+			}
+			if cfg.HimmelblauLocalImage != "" || cfg.HimmelblauTerminalPasskey {
+				source, found, err := provision.ReadHimmelblauTerminalPasskeySource(cfg.RootfsPath)
+				if err != nil {
+					return err
+				}
+				if !found {
+					if cfg.HimmelblauTerminalPasskey {
+						return fmt.Errorf("himmelblau image is missing its terminal-passkey fork marker")
+					}
+				}
+				if found {
+					changed := !cfg.HimmelblauTerminalPasskey || cfg.HimmelblauTerminalPasskeySource != source
+					cfg.HimmelblauTerminalPasskey = true
+					cfg.HimmelblauTerminalPasskeySource = source
+					if changed {
+						if err := cfg.Save(root); err != nil {
+							return fmt.Errorf("save terminal-passkey source commit: %w", err)
+						}
+					}
+				} else {
+					cfg.HimmelblauTerminalPasskey = false
+					cfg.HimmelblauTerminalPasskeySource = ""
+				}
+			}
+			if err := provision.ConfigureHimmelblauDomain(r, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+				return err
+			}
+			if err := installSavedHimmelblauConfig(r, root, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+				return err
+			}
+		}
 
 		// Re-provision
 		hostname, _ := os.Hostname()
 
 		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname); err != nil {
 			return err
+		}
+		if cfg.Himmelblau {
+			if err := provision.EnsureHimmelblauPrimaryGroupName(r, cfg.RootfsPath, u.Username); err != nil {
+				return err
+			}
+			if cfg.HimmelblauUPN != "" {
+				if err := provision.InstallHimmelblauUserMap(r, cfg.RootfsPath, u.Username, cfg.HimmelblauUPN); err != nil {
+					return err
+				}
+			}
+			if err := provision.InstallHimmelblauPAMAllowlist(r, cfg.RootfsPath, u.Username, cfg.HimmelblauUPN != ""); err != nil {
+				return err
+			}
 		}
 
 		// Restore state
@@ -162,13 +264,31 @@ var recreateCmd = &cobra.Command{
 
 		if brokerBackupDir != "" {
 			if clix.Verbose {
-				rep.Message("Restoring device broker state...")
+				rep.Message("Restoring %s state...", stateName)
 			}
-			if err := provision.RestoreDeviceBrokerState(r, cfg.RootfsPath, brokerBackupDir); err != nil {
-				rep.Warning("restore device broker state failed: %v", err)
+			restoreState := provision.RestoreDeviceBrokerState
+			if cfg.Himmelblau {
+				restoreState = provision.RestoreHimmelblauState
+			}
+			if err := restoreState(r, cfg.RootfsPath, brokerBackupDir); err != nil {
+				rep.Warning("restore %s state failed: %v", stateName, err)
+				if cfg.Himmelblau {
+					return fmt.Errorf("restore Himmelblau state: %w", err)
+				}
 			} else {
 				brokerRestored = true
 			}
+		}
+
+		if brokerBackupDir != "" && brokerRestored {
+			if cfg.Himmelblau {
+				if err := provision.RemoveHimmelblauStateBackup(r, brokerBackupDir); err != nil {
+					return fmt.Errorf("remove restored Himmelblau backup: %w", err)
+				}
+			} else {
+				_ = os.RemoveAll(brokerBackupDir)
+			}
+			backupCleaned = true
 		}
 
 		rep.Message("Container recreated. Run 'intuneme start' to boot.")
@@ -177,7 +297,8 @@ var recreateCmd = &cobra.Command{
 }
 
 func init() {
-	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch to the insiders channel container image")
+	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch the Microsoft image to its insiders channel (unavailable for Himmelblau)")
+	recreateCmd.Flags().StringVar(&himmelblauLocalImageRecreate, "himmelblau-local-image", "", "use a locally built Himmelblau image for recreation")
 	recreateCmd.Flags().StringVar(&tmpDirRecreate, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
 	rootCmd.AddCommand(recreateCmd)
 }

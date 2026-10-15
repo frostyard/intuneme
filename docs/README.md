@@ -14,6 +14,7 @@ This tree (formerly `yeti/`) is the engineering documentation, written to be
 maximally useful in an agent's context window. The **user-facing** MkDocs site
 is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 `docs_dir: site`), published to GitHub Pages by `.github/workflows/docs.yml`.
+The root [GLOSSARY](../GLOSSARY.md) holds canonical domain terms.
 
 ## Index
 
@@ -37,8 +38,9 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 ### Specs
 
 - [Container Image](specs/container-image.md) — exact contents of the
-  `ghcr.io/frostyard/ubuntu-intune` image: build stages, package set, static
-  config, tag scheme
+  Microsoft `ubuntu-intune` image and experimental `ubuntu-himmelblau`
+  alternatives (including terminal-passkey variant): build stages, package
+  sets, static config, tag scheme
 
 Historical (superpowers workflow, point-in-time):
 

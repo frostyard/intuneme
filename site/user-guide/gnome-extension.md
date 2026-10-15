@@ -32,7 +32,7 @@ This also removes the polkit policy action that enables the extension's password
 
 - **Quick Settings toggle** — Displays the current container state. Clicking it starts or stops the container.
 - **Status details** — The popup menu shows whether the container is running and enrollment status.
-- **App shortcuts** — Buttons to open a shell, launch Microsoft Edge, or launch Intune Portal directly from Quick Settings.
+- **App shortcuts** — Buttons to open a shell, launch Microsoft Edge, or start identity sign-in. The last action opens Intune Portal in the default mode and runs `intuneme enroll` in a terminal for explicit Himmelblau PAM authentication in experimental mode.
 
 The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback.
 
@@ -57,4 +57,3 @@ The rule is narrowly scoped:
 
 !!! tip
     If the rule or helper goes missing (for example, after upgrading from an older version that used the wildcard rule), running `intuneme start` will reinstall both automatically.
-

@@ -13,10 +13,17 @@ import (
 type mockRunner struct {
 	commands []string
 	outputs  [][]byte // if non-empty, popped in order for Run calls
+	files    map[string]string
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	if name == "sudo" && len(args) >= 4 && args[0] == "install" && m.files != nil {
+		source, dest := args[len(args)-2], args[len(args)-1]
+		if data, err := os.ReadFile(source); err == nil {
+			m.files[dest] = string(data)
+		}
+	}
 	if len(m.outputs) > 0 {
 		out := m.outputs[0]
 		m.outputs = m.outputs[1:]
@@ -37,6 +44,489 @@ func (m *mockRunner) RunBackground(name string, args ...string) error {
 
 func (m *mockRunner) LookPath(name string) (string, error) {
 	return "/usr/bin/" + name, nil
+}
+
+func TestInstallHimmelblauPAMAllowlist(t *testing.T) {
+	rootfs := t.TempDir()
+	r := &mockRunner{files: map[string]string{}}
+	if err := InstallHimmelblauPAMAllowlist(r, rootfs, "alice", false); err != nil {
+		t.Fatalf("InstallHimmelblauPAMAllowlist() error: %v", err)
+	}
+
+	path := filepath.Join(rootfs, "etc", "intuneme-machine-shell-allow")
+	if got, want := r.files[path], "root\nalice\n"; got != want {
+		t.Fatalf("PAM allowlist = %q, want %q", got, want)
+	}
+	if err := InstallHimmelblauPAMAllowlist(r, rootfs, "alice", true); err != nil {
+		t.Fatalf("InstallHimmelblauPAMAllowlist(mapped) error: %v", err)
+	}
+	if got, want := r.files[path], "root\n"; got != want {
+		t.Fatalf("mapped PAM allowlist = %q, want %q", got, want)
+	}
+}
+
+func TestVerifyHimmelblauMappedPAMAllowlist(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{name: "only root allowed", content: "root\n"},
+		{name: "local account still allowed", content: "root\nalice\n", wantErr: true},
+		{name: "root missing", content: "alice\n", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootfs := t.TempDir()
+			path := filepath.Join(rootfs, himmelblauPAMAllowlistPath)
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			err := VerifyHimmelblauMappedPAMAllowlist(rootfs, "alice")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("VerifyHimmelblauMappedPAMAllowlist() error = %v, wantErr %t", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestInitializeHimmelblauUserMap(t *testing.T) {
+	rootfs := t.TempDir()
+	r := &mockRunner{files: map[string]string{}}
+	if err := InitializeHimmelblauUserMap(r, rootfs); err != nil {
+		t.Fatalf("InitializeHimmelblauUserMap() error: %v", err)
+	}
+
+	path := filepath.Join(rootfs, "etc", "himmelblau", "user-map")
+	if got := r.files[path]; got != "" {
+		t.Fatalf("initial Himmelblau user map = %q, want empty", got)
+	}
+}
+
+func TestEnsureHimmelblauUserMap(t *testing.T) {
+	rootfs := t.TempDir()
+	r := &mockRunner{files: map[string]string{}}
+	if err := EnsureHimmelblauUserMap(r, rootfs); err != nil {
+		t.Fatalf("EnsureHimmelblauUserMap() error: %v", err)
+	}
+
+	path := filepath.Join(rootfs, "etc", "himmelblau", "user-map")
+	want := "sudo touch " + path
+	if got := r.commands[len(r.commands)-1]; got != want {
+		t.Fatalf("last command = %q, want %q", got, want)
+	}
+}
+
+func TestInstallHimmelblauUserMap(t *testing.T) {
+	rootfs := t.TempDir()
+	r := &mockRunner{files: map[string]string{}}
+	if err := InstallHimmelblauUserMap(r, rootfs, "alice", "alice@example.com"); err != nil {
+		t.Fatalf("InstallHimmelblauUserMap() error: %v", err)
+	}
+
+	path := filepath.Join(rootfs, "etc", "himmelblau", "user-map")
+	if got, want := r.files[path], "alice:alice@example.com\n"; got != want {
+		t.Fatalf("Himmelblau user map = %q, want %q", got, want)
+	}
+}
+
+func TestRebootHimmelblauContainer(t *testing.T) {
+	r := &mockRunner{outputs: [][]byte{
+		[]byte("100\n"),
+		nil,
+		[]byte("200\n"),
+		[]byte("INTUNEME_HIMMELBLAU_READY\n"),
+	}}
+	if err := RebootHimmelblauContainer(r, "intuneme"); err != nil {
+		t.Fatalf("RebootHimmelblauContainer() error: %v", err)
+	}
+
+	want := []string{
+		"machinectl show intuneme -p Leader --value",
+		"machinectl reboot intuneme",
+		"machinectl show intuneme -p Leader --value",
+		"machinectl shell root@intuneme /bin/sh -c " +
+			"attempt=0\nwhile [ \"$attempt\" -lt 30 ]; do\n" +
+			"  if /bin/systemctl is-active --quiet himmelblaud.service &&\n" +
+			"     /bin/systemctl is-active --quiet himmelblaud-tasks.service &&\n" +
+			"     /bin/systemctl is-active --quiet himmelblaud.socket &&\n" +
+			"     /bin/systemctl is-active --quiet himmelblaud-tasks.socket &&\n" +
+			"     /bin/systemctl is-active --quiet himmelblaud-broker.socket; then\n" +
+			"    echo INTUNEME_HIMMELBLAU_READY\n" +
+			"    exit 0\n" +
+			"  fi\n" +
+			"  sleep 1\n" +
+			"  attempt=$((attempt + 1))\n" +
+			"done\necho \"Himmelblau services did not become active\" >&2\nexit 1",
+	}
+	if len(r.commands) != len(want) {
+		t.Fatalf("commands = %q, want %q", r.commands, want)
+	}
+	for i := range want {
+		if r.commands[i] != want[i] {
+			t.Errorf("command %d = %q, want %q", i, r.commands[i], want[i])
+		}
+	}
+}
+
+func TestRebootHimmelblauContainerRequiresReadyMarker(t *testing.T) {
+	r := &mockRunner{outputs: [][]byte{
+		[]byte("100\n"),
+		nil,
+		[]byte("200\n"),
+		[]byte("Connection to machine intuneme terminated.\n"),
+	}}
+	err := RebootHimmelblauContainer(r, "intuneme")
+	if err == nil || !strings.Contains(err.Error(), "services") {
+		t.Fatalf("RebootHimmelblauContainer() error = %v, want readiness error", err)
+	}
+}
+
+func TestConfigureHimmelblauDomain(t *testing.T) {
+	rootfs := t.TempDir()
+	defaultPath := filepath.Join(rootfs, "usr", "lib", "himmelblau", "himmelblau.conf")
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	defaults := `# Packaged Himmelblau defaults and documentation.
+[global]
+
+# Primary Entra ID domain used for user sign-in.
+# domain = example.com
+
+# Map short usernames to UPNs in the primary domain.
+# cn_name_mapping = true
+
+# Local account map used by intuneme.
+# user_map_file = /var/lib/himmelblau/user-map
+
+# Enable passwordless Bluetooth QR-code sign-in.
+# enable_passwordless_qr_bluetooth = false
+
+[service]
+# Other package documentation remains available.
+`
+	if err := os.WriteFile(defaultPath, []byte(defaults), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{files: map[string]string{}}
+	if err := ConfigureHimmelblauDomain(r, rootfs, "Example.COM"); err != nil {
+		t.Fatalf("ConfigureHimmelblauDomain() error: %v", err)
+	}
+
+	path := filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")
+	got := r.files[path]
+	for _, want := range []string{
+		"# Packaged Himmelblau defaults and documentation.",
+		"# Primary Entra ID domain used for user sign-in.",
+		"domain = example.com",
+		"apply_policy = true",
+		"# Map short usernames to UPNs in the primary domain.",
+		"cn_name_mapping = false",
+		"user_map_file = /etc/himmelblau/user-map",
+		"enable_passwordless_qr_bluetooth = true",
+		"[service]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Himmelblau config missing %q:\n%s", want, got)
+		}
+	}
+	if err := ValidateHimmelblauConfig([]byte(got), "example.com"); err != nil {
+		t.Fatalf("ValidateHimmelblauConfig() error: %v", err)
+	}
+}
+
+func TestConfigureHimmelblauDomainOverridesPackagedDefaults(t *testing.T) {
+	rootfs := t.TempDir()
+	defaultPath := filepath.Join(rootfs, "usr", "lib", "himmelblau", "himmelblau.conf")
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	defaults := `[global]
+# domain = example.com
+apply_policy = false
+enable_passwordless_qr_bluetooth = false
+# cn_name_mapping = true
+# user_map_file = /var/lib/himmelblau/user-map
+`
+	if err := os.WriteFile(defaultPath, []byte(defaults), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{files: map[string]string{}}
+	if err := ConfigureHimmelblauDomain(r, rootfs, "example.com"); err != nil {
+		t.Fatalf("ConfigureHimmelblauDomain() error: %v", err)
+	}
+	got := r.files[filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")]
+	for _, want := range []string{"apply_policy = true", "enable_passwordless_qr_bluetooth = true"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("configured defaults did not override upstream %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestInstallHimmelblauConfigDefaultsApplyPolicyUnlessDisabled(t *testing.T) {
+	const requiredSettings = "[global]\ndomain = example.com\ncn_name_mapping = false\nuser_map_file = /etc/himmelblau/user-map\n"
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing setting defaults on", content: requiredSettings, want: "apply_policy = true"},
+		{name: "commented setting defaults on", content: requiredSettings + "# apply_policy = false\n", want: "apply_policy = true"},
+		{name: "explicit opt-out is preserved", content: requiredSettings + "apply_policy = false\n", want: "apply_policy = false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootfs := t.TempDir()
+			r := &mockRunner{files: map[string]string{}}
+			if err := InstallHimmelblauConfig(r, rootfs, []byte(tt.content), "example.com"); err != nil {
+				t.Fatalf("InstallHimmelblauConfig() error: %v", err)
+			}
+			path := filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")
+			got := r.files[path]
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("installed config missing %q:\n%s", tt.want, got)
+			}
+			if tt.name == "explicit opt-out is preserved" && strings.Contains(got, "apply_policy = true") {
+				t.Fatalf("installed config overwrote explicit opt-out:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestInstallHimmelblauConfigDefaultsPasswordlessQRBluetoothUnlessDisabled(t *testing.T) {
+	const requiredSettings = "[global]\ndomain = example.com\ncn_name_mapping = false\nuser_map_file = /etc/himmelblau/user-map\n"
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing setting defaults on", content: requiredSettings, want: "enable_passwordless_qr_bluetooth = true"},
+		{name: "commented setting defaults on", content: requiredSettings + "# enable_passwordless_qr_bluetooth = false\n", want: "enable_passwordless_qr_bluetooth = true"},
+		{name: "explicit opt-out is preserved", content: requiredSettings + "enable_passwordless_qr_bluetooth = false\n", want: "enable_passwordless_qr_bluetooth = false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootfs := t.TempDir()
+			r := &mockRunner{files: map[string]string{}}
+			if err := InstallHimmelblauConfig(r, rootfs, []byte(tt.content), "example.com"); err != nil {
+				t.Fatalf("InstallHimmelblauConfig() error: %v", err)
+			}
+			path := filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")
+			got := r.files[path]
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("installed config missing %q:\n%s", tt.want, got)
+			}
+			if tt.name == "explicit opt-out is preserved" && strings.Contains(got, "enable_passwordless_qr_bluetooth = true") {
+				t.Fatalf("installed config overwrote explicit opt-out:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestConfigureHimmelblauDomainAcceptsPackagedBareStringDefaults(t *testing.T) {
+	rootfs := t.TempDir()
+	defaultPath := filepath.Join(rootfs, "usr", "lib", "himmelblau", "himmelblau.conf")
+	if err := os.MkdirAll(filepath.Dir(defaultPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	defaults := `[global]
+# Primary Entra ID domain used for user sign-in.
+# domain = example.com
+local_groups = users
+home_attr = CN
+home_alias = CN
+use_etc_skel = true
+# cn_name_mapping = true
+# user_map_file = /var/lib/himmelblau/user-map
+`
+	if err := os.WriteFile(defaultPath, []byte(defaults), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{files: map[string]string{}}
+
+	if err := ConfigureHimmelblauDomain(r, rootfs, "example.com"); err != nil {
+		t.Fatalf("ConfigureHimmelblauDomain() rejected packaged config syntax: %v", err)
+	}
+	got := r.files[filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")]
+	for _, want := range []string{
+		"local_groups = users",
+		"home_attr = CN",
+		"home_alias = CN",
+		"use_etc_skel = true",
+		"domain = example.com",
+		"user_map_file = /etc/himmelblau/user-map",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("configured Himmelblau file missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestVerifyHimmelblauPAMTesterRequiresExecutable(t *testing.T) {
+	rootfs := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rootfs, "usr", "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := VerifyHimmelblauPAMTester(rootfs); err == nil || !strings.Contains(err.Error(), "pamtester") {
+		t.Fatalf("VerifyHimmelblauPAMTester() error = %v, want missing helper error", err)
+	}
+
+	path := filepath.Join(rootfs, "usr", "bin", "pamtester")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHimmelblauPAMTester(rootfs); err != nil {
+		t.Fatalf("VerifyHimmelblauPAMTester() rejected executable: %v", err)
+	}
+
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHimmelblauPAMTester(rootfs); err == nil || !strings.Contains(err.Error(), "executable") {
+		t.Fatalf("VerifyHimmelblauPAMTester() error = %v, want non-executable helper error", err)
+	}
+}
+
+func TestVerifyHimmelblauTerminalPasskeyRequiresPinnedImage(t *testing.T) {
+	rootfs := t.TempDir()
+	const source = "70002a71347d8b35a911e71a68facf2d2209370c"
+	if err := VerifyHimmelblauTerminalPasskey(rootfs, source); err == nil || !strings.Contains(err.Error(), "fork marker") {
+		t.Fatalf("VerifyHimmelblauTerminalPasskey() error = %v, want missing marker error", err)
+	}
+
+	path := filepath.Join(rootfs, "usr", "share", "intuneme", "himmelblau-terminal-passkey-source")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(source+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHimmelblauTerminalPasskey(rootfs, source); err != nil {
+		t.Fatalf("VerifyHimmelblauTerminalPasskey() rejected pinned image: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte("1111111111111111111111111111111111111111\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyHimmelblauTerminalPasskey(rootfs, source); err == nil || !strings.Contains(err.Error(), "expected") {
+		t.Fatalf("VerifyHimmelblauTerminalPasskey() error = %v, want source mismatch error", err)
+	}
+}
+
+func TestReadHimmelblauTerminalPasskeySource(t *testing.T) {
+	rootfs := t.TempDir()
+	if source, found, err := ReadHimmelblauTerminalPasskeySource(rootfs); err != nil || found || source != "" {
+		t.Fatalf("missing marker result = (%q, %v, %v), want empty/not-found/nil", source, found, err)
+	}
+
+	path := filepath.Join(rootfs, "usr", "share", "intuneme", "himmelblau-terminal-passkey-source")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("70002a71347d8b35a911e71a68facf2d2209370c\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	source, found, err := ReadHimmelblauTerminalPasskeySource(rootfs)
+	if err != nil || !found || source != "70002a71347d8b35a911e71a68facf2d2209370c" {
+		t.Fatalf("valid marker result = (%q, %v, %v)", source, found, err)
+	}
+
+	if err := os.WriteFile(path, []byte("not-a-commit\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadHimmelblauTerminalPasskeySource(rootfs); err == nil {
+		t.Fatal("ReadHimmelblauTerminalPasskeySource() accepted an invalid marker")
+	}
+}
+
+func TestHimmelblauPasswordlessQRBluetoothEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+		wantErr bool
+	}{
+		{name: "missing option defaults on", content: "[global]\ndomain = example.com\n", want: true},
+		{name: "commented option defaults on", content: "[global]\n# enable_passwordless_qr_bluetooth = false\n", want: true},
+		{name: "explicitly disabled", content: "[global]\nenable_passwordless_qr_bluetooth = false\n"},
+		{name: "enabled", content: "[global]\nenable_passwordless_qr_bluetooth = true\n", want: true},
+		{name: "inline comment", content: "[global]\nenable_passwordless_qr_bluetooth = true # use phone\n", want: true},
+		{name: "option outside global section defaults on", content: "[pam]\nenable_passwordless_qr_bluetooth = false\n[global]\ndomain = example.com\n", want: true},
+		{name: "invalid value", content: "[global]\nenable_passwordless_qr_bluetooth = maybe\n", wantErr: true},
+		{name: "missing global section", content: "[pam]\nenable_passwordless_qr_bluetooth = true\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootfs := t.TempDir()
+			path := filepath.Join(rootfs, "etc", "himmelblau", "himmelblau.conf")
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := HimmelblauPasswordlessQRBluetoothEnabled(rootfs)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("HimmelblauPasswordlessQRBluetoothEnabled() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Fatalf("HimmelblauPasswordlessQRBluetoothEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateHimmelblauConfigRequiresIntunemeSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{
+			name:    "valid config with extra settings",
+			content: "[global]\ndomain = example.com\ncn_name_mapping = false\nuser_map_file = /etc/himmelblau/user-map\nlocal_groups = users\nhome_attr = CN\nenable_passwordless_qr_bluetooth = true\n",
+		},
+		{
+			name:    "wrong domain",
+			content: "[global]\ndomain = other.example\ncn_name_mapping = false\nuser_map_file = /etc/himmelblau/user-map\n",
+			wantErr: true,
+		},
+		{
+			name:    "mapping mode enabled",
+			content: "[global]\ndomain = example.com\ncn_name_mapping = true\nuser_map_file = /etc/himmelblau/user-map\n",
+			wantErr: true,
+		},
+		{
+			name:    "wrong user map",
+			content: "[global]\ndomain = example.com\ncn_name_mapping = false\nuser_map_file = /tmp/user-map\n",
+			wantErr: true,
+		},
+		{
+			name:    "missing global section",
+			content: "domain = example.com\ncn_name_mapping = false\nuser_map_file = /etc/himmelblau/user-map\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateHimmelblauConfig([]byte(tt.content), "example.com")
+			if tt.wantErr && err == nil {
+				t.Fatal("expected Himmelblau config validation error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected Himmelblau config validation error: %v", err)
+			}
+		})
+	}
 }
 
 func TestWriteFixups(t *testing.T) {
@@ -519,6 +1009,87 @@ func TestCreateContainerUserNoRenderGroupSkipsIt(t *testing.T) {
 	}
 }
 
+func TestEnsureHimmelblauPrimaryGroupName(t *testing.T) {
+	tests := []struct {
+		name       string
+		passwd     string
+		group      string
+		wantCmd    string
+		wantErr    bool
+		wantNoCmds bool
+	}{
+		{
+			name:    "rename the group owning the user's primary GID",
+			passwd:  "alice:x:1000:1000::/home/alice:/bin/bash\n",
+			group:   "ubuntu:x:1000:\n",
+			wantCmd: "groupmod --new-name alice ubuntu",
+		},
+		{
+			name:    "preserve a primary GID different from the UID",
+			passwd:  "alice:x:1000:1001::/home/alice:/bin/bash\n",
+			group:   "ubuntu:x:1001:\n",
+			wantCmd: "groupmod --new-name alice ubuntu",
+		},
+		{
+			name:       "already matches",
+			passwd:     "alice:x:1000:1000::/home/alice:/bin/bash\n",
+			group:      "alice:x:1000:\n",
+			wantNoCmds: true,
+		},
+		{
+			name:    "create the missing primary group",
+			passwd:  "alice:x:1000:1000::/home/alice:/bin/bash\n",
+			group:   "ubuntu:x:1001:\n",
+			wantCmd: "groupadd --gid 1000 alice",
+		},
+		{
+			name:       "reject a conflicting group name",
+			passwd:     "alice:x:1000:1000::/home/alice:/bin/bash\n",
+			group:      "ubuntu:x:1000:\nalice:x:1001:\n",
+			wantErr:    true,
+			wantNoCmds: true,
+		},
+		{
+			name:       "reject malformed primary GID",
+			passwd:     "alice:x:1000:bad::/home/alice:/bin/bash\n",
+			group:      "ubuntu:x:1000:\n",
+			wantErr:    true,
+			wantNoCmds: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootfs := t.TempDir()
+			etcDir := filepath.Join(rootfs, "etc")
+			if err := os.MkdirAll(etcDir, 0755); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(etcDir, "passwd"), []byte(tt.passwd), 0644); err != nil {
+				t.Fatalf("write passwd: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(etcDir, "group"), []byte(tt.group), 0644); err != nil {
+				t.Fatalf("write group: %v", err)
+			}
+
+			r := &mockRunner{}
+			err := EnsureHimmelblauPrimaryGroupName(r, rootfs, "alice")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("EnsureHimmelblauPrimaryGroupName() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantNoCmds {
+				if len(r.commands) != 0 {
+					t.Fatalf("unexpected commands: %v", r.commands)
+				}
+				return
+			}
+			if len(r.commands) != 1 || !strings.Contains(r.commands[0], tt.wantCmd) {
+				t.Fatalf("commands = %v, want one command containing %q", r.commands, tt.wantCmd)
+			}
+		})
+	}
+}
+
 func FuzzFindGroupGID(f *testing.F) {
 	f.Add("root:x:0:\nvideo:x:44:\nrender:x:991:\n", "render")
 	f.Add("root:x:0:\n", "render")
@@ -674,11 +1245,10 @@ func TestBaseGroupsContainsPlugdev(t *testing.T) {
 	}
 }
 
-// TestSessionSetupPropagatesWebKitWorkaround guards the identity broker's
-// sign-in window. The broker is D-Bus activated, so exporting a variable in
-// this script is not enough — it only reaches the broker if it is also named
-// in the propagation list fed to dbus-update-activation-environment. Exporting
-// without propagating looks correct and silently does nothing.
+// TestSessionSetupPropagatesWebKitWorkaround guards the broker's activation
+// environment. D-Bus-activated brokers need the same home and display values
+// as the invoking identity, and WebKit's Wayland workaround must be imported
+// explicitly rather than merely exported.
 func TestSessionSetupPropagatesWebKitWorkaround(t *testing.T) {
 	script := string(intuneSessionSetupScript)
 
@@ -692,6 +1262,9 @@ func TestSessionSetupPropagatesWebKitWorkaround(t *testing.T) {
 		t.Fatal("unterminated _env_vars assignment")
 	}
 	propagated := rest[:end]
+	if !strings.Contains(propagated, "HOME") {
+		t.Fatal("HOME must be propagated for the enrolled Himmelblau user's broker")
+	}
 
 	for _, v := range []string{"WEBKIT_DISABLE_DMABUF_RENDERER", "WEBKIT_DISABLE_COMPOSITING_MODE"} {
 		if !strings.Contains(script, "export "+v+"=1") {

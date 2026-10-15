@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -9,103 +10,34 @@ import (
 func TestValidatePassword(t *testing.T) {
 	tests := []struct {
 		name     string
-		username string
 		password string
 		wantErr  bool
-		errMsgs  []string
+		errMsg   string
 	}{
 		{
-			name:     "valid password",
-			username: "alice",
+			name:     "strong password",
 			password: "Correct3Horse!",
-			wantErr:  false,
 		},
 		{
-			name:     "too short",
-			username: "alice",
-			password: "Short1!A",
-			wantErr:  true,
-			errMsgs:  []string{"at least 12 characters"},
+			name:     "short password is accepted",
+			password: "x",
 		},
 		{
-			name:     "exactly 12 chars valid",
-			username: "alice",
-			password: "Aa1!Aa1!Aa1!",
-			wantErr:  false,
-		},
-		{
-			name:     "missing digit",
-			username: "alice",
-			password: "NoDigitsHere!A",
-			wantErr:  true,
-			errMsgs:  []string{"at least one digit"},
-		},
-		{
-			name:     "missing uppercase",
-			username: "alice",
-			password: "nouppercase1!aa",
-			wantErr:  true,
-			errMsgs:  []string{"at least one uppercase"},
-		},
-		{
-			name:     "missing lowercase",
-			username: "alice",
-			password: "NOLOWERCASE1!AA",
-			wantErr:  true,
-			errMsgs:  []string{"at least one lowercase"},
-		},
-		{
-			name:     "missing special character",
-			username: "alice",
-			password: "NoSpecialChar1A",
-			wantErr:  true,
-			errMsgs:  []string{"at least one special character"},
-		},
-		{
-			name:     "contains username (exact)",
-			username: "alice",
-			password: "alice-Passw0rd!",
-			wantErr:  true,
-			errMsgs:  []string{"must not contain your username"},
-		},
-		{
-			name:     "contains username (case insensitive)",
-			username: "alice",
-			password: "ALICE-Passw0rd!",
-			wantErr:  true,
-			errMsgs:  []string{"must not contain your username"},
-		},
-		{
-			name:     "multiple failures reported together",
-			username: "alice",
-			password: "short",
-			wantErr:  true,
-			errMsgs:  []string{"at least 12 characters", "at least one digit", "at least one uppercase"},
-		},
-		{
-			name:     "empty username skips usercheck",
-			username: "",
-			password: "Correct3Horse!",
-			wantErr:  false,
+			name:    "empty password rejected",
+			wantErr: true,
+			errMsg:  "password must not be empty",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePassword(tt.username, tt.password)
+			err := validatePassword(tt.password)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
+				if err == nil || !contains(err.Error(), tt.errMsg) {
+					t.Fatalf("expected error containing %q, got: %v", tt.errMsg, err)
 				}
-				for _, msg := range tt.errMsgs {
-					if !contains(err.Error(), msg) {
-						t.Errorf("expected error containing %q, got: %v", msg, err)
-					}
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
@@ -120,38 +52,30 @@ func TestReadPasswordFromFile(t *testing.T) {
 	tests := []struct {
 		name     string
 		content  string
-		username string
 		wantPass string
 		wantErr  bool
 		errMsg   string
 	}{
 		{
-			name:     "valid password from file",
-			content:  "Correct3Horse!\n",
-			username: "alice",
-			wantPass: "Correct3Horse!",
-			wantErr:  false,
+			name:     "weak password from file is accepted",
+			content:  "weak\n",
+			wantPass: "weak",
 		},
 		{
 			name:     "trims trailing newline",
-			content:  "Correct3Horse!\n\n",
-			username: "alice",
-			wantPass: "Correct3Horse!",
-			wantErr:  false,
+			content:  "weak\n\n",
+			wantPass: "weak",
 		},
 		{
 			name:     "uses only first line",
-			content:  "Correct3Horse!\nignored line",
-			username: "alice",
-			wantPass: "Correct3Horse!",
-			wantErr:  false,
+			content:  "weak\nignored line",
+			wantPass: "weak",
 		},
 		{
-			name:     "invalid password rejected",
-			content:  "weak\n",
-			username: "alice",
-			wantErr:  true,
-			errMsg:   "password requirements not met",
+			name:    "empty password rejected",
+			content: "\n",
+			wantErr: true,
+			errMsg:  "password must not be empty",
 		},
 	}
 
@@ -168,7 +92,7 @@ func TestReadPasswordFromFile(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			got, err := readPassword(tt.username, f.Name())
+			got, err := readPassword(f.Name())
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -189,24 +113,94 @@ func TestReadPasswordFromFile(t *testing.T) {
 }
 
 func TestReadPasswordFileNotFound(t *testing.T) {
-	_, err := readPassword("alice", "/nonexistent/path/to/pwfile")
+	_, err := readPassword("/nonexistent/path/to/pwfile")
 	if err == nil {
 		t.Fatal("expected error for missing file, got nil")
 	}
 }
 
-func FuzzValidatePassword(f *testing.F) {
-	f.Add("alice", "Correct3Horse!")
-	f.Add("alice", "short")
-	f.Add("", "Correct3Horse!")
-	f.Add("alice", "alice-Passw0rd!")
-	f.Add("alice", "ALICE-Passw0rd!")
-	f.Add("alice", "Aa1!Aa1!Aa1!")
-	f.Add("alice", "")
-	f.Add("", "")
+func TestResolveTerminalPasskeyImage(t *testing.T) {
+	const sourceCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	markerPath := filepath.Join("usr", "share", "intuneme", "himmelblau-terminal-passkey-source")
 
-	f.Fuzz(func(t *testing.T, username, password string) {
+	t.Run("standard image remains standard", func(t *testing.T) {
+		got, source, err := resolveTerminalPasskeyImage(t.TempDir(), "", false)
+		if err != nil || got || source != "" {
+			t.Fatalf("resolveTerminalPasskeyImage() = (%v, %q, %v), want standard image", got, source, err)
+		}
+	})
+
+	t.Run("marked local image is detected without the extra selector", func(t *testing.T) {
+		rootfs := t.TempDir()
+		writeTerminalPasskeyMarker(t, rootfs, markerPath, sourceCommit)
+		got, resolvedSource, err := resolveTerminalPasskeyImage(rootfs, "localhost/custom-himmelblau:dev", false)
+		if err != nil || !got || resolvedSource != sourceCommit {
+			t.Fatalf("resolveTerminalPasskeyImage() = (%v, %q, %v), want detected local image", got, resolvedSource, err)
+		}
+	})
+
+	t.Run("explicit terminal-passkey mode accepts a marked local image", func(t *testing.T) {
+		rootfs := t.TempDir()
+		writeTerminalPasskeyMarker(t, rootfs, markerPath, sourceCommit)
+		got, resolvedSource, err := resolveTerminalPasskeyImage(rootfs, "localhost/custom-himmelblau:dev", true)
+		if err != nil || !got || resolvedSource != sourceCommit {
+			t.Fatalf("resolveTerminalPasskeyImage() = (%v, %q, %v), want marked local image", got, resolvedSource, err)
+		}
+	})
+
+	t.Run("explicit terminal-passkey mode requires a local image", func(t *testing.T) {
+		if _, _, err := resolveTerminalPasskeyImage(t.TempDir(), "", true); err == nil || !strings.Contains(err.Error(), "--himmelblau-local-image") {
+			t.Fatalf("resolveTerminalPasskeyImage() error = %v, want local-image requirement", err)
+		}
+	})
+
+	t.Run("missing marker is rejected when explicitly requested", func(t *testing.T) {
+		if _, _, err := resolveTerminalPasskeyImage(t.TempDir(), "localhost/custom-himmelblau:dev", true); err == nil || !strings.Contains(err.Error(), "missing its fork source marker") {
+			t.Fatalf("resolveTerminalPasskeyImage() error = %v, want missing marker error", err)
+		}
+	})
+}
+
+func TestRequireLocalTerminalPasskeyImage(t *testing.T) {
+	tests := []struct {
+		name    string
+		enabled bool
+		image   string
+		wantErr bool
+	}{
+		{name: "standard image needs no local override"},
+		{name: "terminal-passkey requires local image", enabled: true, wantErr: true},
+		{name: "terminal-passkey accepts local image", enabled: true, image: "localhost/ubuntu-himmelblau-terminal-passkey:dev"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireLocalTerminalPasskeyImage(tt.enabled, tt.image)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("requireLocalTerminalPasskeyImage() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func writeTerminalPasskeyMarker(t *testing.T, rootfs, relativePath, source string) {
+	t.Helper()
+	path := filepath.Join(rootfs, relativePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(source+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func FuzzValidatePassword(f *testing.F) {
+	f.Add("Correct3Horse!")
+	f.Add("short")
+	f.Add("")
+
+	f.Fuzz(func(t *testing.T, password string) {
 		// validatePassword must never panic regardless of input.
-		_ = validatePassword(username, password)
+		_ = validatePassword(password)
 	})
 }

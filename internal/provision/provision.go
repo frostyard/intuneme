@@ -2,13 +2,17 @@ package provision
 
 import (
 	_ "embed"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudo"
@@ -28,6 +32,9 @@ var x11TmpfilesOverride []byte
 // setup script. It is referenced from /etc/profile.d/intuneme.sh (login path)
 // and from nspawn.Exec (the non-login launch path).
 const sessionSetupPath = "usr/local/bin/intuneme-session-setup"
+
+const himmelblauPAMAllowlistPath = "etc/intuneme-machine-shell-allow"
+const himmelblauUserMapPath = "etc/himmelblau/user-map"
 
 // x11TmpfilesOverridePath is the container-side path of the override that
 // replaces the base image's /usr/lib/tmpfiles.d/x11.conf.
@@ -159,6 +166,477 @@ func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
 		return fmt.Errorf("write profile.d/intuneme.sh: %w", err)
 	}
 	return nil
+}
+
+// InstallHimmelblauPAMAllowlist preserves passwordless machinectl access for
+// the host-matched local user and root while allowing other users only through
+// Himmelblau PAM authentication.
+func InstallHimmelblauPAMAllowlist(r runner.Runner, rootfsPath, hostUser string, mapped bool) error {
+	content := "root\n"
+	if !mapped {
+		content += hostUser + "\n"
+	}
+	path := filepath.Join(rootfsPath, himmelblauPAMAllowlistPath)
+	if err := sudo.WriteFile(r, path, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write Himmelblau PAM allowlist: %w", err)
+	}
+	return nil
+}
+
+// VerifyHimmelblauMappedPAMAllowlist ensures the mapped local account cannot
+// bypass Himmelblau authentication through the pre-enrollment allowlist.
+func VerifyHimmelblauMappedPAMAllowlist(rootfsPath, hostUser string) error {
+	path := filepath.Join(rootfsPath, himmelblauPAMAllowlistPath)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read Himmelblau PAM allowlist: %w", err)
+	}
+	if string(content) != "root\n" {
+		return fmt.Errorf("himmelblau PAM allowlist must contain only root before mapped login; local user %q must not be allowlisted", hostUser)
+	}
+	return nil
+}
+
+// InitializeHimmelblauUserMap creates the empty map file configured for
+// Himmelblau. The Entra UPN is added later by `intuneme enroll`.
+func InitializeHimmelblauUserMap(r runner.Runner, rootfsPath string) error {
+	dir := filepath.Join(rootfsPath, filepath.Dir(himmelblauUserMapPath))
+	if err := sudoMkdirAll(r, dir); err != nil {
+		return fmt.Errorf("create Himmelblau config dir: %w", err)
+	}
+	path := filepath.Join(rootfsPath, himmelblauUserMapPath)
+	if err := sudo.WriteFile(r, path, nil, 0644); err != nil {
+		return fmt.Errorf("initialize Himmelblau user map: %w", err)
+	}
+	return nil
+}
+
+// EnsureHimmelblauUserMap creates the configured map file if it is missing,
+// without removing a mapping from an interrupted enrollment.
+func EnsureHimmelblauUserMap(r runner.Runner, rootfsPath string) error {
+	dir := filepath.Join(rootfsPath, filepath.Dir(himmelblauUserMapPath))
+	if err := sudoMkdirAll(r, dir); err != nil {
+		return fmt.Errorf("create Himmelblau config dir: %w", err)
+	}
+	path := filepath.Join(rootfsPath, himmelblauUserMapPath)
+	if _, err := r.Run("sudo", "touch", path); err != nil {
+		return fmt.Errorf("ensure Himmelblau user map: %w", err)
+	}
+	return nil
+}
+
+// InstallHimmelblauUserMap binds the host-matched local account to its Entra
+// UPN without changing the local account's UID, GID, groups, or home directory.
+func InstallHimmelblauUserMap(r runner.Runner, rootfsPath, localUser, upn string) error {
+	dir := filepath.Join(rootfsPath, filepath.Dir(himmelblauUserMapPath))
+	if err := sudoMkdirAll(r, dir); err != nil {
+		return fmt.Errorf("create Himmelblau config dir: %w", err)
+	}
+	path := filepath.Join(rootfsPath, himmelblauUserMapPath)
+	if err := sudo.WriteFile(r, path, []byte(localUser+":"+upn+"\n"), 0644); err != nil {
+		return fmt.Errorf("write Himmelblau user map: %w", err)
+	}
+	return nil
+}
+
+// RebootHimmelblauContainer loads the new user map when the daemon starts.
+// Restarting the service in place races its socket-activation units.
+func RebootHimmelblauContainer(r runner.Runner, machineName string) error {
+	out, err := r.Run("machinectl", "show", machineName, "-p", "Leader", "--value")
+	if err != nil {
+		return fmt.Errorf("check container leader before reboot: %w\n%s", err, out)
+	}
+	leaderBefore := strings.TrimSpace(string(out))
+	if leaderBefore == "" || leaderBefore == "0" {
+		return fmt.Errorf("container %s has no leader before reboot", machineName)
+	}
+
+	out, err = r.Run("machinectl", "reboot", machineName)
+	if err != nil {
+		return fmt.Errorf("reboot container to load Himmelblau user map: %w\n%s", err, out)
+	}
+
+	rebooted := false
+	for range 30 {
+		out, err = r.Run("machinectl", "show", machineName, "-p", "Leader", "--value")
+		if err == nil {
+			leader := strings.TrimSpace(string(out))
+			if leader != "" && leader != "0" && leader != leaderBefore {
+				rebooted = true
+				break
+			}
+		}
+		time.Sleep(time.Second)
+	}
+	if !rebooted {
+		return fmt.Errorf("container %s did not reboot within 30 seconds", machineName)
+	}
+
+	if err := WaitForHimmelblauServices(r, machineName); err != nil {
+		return fmt.Errorf("wait for Himmelblau services after reboot: %w", err)
+	}
+	return nil
+}
+
+// WaitForHimmelblauServices waits until the daemon, tasks service, and all
+// socket-activation units are active in a running container.
+func WaitForHimmelblauServices(r runner.Runner, machineName string) error {
+	const waitForServices = `attempt=0
+while [ "$attempt" -lt 30 ]; do
+  if /bin/systemctl is-active --quiet himmelblaud.service &&
+     /bin/systemctl is-active --quiet himmelblaud-tasks.service &&
+     /bin/systemctl is-active --quiet himmelblaud.socket &&
+     /bin/systemctl is-active --quiet himmelblaud-tasks.socket &&
+     /bin/systemctl is-active --quiet himmelblaud-broker.socket; then
+    echo INTUNEME_HIMMELBLAU_READY
+    exit 0
+  fi
+  sleep 1
+  attempt=$((attempt + 1))
+done
+echo "Himmelblau services did not become active" >&2
+exit 1`
+	out, err := r.Run("machinectl", "shell", fmt.Sprintf("root@%s", machineName),
+		"/bin/sh", "-c", waitForServices)
+	if err != nil {
+		return fmt.Errorf("check Himmelblau service readiness: %w\n%s", err, out)
+	}
+	ready := false
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == "INTUNEME_HIMMELBLAU_READY" {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		return fmt.Errorf("himmelblau services did not become active\n%s", out)
+	}
+	return nil
+}
+
+// ConfigureHimmelblauDomain starts from Himmelblau's packaged, commented
+// defaults and applies the settings intuneme requires for account mapping.
+func ConfigureHimmelblauDomain(r runner.Runner, rootfsPath, domain string) error {
+	normalized, err := config.NormalizeHimmelblauDomain(domain)
+	if err != nil {
+		return err
+	}
+	defaultPath := filepath.Join(rootfsPath, "usr", "lib", "himmelblau", "himmelblau.conf")
+	content, err := os.ReadFile(defaultPath)
+	if err != nil {
+		return fmt.Errorf("read packaged Himmelblau defaults: %w", err)
+	}
+	content, err = configureHimmelblauDefaults(content, normalized)
+	if err != nil {
+		return err
+	}
+	return InstallHimmelblauConfig(r, rootfsPath, content, normalized)
+}
+
+// VerifyHimmelblauPAMTester checks that the image contains the helper used by
+// intuneme enroll for fail-closed PAM authentication.
+func VerifyHimmelblauPAMTester(rootfsPath string) error {
+	const helperPath = "/usr/bin/pamtester"
+	path := filepath.Join(rootfsPath, strings.TrimPrefix(helperPath, string(filepath.Separator)))
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("himmelblau image is missing %s; rebuild or pull an image containing the pamtester package before enrolling", helperPath)
+	}
+	if err != nil {
+		return fmt.Errorf("inspect Himmelblau PAM helper %s: %w", helperPath, err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return fmt.Errorf("himmelblau image helper %s is not an executable file", helperPath)
+	}
+	return nil
+}
+
+// ReadHimmelblauTerminalPasskeySource detects and validates the source marker
+// used to identify a locally built terminal-passkey image.
+func ReadHimmelblauTerminalPasskeySource(rootfsPath string) (string, bool, error) {
+	const markerPath = "/usr/share/intuneme/himmelblau-terminal-passkey-source"
+	path := filepath.Join(rootfsPath, strings.TrimPrefix(markerPath, string(filepath.Separator)))
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read Himmelblau terminal-passkey fork marker: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", false, fmt.Errorf("himmelblau terminal-passkey fork marker is not a regular file")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, fmt.Errorf("read Himmelblau terminal-passkey fork marker: %w", err)
+	}
+	source := strings.TrimSpace(string(content))
+	decoded, err := hex.DecodeString(source)
+	if err != nil || len(source) != 40 || len(decoded) != 20 || source != strings.ToLower(source) {
+		return "", false, fmt.Errorf("himmelblau terminal-passkey image has an invalid fork source marker %q", source)
+	}
+	return source, true, nil
+}
+
+// VerifyHimmelblauTerminalPasskey checks that the rootfs uses the fork commit
+// persisted by init, rather than a different local or registry image.
+func VerifyHimmelblauTerminalPasskey(rootfsPath, expectedSource string) error {
+	source, found, err := ReadHimmelblauTerminalPasskeySource(rootfsPath)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("himmelblau rootfs is missing the terminal-passkey fork marker; recreate it with the matching image")
+	}
+	if source != expectedSource {
+		return fmt.Errorf("himmelblau terminal-passkey image uses source commit %q, expected %q; recreate with the matching image", source, expectedSource)
+	}
+	return nil
+}
+
+// InstallHimmelblauConfig writes a user-configured Himmelblau file while
+// enforcing the settings required for intuneme's local-account mapping.
+func InstallHimmelblauConfig(r runner.Runner, rootfsPath string, content []byte, domain string) error {
+	content, err := setHimmelblauGlobalDefault(content, "apply_policy", "true")
+	if err != nil {
+		return err
+	}
+	content, err = setHimmelblauGlobalDefault(content, "enable_passwordless_qr_bluetooth", "true")
+	if err != nil {
+		return err
+	}
+	if err := ValidateHimmelblauConfig(content, domain); err != nil {
+		return err
+	}
+	path := filepath.Join(rootfsPath, "etc", "himmelblau", "himmelblau.conf")
+	if err := sudoMkdirAll(r, filepath.Dir(path)); err != nil {
+		return fmt.Errorf("create Himmelblau config directory: %w", err)
+	}
+	if err := sudo.WriteFile(r, path, content, 0644); err != nil {
+		return fmt.Errorf("write Himmelblau configuration: %w", err)
+	}
+	return nil
+}
+
+// ValidateHimmelblauConfig verifies the settings intuneme needs to map the
+// existing local account. Himmelblau uses an INI-style parser that accepts
+// bare string values, so do not validate this file as TOML.
+func ValidateHimmelblauConfig(content []byte, domain string) error {
+	normalized, err := config.NormalizeHimmelblauDomain(domain)
+	if err != nil {
+		return err
+	}
+	settings, err := himmelblauGlobalSettings(content, "domain", "cn_name_mapping", "user_map_file")
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(settings["domain"], normalized) {
+		return fmt.Errorf("himmelblau configuration must keep global.domain = %q", normalized)
+	}
+	if !strings.EqualFold(settings["cn_name_mapping"], "false") {
+		return fmt.Errorf("himmelblau configuration must keep global.cn_name_mapping = false")
+	}
+	if settings["user_map_file"] != "/etc/himmelblau/user-map" {
+		return fmt.Errorf("himmelblau configuration must keep global.user_map_file = /etc/himmelblau/user-map")
+	}
+	return nil
+}
+
+// HimmelblauPasswordlessQRBluetoothEnabled reports whether the effective
+// global config requests the QR/Bluetooth passkey flow.
+func HimmelblauPasswordlessQRBluetoothEnabled(rootfsPath string) (bool, error) {
+	path := filepath.Join(rootfsPath, "etc", "himmelblau", "himmelblau.conf")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read active Himmelblau configuration: %w", err)
+	}
+	settings, err := himmelblauGlobalSettings(content, "enable_passwordless_qr_bluetooth")
+	if err != nil {
+		return false, err
+	}
+	value, ok := settings["enable_passwordless_qr_bluetooth"]
+	if !ok {
+		return true, nil
+	}
+	value = strings.TrimSpace(value)
+	if before, _, found := strings.Cut(value, "#"); found {
+		value = strings.TrimSpace(before)
+	}
+	if before, _, found := strings.Cut(value, ";"); found {
+		value = strings.TrimSpace(before)
+	}
+	value = strings.Trim(value, `"'`)
+	enabled, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("invalid global.enable_passwordless_qr_bluetooth value %q: %w", value, err)
+	}
+	return enabled, nil
+}
+
+func himmelblauGlobalSettings(content []byte, keys ...string) (map[string]string, error) {
+	required := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		required[key] = struct{}{}
+	}
+	settings := make(map[string]string, len(required))
+	currentSection := ""
+	globalFound := false
+	for _, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			currentSection = strings.ToLower(strings.TrimSpace(trimmed[1 : len(trimmed)-1]))
+			if currentSection == "global" {
+				if globalFound {
+					return nil, fmt.Errorf("himmelblau configuration has duplicate [global] sections")
+				}
+				globalFound = true
+			}
+			continue
+		}
+		if currentSection != "global" {
+			continue
+		}
+		name, value, ok := strings.Cut(trimmed, "=")
+		if !ok {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(name))
+		if _, ok := required[key]; !ok {
+			continue
+		}
+		if _, exists := settings[key]; exists {
+			return nil, fmt.Errorf("himmelblau configuration has duplicate global.%s settings", key)
+		}
+		settings[key] = strings.TrimSpace(value)
+	}
+	if !globalFound {
+		return nil, fmt.Errorf("himmelblau configuration has no [global] section")
+	}
+	return settings, nil
+}
+
+func configureHimmelblauDefaults(content []byte, domain string) ([]byte, error) {
+	content, err := PrepareHimmelblauConfig(content, domain)
+	if err != nil {
+		return nil, err
+	}
+	content, err = setHimmelblauGlobalSetting(content, "apply_policy", "true")
+	if err != nil {
+		return nil, err
+	}
+	content, err = setHimmelblauGlobalSetting(content, "enable_passwordless_qr_bluetooth", "true")
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateHimmelblauConfig(content, domain); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+// PrepareHimmelblauConfig normalizes the intuneme-owned settings before the
+// user edits the file. It deliberately does not validate all config values so
+// the editor can still be used to repair unrelated syntax errors.
+func PrepareHimmelblauConfig(content []byte, domain string) ([]byte, error) {
+	normalized, err := config.NormalizeHimmelblauDomain(domain)
+	if err != nil {
+		return nil, err
+	}
+	settings := []struct {
+		key   string
+		value string
+	}{
+		{key: "domain", value: normalized},
+		{key: "cn_name_mapping", value: "false"},
+		{key: "user_map_file", value: "/etc/himmelblau/user-map"},
+	}
+	for _, setting := range settings {
+		var err error
+		content, err = setHimmelblauGlobalSetting(content, setting.key, setting.value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	content, err = setHimmelblauGlobalDefault(content, "apply_policy", "true")
+	if err != nil {
+		return nil, err
+	}
+	return setHimmelblauGlobalDefault(content, "enable_passwordless_qr_bluetooth", "true")
+}
+
+func setHimmelblauGlobalDefault(content []byte, key, value string) ([]byte, error) {
+	settings, err := himmelblauGlobalSettings(content, key)
+	if err != nil {
+		return nil, err
+	}
+	if _, exists := settings[key]; exists {
+		return content, nil
+	}
+	return setHimmelblauGlobalSetting(content, key, value)
+}
+
+func setHimmelblauGlobalSetting(content []byte, key, value string) ([]byte, error) {
+	lines := strings.Split(string(content), "\n")
+	globalStart, globalEnd := -1, len(lines)
+	for i, line := range lines {
+		section := strings.TrimSpace(line)
+		if !strings.HasPrefix(section, "[") || !strings.HasSuffix(section, "]") {
+			continue
+		}
+		section = strings.TrimSpace(section[1 : len(section)-1])
+		if section == "global" {
+			if globalStart != -1 {
+				return nil, fmt.Errorf("himmelblau configuration has duplicate [global] sections")
+			}
+			globalStart = i
+			continue
+		}
+		if globalStart != -1 {
+			globalEnd = i
+			break
+		}
+	}
+	if globalStart == -1 {
+		return nil, fmt.Errorf("himmelblau configuration has no [global] section")
+	}
+
+	activeLine, commentedLine := -1, -1
+	for i := globalStart + 1; i < globalEnd; i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		commented := strings.HasPrefix(trimmed, "#")
+		if commented {
+			trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+		}
+		name, _, hasValue := strings.Cut(trimmed, "=")
+		if !hasValue || strings.TrimSpace(name) != key {
+			continue
+		}
+		if commented {
+			if commentedLine == -1 {
+				commentedLine = i
+			}
+			continue
+		}
+		if activeLine != -1 {
+			return nil, fmt.Errorf("himmelblau configuration has duplicate global.%s settings", key)
+		}
+		activeLine = i
+	}
+
+	if activeLine != -1 {
+		indent := lines[activeLine][:len(lines[activeLine])-len(strings.TrimLeft(lines[activeLine], " \t"))]
+		lines[activeLine] = indent + key + " = " + value
+	} else if commentedLine != -1 {
+		indent := lines[commentedLine][:len(lines[commentedLine])-len(strings.TrimLeft(lines[commentedLine], " \t"))]
+		lines[commentedLine] = indent + key + " = " + value
+	} else {
+		lines = append(lines[:globalEnd], append([]string{key + " = " + value}, lines[globalEnd:]...)...)
+	}
+	return []byte(strings.Join(lines, "\n")), nil
 }
 
 // SetContainerPassword sets the user's password inside the container via chpasswd.
@@ -302,6 +780,50 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 	return nil
 }
 
+// EnsureHimmelblauPrimaryGroupName makes the group for the local account's
+// existing primary GID use the same name as the account, without changing GID.
+func EnsureHimmelblauPrimaryGroupName(r runner.Runner, rootfsPath, user string) error {
+	passwdPath := filepath.Join(rootfsPath, "etc", "passwd")
+	gid, err := findUserPrimaryGID(passwdPath, user)
+	if err != nil {
+		return fmt.Errorf("find primary GID for %q: %w", user, err)
+	}
+
+	groupPath := filepath.Join(rootfsPath, "etc", "group")
+	primaryGroup, err := findGroupByGID(groupPath, gid)
+	if err != nil {
+		return fmt.Errorf("find group for primary GID %d: %w", gid, err)
+	}
+	userGroupGID, err := findGroupGID(groupPath, user)
+	if err != nil {
+		return fmt.Errorf("find group named %q: %w", user, err)
+	}
+	if userGroupGID >= 0 && userGroupGID != gid {
+		return fmt.Errorf("cannot name primary group %q: that group has GID %d, but user %q has primary GID %d", user, userGroupGID, user, gid)
+	}
+	if userGroupGID == gid {
+		if primaryGroup != user {
+			return fmt.Errorf("cannot name primary group %q: multiple groups use primary GID %d", user, gid)
+		}
+		return nil
+	}
+
+	var out []byte
+	if primaryGroup == "" {
+		out, err = r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+			"groupadd", "--gid", fmt.Sprintf("%d", gid), user,
+		)
+	} else {
+		out, err = r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+			"groupmod", "--new-name", user, primaryGroup,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("set Himmelblau primary group name to %q: %w\n%s", user, err, out)
+	}
+	return nil
+}
+
 // findUserByUID reads a passwd file and returns the username for a given UID, or "" if not found.
 func findUserByUID(passwdPath string, uid int) (string, error) {
 	data, err := os.ReadFile(passwdPath)
@@ -316,6 +838,28 @@ func findUserByUID(passwdPath string, uid int) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func findUserPrimaryGID(passwdPath, user string) (int, error) {
+	data, err := os.ReadFile(passwdPath)
+	if err != nil {
+		return -1, err
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) < 4 || fields[0] != user {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[3])
+		if err != nil {
+			return -1, fmt.Errorf("parse primary GID for %q: %w", user, err)
+		}
+		if gid < 0 {
+			return -1, fmt.Errorf("negative primary GID %d for %q", gid, user)
+		}
+		return gid, nil
+	}
+	return -1, fmt.Errorf("user %q not found", user)
 }
 
 // findGroupGID reads a group file and returns the GID for a given group name.

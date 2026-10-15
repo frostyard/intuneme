@@ -80,7 +80,7 @@ Common issues and solutions. Click an item to expand it.
 
     Running the agent directly will output diagnostic information if it encounters an error.
 
-??? question "Edge crashes with \"Trace/breakpoint trap\""
+??? question "Microsoft Edge (Microsoft image only) crashes with \"Trace/breakpoint trap\""
     This is almost always a corrupted browser profile, not a GPU or sandbox issue.
 
     First, test with a fresh profile:
@@ -176,6 +176,57 @@ Common issues and solutions. Click an item to expand it.
     ```
 
     Common causes include unquoted strings, missing closing quotes, or stray characters from a manual edit. Fix the syntax or delete the file and re-run `intuneme init` to regenerate it.
+
+??? question "Himmelblau fails with `Failed to determine local credential key`"
+    Himmelblau's HSM PIN is stored as a systemd encrypted credential. `recreate`
+    must preserve both that encrypted file and `/var/lib/systemd/credential.secret`,
+    which decrypts it. Current intuneme refuses to recreate when the encrypted
+    PIN exists but the key is missing, rather than restoring a credential that
+    cannot be opened. It validates the staged backup before deleting the old
+    rootfs, then verifies the restored key matches the staged copy before
+    deleting the backup.
+
+    If recreate reports a state-restore failure, do not delete its retained
+    `/tmp/intuneme-himmelblau-backup-*` directory; it may contain the only
+    remaining copy of enrollment state. The encrypted PIN cannot be recovered
+    without its matching `credential.secret`. Restore that key from a backup
+    of the same container state before starting Himmelblau again.
+
+    If this happened after an older recreate and Himmelblau enrollment never
+    completed, back up any custom `himmelblau.conf` outside the intuneme data
+    root, then run `intuneme destroy` and initialize again. Restore the saved
+    config before starting the new container. If the device was already
+    enrolled, do not delete the encrypted credential; restore its matching
+    `/var/lib/systemd/credential.secret` from a backup or contact your
+    administrator about re-enrollment.
+
+??? question "Himmelblau compliance check cannot resolve the mapped user's UID"
+    If the daemon logs `compliance check: could not resolve uid ... to an
+    account`, the local container user's UID may collide with a local group
+    GID. The upstream resolver can treat that numeric ID as a local-only group
+    and reject the `user-map` identity even though normal NSS lookups succeed.
+
+    Himmelblau provisioning now renames the local account's primary group to
+    match the username while preserving its GID. Run `intuneme recreate` to
+    apply this to an existing container; do not use `destroy`, which discards
+    enrollment state. If provisioning reports that the username is already a
+    group name at a different GID, resolve that group conflict first.
+
+    If `AADSTS530003` continues after the compliance check succeeds, inspect
+    the corresponding Entra sign-in event and its Conditional Access result.
+
+??? question "Himmelblau reports encrypted disks or the UEFI CA as missing"
+    Himmelblau's encryption check also uses filesystem metadata from udev. On
+    Himmelblau starts, intuneme binds the host's `/run/udev/data` read-only
+    when available. Both Himmelblau images include `strings` for
+    custom-compliance scripts that inspect the Secure Boot database.
+
+    Rebuild and `recreate` an existing Himmelblau container to install the
+    updated image package, then run `start` to apply the host udev bind. This
+    does not relax the task worker's device isolation. If the UEFI CA rule
+    still fails, check whether the tenant script inspects the firmware Secure
+    Boot `db` rather than the separate MOK list; the exact check is defined by
+    the tenant's policy.
 
 ??? question "YubiKey not detected inside the container"
     Check that udev rules are installed:

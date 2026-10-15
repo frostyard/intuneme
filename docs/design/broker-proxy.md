@@ -2,6 +2,11 @@
 
 The broker proxy forwards the Microsoft identity broker D-Bus service (`com.microsoft.identity.broker1`) from the container's session bus to the host's session bus. This enables host-side applications (Edge, VS Code, MSAL libraries) to transparently use the container's Intune enrollment for SSO.
 
+The experimental Himmelblau broker implements this same well-known name and
+interface, so the proxy can forward its calls without a second protocol
+implementation. Headless user-service activation in systemd-nspawn remains
+unverified.
+
 ## How It Works
 
 ```
