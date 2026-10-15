@@ -11,7 +11,7 @@ var rep reporter.Reporter
 
 var rootCmd = &cobra.Command{
 	Use:   "intuneme",
-	Short: "Manage an Intune container on an immutable Linux host",
+	Short: "Manage an identity container on an immutable Linux host",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		rep = clix.NewReporter()
 		return nil

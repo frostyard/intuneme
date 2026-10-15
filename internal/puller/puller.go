@@ -78,6 +78,26 @@ func Detect(r runner.Runner) (Puller, error) {
 	return nil, fmt.Errorf("no container tool found; install podman, skopeo+umoci, or docker")
 }
 
+// DetectForImage selects a puller that can access image. For localhost image
+// references it prefers a backend where that image is already present.
+func DetectForImage(r runner.Runner, image string) (Puller, error) {
+	if !strings.HasPrefix(image, "localhost/") {
+		return Detect(r)
+	}
+
+	if _, err := r.LookPath("podman"); err == nil {
+		if _, err := r.Run("podman", "image", "exists", image); err == nil {
+			return NewPodmanPuller(), nil
+		}
+	}
+	if _, err := r.LookPath("docker"); err == nil {
+		if _, err := r.Run("docker", "image", "inspect", image); err == nil {
+			return NewDockerPuller(), nil
+		}
+	}
+	return nil, fmt.Errorf("local image %q was not found in podman or docker; build it locally before running intuneme init", image)
+}
+
 // containerToolPuller implements the create→export→tar-extract→rm workflow
 // shared by podman and docker. It accepts the tool name and an optional
 // function that returns extra flags for the pull command.
@@ -92,15 +112,25 @@ func (c *containerToolPuller) PullAndExtract(r runner.Runner, image string, root
 	// Clean up any leftover extract container from a previous failed run
 	_, _ = r.Run(c.tool, "rm", "intuneme-extract")
 
-	// Pull the image
-	pullArgs := []string{"pull"}
-	if c.pullFlags != nil {
-		pullArgs = append(pullArgs, c.pullFlags(image)...)
-	}
-	pullArgs = append(pullArgs, image)
-	out, err := r.Run(c.tool, pullArgs...)
-	if err != nil {
-		return fmt.Errorf("%s pull failed: %w\n%s", c.tool, err, out)
+	// Docker does not have a pull policy flag. A localhost image is explicit
+	// opt-in to a local build, so verify it exists and never contact a registry.
+	var out []byte
+	var err error
+	if c.tool == "docker" && strings.HasPrefix(image, "localhost/") {
+		out, err = r.Run(c.tool, "image", "inspect", image)
+		if err != nil {
+			return fmt.Errorf("local docker image %q not found: %w\n%s", image, err, out)
+		}
+	} else {
+		pullArgs := []string{"pull"}
+		if c.pullFlags != nil {
+			pullArgs = append(pullArgs, c.pullFlags(image)...)
+		}
+		pullArgs = append(pullArgs, image)
+		out, err = r.Run(c.tool, pullArgs...)
+		if err != nil {
+			return fmt.Errorf("%s pull failed: %w\n%s", c.tool, err, out)
+		}
 	}
 
 	// Create a temporary container to export (command is required but never
