@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/frostyard/clix"
@@ -21,6 +22,14 @@ func TestStatusJSON(t *testing.T) {
 	os.Stdout = w
 
 	rootDir = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rootDir, "rootfs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootDir, "config.toml"), []byte(
+		"himmelblau = true\nhimmelblau_upn = \"alice@example.com\"\n",
+	), 0644); err != nil {
+		t.Fatal(err)
+	}
 	rootCmd.SetArgs([]string{"status"})
 	_ = rootCmd.Execute()
 
@@ -41,5 +50,14 @@ func TestStatusJSON(t *testing.T) {
 
 	if _, ok := result["initialized"]; !ok {
 		t.Fatal("expected 'initialized' key in JSON output")
+	}
+	if result["identity"] != "himmelblau-experimental" {
+		t.Fatalf("identity = %v, want himmelblau-experimental", result["identity"])
+	}
+	if result["channel"] != "community-nightly" {
+		t.Fatalf("channel = %v, want community-nightly", result["channel"])
+	}
+	if result["himmelblau_enrolled"] != true {
+		t.Fatalf("himmelblau_enrolled = %v, want true", result["himmelblau_enrolled"])
 	}
 }

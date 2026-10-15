@@ -35,6 +35,10 @@ func makeOpenAppCmd(use, short, command string) *cobra.Command {
 				return err
 			}
 
+			if err := validateOpenAppForImage(cfg, command); err != nil {
+				return err
+			}
+
 			if _, err := os.Stat(cfg.RootfsPath); err != nil {
 				return fmt.Errorf("not initialized — run 'intuneme init' first")
 			}
@@ -45,6 +49,20 @@ func makeOpenAppCmd(use, short, command string) *cobra.Command {
 
 			return nspawn.Exec(r, cfg.MachineName, cfg.HostUser, cfg.HostUID, command)
 		},
+	}
+}
+
+func validateOpenAppForImage(cfg *config.Config, command string) error {
+	if !cfg.Himmelblau {
+		return nil
+	}
+	switch command {
+	case "intune-portal":
+		return fmt.Errorf("Intune Portal is not included in Himmelblau mode; use 'intuneme enroll --user <UPN>' to start Himmelblau enrollment")
+	case "microsoft-edge":
+		return fmt.Errorf("Microsoft Edge is not included in the Himmelblau image")
+	default:
+		return nil
 	}
 }
 
