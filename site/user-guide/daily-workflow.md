@@ -18,11 +18,19 @@ Open Microsoft Edge inside the container:
 intuneme open edge
 ```
 
+Edge is available in the default Microsoft image only. Himmelblau images do
+not include Edge or Intune Portal; use `intuneme enroll --user <UPN>` for
+Himmelblau sign-in and enrollment.
+
 Open Intune Portal (for compliance checks and re-enrollment):
 
 ```bash
 intuneme open portal
 ```
+
+This command is available in the default Microsoft image. In experimental
+Himmelblau mode, use `intuneme enroll --user user@example.com` for the
+PAM-based sign-in and enrollment flow instead.
 
 !!! tip
     If you have the [GNOME extension](gnome-extension.md) or [desktop shortcuts](desktop-shortcuts.md) installed, you can launch these apps directly from the Activities overview without opening a terminal.
@@ -33,7 +41,7 @@ intuneme open portal
 intuneme shell
 ```
 
-Opens an interactive login shell inside the container as the container user. This gives you a full D-Bus session with gnome-keyring, so you can run enrollment commands (`intune-portal`) or manage YubiKeys (`ykman`).
+Opens an interactive login shell inside the container as the local container user. In the Microsoft image, use `intune-portal` for enrollment; in Himmelblau mode, use `intuneme enroll --user <UPN>` from the host. The shell is also useful for inspecting services or managing YubiKeys (`ykman`).
 
 ## Check status
 

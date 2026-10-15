@@ -8,7 +8,9 @@ This guide walks you from a fresh install to a running Intune enrollment in six 
 intuneme init
 ```
 
-This pulls the Ubuntu 24.04 container image from GHCR, extracts the rootfs, installs Microsoft Edge and Intune Portal, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can use `machinectl` without repeated password prompts.
+This pulls the Ubuntu 24.04 Microsoft container image from GHCR, extracts the rootfs, installs Microsoft Edge and Intune Portal, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can use `machinectl` without repeated password prompts. The alternative Himmelblau images do not include Edge or Intune Portal.
+
+During setup, intuneme asks you to set a password for interactive container login. It accepts any non-empty password. A strong password is recommended because it protects interactive access to the container.
 
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
 
@@ -25,6 +27,9 @@ See the [init command reference](../reference/cli/intuneme_init.md) for the full
     intuneme init --insiders
     ```
     The insiders image may include newer versions of Edge or the Intune agent. Use the same flag with `intuneme recreate` if you ever upgrade.
+
+!!! warning "Experimental Himmelblau alternative"
+    `intuneme init --himmelblau` selects a separate image that replaces Microsoft's broker and Intune Portal with Himmelblau's PAM, broker, and compliance stack. It prompts for your Entra sign-in domain; use `--himmelblau-domain` for automated setup. Use `intuneme edit --himmelblau` during setup or later to edit the commented package config. It is not upstream-validated under systemd-nspawn and tracks Community Nightly packages. Review the [Himmelblau guide](../user-guide/himmelblau.md) before using it.
 
 ## 2. Start the container
 
