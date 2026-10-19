@@ -13,6 +13,7 @@ cmd/                  CLI command definitions (cobra commands)
 ├── extension/        Embedded GNOME Shell extension files
 internal/
 ├── broker/           D-Bus broker proxy (container→host SSO forwarding)
+├── notify/           Desktop notification proxy (container→host notifications)
 ├── config/           Config struct + TOML load/save (~/.local/share/intuneme/config.toml)
 ├── nspawn/           systemd-nspawn wrapper (boot, stop, exec, shell, bind mounts)
 ├── prereq/           Prerequisite checks (systemd-nspawn, machinectl)
@@ -81,7 +82,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 | GPU (Nvidia) | `/dev/nvidia*` | Same | When Nvidia detected; explicit `DeviceAllow` |
 | Nvidia libs | Host lib dirs (from `ldconfig`) | `/run/host-nvidia/<index>/` | Read-only; when Nvidia detected |
 | Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
-| Broker runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy enabled |
+| Proxy runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy or notify proxy enabled |
 | MCP binary dir | dir of `mcp_binary` (or `--binary`) | `/opt/intuneme-mcp` (read-only) | Runtime-only; bound on demand by `intuneme mcp`, survives recreate |
 
 ### Device Hotplug Forwarding
@@ -346,6 +347,7 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `host_uid` | int | Host user's UID (matched in container) |
 | `host_user` | string | Host username |
 | `broker_proxy` | bool | Enable D-Bus broker proxy for host-side SSO |
+| `notify_proxy` | bool | Forward container desktop notifications to the host |
 | `insiders` | bool | Use insiders channel image |
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
@@ -356,7 +358,7 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 |--------|---------|---------|
 | `frostyard/clix` | v0.2.0 | CLI helpers (reporter, dry-run, verbose, JSON output) |
 | `frostyard/std` | v0.1.0 | Standard library (reporter interface) |
-| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for broker proxy |
+| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for broker proxy and notify proxy |
 | `spf13/cobra` | v1.10.2 | CLI command framework |
 | `BurntSushi/toml` | v1.6.0 | TOML config parsing |
 | `charmbracelet/x/term` | v0.2.2 | Terminal password input |
@@ -371,8 +373,9 @@ Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.In
 ~/.local/share/intuneme/
 ├── config.toml          Configuration
 ├── rootfs/              Extracted container filesystem
-├── runtime/             Broker proxy runtime dir (bind-mounted as /run/user/<uid>)
-└── broker-proxy.pid     PID file for broker proxy process
+├── runtime/             Proxy runtime dir (bind-mounted as /run/user/<uid>)
+├── broker-proxy.pid     PID file for broker proxy process
+└── notify-proxy.pid     PID file for notify proxy process
 
 /run/intuneme/devices/   Udev forwarded device state (tmpfs, only while running)
 
@@ -441,6 +444,7 @@ The container workflow uses `actions/attest` for attestation (matching ublue-os/
 
 - [Container Lifecycle](container-lifecycle.md) — init, start, stop, destroy, recreate flows
 - [Broker Proxy](broker-proxy.md) — D-Bus forwarding for host-side SSO
+- [Notify Proxy](notify-proxy.md) — container desktop notifications on the host
 - [Container Image](../specs/container-image.md) — Build process, packages, and system configuration
 
 ### Scoped machine operations and migration

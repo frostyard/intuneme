@@ -54,7 +54,7 @@ Boots the container and sets up runtime environment.
 1. **Load config** — Read `config.toml`, verify rootfs exists
 2. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
 3. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
-4. **Prepare broker proxy** (if enabled) — Create runtime directory, add bind mount
+4. **Prepare runtime bind mount** (if the broker proxy or notify proxy is enabled) — Create runtime directory, add bind mount
 5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
 6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by `intuneme-session-setup` on login and on every app launch)
 7. **Override X11 tmpfiles rule** — `provision.OverrideX11Tmpfiles()` writes `/etc/tmpfiles.d/x11.conf` into the rootfs: the vendor `x11.conf` minus its `/tmp/.X11-unix` directive. That directory is bind-mounted from the host, and the vendor `D!` type would empty it on every container boot, costing the host its Xwayland socket. Fails the start if it cannot be written. See [overview.md](overview.md) → "The X11 Socket Directory Is the Host's"
@@ -69,12 +69,11 @@ Before boot or the already-running return, authenticate and reconcile session sc
 14. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
 15. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
 16. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
-17. **Start broker proxy** (if enabled):
+17. **Open the container session bus** (if the broker proxy or notify proxy is enabled):
     - Enable systemd linger for container user
     - Create login session via `machinectl`
     - Wait for session bus socket to appear
-    - Launch `intuneme broker-proxy` as background process with PID file
-    - Poll PID file to verify broker proxy started (up to 5 seconds)
+18. **Start proxies** (each if enabled) — `startProxy()` launches `intuneme broker-proxy` and `intuneme notify-proxy` as background processes with `setsid`, then polls each PID file (up to 5 seconds). The notify proxy must own its name before Edge starts, because Chromium looks for a notification server only once, at browser startup
 
 ## `intuneme stop`
 
@@ -82,7 +81,7 @@ Graceful shutdown via `runStop()` (shared between `stop` command and internal us
 
 **Flow:**
 
-1. **Stop broker proxy** (if enabled) — Kill process by PID file, remove PID file
+1. **Stop broker proxy and notify proxy** (each if enabled) — Kill process by PID file, remove PID file
 2. **Remove udev rules** — Delete rules files, helper script, and state dir (`/run/intuneme/devices`), reload udev (idempotent)
 3. **Power off container and wait** — `nspawn.StopAndWait()`: `machinectl poweroff <machine>`, then poll `machinectl show` every 500ms for up to 60 attempts (30 seconds max) until the machine deregisters from `systemd-machined`
 
@@ -94,7 +93,7 @@ Removes container and host modifications. By default preserves user files in `~/
 
 **Flow (default):**
 
-1. **Stop broker proxy** (if enabled) — Kill process by PID file
+1. **Stop broker proxy and notify proxy** (each if enabled) — Kill process by PID file
 2. **Stop container** if running — `nspawn.StopAndWait()`
 3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
 4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
@@ -155,7 +154,7 @@ the restore actually succeeded.
 
 Reports container state without modifying anything.
 
-**Output fields (JSON keys):** `initialized` (bool), `root` (string), `rootfs` (string), `machine` (string), `container` ("running"/"stopped"), `channel` ("stable"/"insiders"), `broker_proxy` ("running (PID X)"/"not running", omitted if disabled)
+**Output fields (JSON keys):** `initialized` (bool), `root` (string), `rootfs` (string), `machine` (string), `container` ("running"/"stopped"), `channel` ("stable"/"insiders"), `broker_proxy` and `notify_proxy` ("running (PID X)"/"not running", empty if disabled)
 
 Supports `--json` for machine-readable output via `clix.OutputJSON()`.
 
@@ -193,6 +192,14 @@ Toggle the D-Bus broker proxy for host-side SSO. See [Broker Proxy](broker-proxy
 
 **`disable`:** Clears the flag, removes D-Bus service file, stops the proxy if running.
 
+## `intuneme config notify-proxy enable` / `disable`
+
+Toggle forwarding of container desktop notifications to the host. See [Notify Proxy](notify-proxy.md) for details.
+
+**`enable`:** Sets `notify_proxy = true` in config. The proxy starts on the next `start`. There is no D-Bus activation file: the proxy owns its name on the container bus, which a host service file cannot activate.
+
+**`disable`:** Clears the flag, stops the proxy if running.
+
 ## `intuneme extension install`
 
 Installs the GNOME Shell Quick Settings extension for managing the container from the desktop.
@@ -211,6 +218,14 @@ Runs the D-Bus broker proxy in the foreground. This is the daemon process that f
 Normally launched automatically by `start` (as a background process) or by D-Bus service activation. Can be run manually for debugging.
 
 See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
+
+## `intuneme notify-proxy`
+
+Runs the notification proxy in the foreground. It owns `org.freedesktop.Notifications` on the container session bus and forwards calls to the host notification server.
+
+Normally launched automatically by `start` as a background process. Can be run manually for debugging.
+
+See [Notify Proxy](notify-proxy.md) for the full proxy architecture.
 
 ## `intuneme gendocs` (hidden)
 

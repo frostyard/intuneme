@@ -16,7 +16,7 @@ intuneme uses two directories on the host: a data directory for container state,
 |------|-------------|
 | `config.toml` | Configuration file. See [Configuration Reference](configuration.md). |
 | `rootfs/` | The container root filesystem. Extracted from the OCI image by `intuneme init`. This directory is the nspawn container root. Removed and recreated by `intuneme recreate` or `intuneme destroy`. |
-| `runtime/` | Bind-mounted into the container as `/run/user/<uid>` when the broker proxy is enabled. This makes the container's session D-Bus socket visible on the host at `runtime/bus`. Not used when `broker_proxy = false`. |
+| `runtime/` | Bind-mounted into the container as `/run/user/<uid>` when the broker proxy or the notify proxy is enabled. This makes the container's session D-Bus socket visible on the host at `runtime/bus`. Not used when both `broker_proxy` and `notify_proxy` are `false`. |
 
 The data root can be overridden with `--root <path>` on any command.
 
