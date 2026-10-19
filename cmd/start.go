@@ -69,10 +69,11 @@ func runStart(r runner.Runner, root string) error {
 	containerHome := fmt.Sprintf("/home/%s", cfg.HostUser)
 	sockets := nspawn.DetectHostSockets(cfg.HostUID)
 
-	// When broker proxy is enabled, bind-mount a host directory to
-	// /run/user/<uid> inside the container so the session bus socket
-	// is accessible from the host.
-	if cfg.BrokerProxy {
+	// The proxies need the container's session bus from the host. When
+	// one is enabled, bind-mount a host directory to /run/user/<uid>
+	// inside the container so the session bus socket is accessible.
+	sessionBus := cfg.BrokerProxy || cfg.NotifyProxy
+	if sessionBus {
 		runtimeDir := broker.RuntimeDir(root)
 		if err := os.MkdirAll(runtimeDir, 0700); err != nil {
 			return fmt.Errorf("create runtime dir: %w", err)
@@ -108,8 +109,14 @@ func runStart(r runner.Runner, root string) error {
 		if nvidiaEnabled {
 			rep.Message("[dry-run] Would configure Nvidia GPU with %d libraries", len(nvidiaLibs))
 		}
+		if sessionBus {
+			rep.Message("[dry-run] Would enable linger and open a container login session")
+		}
 		if cfg.BrokerProxy {
-			rep.Message("[dry-run] Would enable linger and start broker proxy")
+			rep.Message("[dry-run] Would start broker proxy")
+		}
+		if cfg.NotifyProxy {
+			rep.Message("[dry-run] Would start notify proxy")
 		}
 		return nil
 	}
@@ -225,42 +232,52 @@ func runStart(r runner.Runner, root string) error {
 		rep.Message("No video devices detected.")
 	}
 
+	if !sessionBus {
+		rep.Message("Container is running. Use 'intuneme shell' to connect.")
+		return nil
+	}
+
+	rep.Message("Enabling linger for container user...")
+	if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
+		return fmt.Errorf("failed to enable linger: %w", err)
+	}
+
+	if clix.Verbose {
+		rep.Message("Creating login session...")
+	}
+	if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+		return fmt.Errorf("failed to create login session: %w", err)
+	}
+
+	rep.Message("Waiting for container session bus...")
+	busPath := broker.SessionBusSocketPath(root)
+	busReady := false
+	for range 30 {
+		if _, err := os.Stat(busPath); err == nil {
+			busReady = true
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if !busReady {
+		return fmt.Errorf("container session bus not available after 30 seconds")
+	}
+
 	if cfg.BrokerProxy {
-		rep.Message("Enabling linger for container user...")
-		if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
-			return fmt.Errorf("failed to enable linger: %w", err)
-		}
-
-		if clix.Verbose {
-			rep.Message("Creating login session...")
-		}
-		if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
-			return fmt.Errorf("failed to create login session: %w", err)
-		}
-
-		rep.Message("Waiting for container session bus...")
-		busPath := broker.SessionBusSocketPath(root)
-		busReady := false
-		for range 30 {
-			if _, err := os.Stat(busPath); err == nil {
-				busReady = true
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
-		if !busReady {
-			return fmt.Errorf("container session bus not available after 30 seconds")
-		}
-
 		if err := startProxy(r, root, "broker-proxy"); err != nil {
 			return err
 		}
-
-		rep.Message("Container and broker proxy running.")
+		rep.Message("Broker proxy running.")
 		rep.Message("Host apps can now use SSO via com.microsoft.identity.broker1.")
-	} else {
-		rep.Message("Container is running. Use 'intuneme shell' to connect.")
 	}
+	if cfg.NotifyProxy {
+		if err := startProxy(r, root, "notify-proxy"); err != nil {
+			return err
+		}
+		rep.Message("Notify proxy running.")
+		rep.Message("Container desktop notifications now show on the host.")
+	}
+	rep.Message("Container is running. Use 'intuneme shell' to connect.")
 
 	return nil
 }

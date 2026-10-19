@@ -50,6 +50,9 @@ intuneme artifacts.`,
 			if cfg.BrokerProxy {
 				rep.Message("[dry-run] Would stop broker proxy")
 			}
+			if cfg.NotifyProxy {
+				rep.Message("[dry-run] Would stop notify proxy")
+			}
 			if nspawn.IsRunning(r, cfg.MachineName) {
 				rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
 			}
@@ -71,6 +74,10 @@ intuneme artifacts.`,
 		// Stop broker proxy first so host apps get clean errors.
 		if cfg.BrokerProxy {
 			pidPath := filepath.Join(root, "broker-proxy.pid")
+			broker.StopByPIDFile(pidPath)
+		}
+		if cfg.NotifyProxy {
+			pidPath := filepath.Join(root, "notify-proxy.pid")
 			broker.StopByPIDFile(pidPath)
 		}
 

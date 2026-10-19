@@ -28,6 +28,9 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 		if cfg.BrokerProxy {
 			rep.Message("[dry-run] Would stop broker proxy")
 		}
+		if cfg.NotifyProxy {
+			rep.Message("[dry-run] Would stop notify proxy")
+		}
 		rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
 		return nil
 	}
@@ -37,6 +40,11 @@ func runStop(r runner.Runner, root string, pollInterval time.Duration, maxAttemp
 		pidPath := filepath.Join(root, "broker-proxy.pid")
 		broker.StopByPIDFile(pidPath)
 		rep.Message("Broker proxy stopped.")
+	}
+	if cfg.NotifyProxy {
+		pidPath := filepath.Join(root, "notify-proxy.pid")
+		broker.StopByPIDFile(pidPath)
+		rep.Message("Notify proxy stopped.")
 	}
 
 	// Remove udev rules and hotplug artifacts. Remove() is graceful and
