@@ -18,6 +18,12 @@ Open Microsoft Edge inside the container:
 intuneme open edge
 ```
 
+Pass arguments to the app after `--`. For example, open Outlook on the web as a standalone app window:
+
+```bash
+intuneme open edge -- --app=https://outlook.office.com
+```
+
 Open Intune Portal (for compliance checks and re-enrollment):
 
 ```bash
