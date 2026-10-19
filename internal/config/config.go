@@ -14,6 +14,7 @@ type Config struct {
 	HostUID     int    `toml:"host_uid"`
 	HostUser    string `toml:"host_user"`
 	BrokerProxy bool   `toml:"broker_proxy"`
+	NotifyProxy bool   `toml:"notify_proxy"`
 	Insiders    bool   `toml:"insiders"`
 	// MCPBinary is the host path to a self-contained MCP server binary that
 	// `intuneme mcp` runs inside the container. Empty means none is configured

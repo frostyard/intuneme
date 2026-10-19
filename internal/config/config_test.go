@@ -78,6 +78,33 @@ func TestLoadBrokerProxyDefault(t *testing.T) {
 	}
 }
 
+func TestLoadNotifyProxy(t *testing.T) {
+	tmp := t.TempDir()
+	toml := "notify_proxy = true\n"
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte(toml), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !cfg.NotifyProxy {
+		t.Error("NotifyProxy should be true")
+	}
+}
+
+func TestLoadNotifyProxyDefault(t *testing.T) {
+	tmp := t.TempDir()
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.NotifyProxy {
+		t.Error("NotifyProxy should default to false")
+	}
+}
+
 func TestLoadInsiders(t *testing.T) {
 	tmp := t.TempDir()
 	toml := "insiders = true\n"
@@ -128,6 +155,7 @@ func TestSaveRoundTripInsiders(t *testing.T) {
 func FuzzLoad(f *testing.F) {
 	f.Add(`machine_name = "intuneme"` + "\n")
 	f.Add("broker_proxy = true\n")
+	f.Add("notify_proxy = true\n")
 	f.Add("insiders = true\n")
 	f.Add(`machine_name = "test"` + "\n" + `rootfs_path = "/tmp/rootfs"` + "\n")
 	f.Add("")
