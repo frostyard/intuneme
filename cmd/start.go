@@ -252,36 +252,8 @@ func runStart(r runner.Runner, root string) error {
 			return fmt.Errorf("container session bus not available after 30 seconds")
 		}
 
-		if clix.Verbose {
-			rep.Message("Starting broker proxy...")
-		}
-		execPath, err := os.Executable()
-		if err != nil {
-			return fmt.Errorf("failed to determine executable path: %w", err)
-		}
-		// Pass an absolute root: "intuneme status" reads it back from the
-		// proxy's command line, and a relative root would depend on the
-		// proxy's working directory.
-		proxyRoot, err := filepath.Abs(root)
-		if err != nil {
-			return fmt.Errorf("resolve root path: %w", err)
-		}
-		// Use setsid so the broker proxy gets its own session and survives
-		// terminal closure (e.g. when started from the GNOME extension).
-		if err := r.RunBackground("setsid", execPath, "broker-proxy", "--root", proxyRoot); err != nil {
-			return fmt.Errorf("failed to start broker proxy: %w", err)
-		}
-		pidPath := filepath.Join(root, "broker-proxy.pid")
-		proxyReady := false
-		for range 10 {
-			if _, alive := broker.IsRunningByPIDFile(pidPath); alive {
-				proxyReady = true
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-		if !proxyReady {
-			return fmt.Errorf("broker proxy failed to start within 5 seconds")
+		if err := startProxy(r, root, "broker-proxy"); err != nil {
+			return err
 		}
 
 		rep.Message("Container and broker proxy running.")
@@ -291,6 +263,38 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	return nil
+}
+
+// startProxy launches the proxy subcommand in the background and waits for
+// its PID file. The PID file is <root>/<subcommand>.pid.
+func startProxy(r runner.Runner, root, subcommand string) error {
+	if clix.Verbose {
+		rep.Message("Starting %s...", subcommand)
+	}
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to determine executable path: %w", err)
+	}
+	// Pass an absolute root: "intuneme status" reads it back from the
+	// proxy's command line, and a relative root would depend on the
+	// proxy's working directory.
+	proxyRoot, err := filepath.Abs(root)
+	if err != nil {
+		return fmt.Errorf("resolve root path: %w", err)
+	}
+	// Use setsid so the proxy gets its own session and survives terminal
+	// closure (e.g. when started from the GNOME extension).
+	if err := r.RunBackground("setsid", execPath, subcommand, "--root", proxyRoot); err != nil {
+		return fmt.Errorf("failed to start %s: %w", subcommand, err)
+	}
+	pidPath := filepath.Join(root, subcommand+".pid")
+	for range 10 {
+		if _, alive := broker.IsRunningByPIDFile(pidPath); alive {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("%s failed to start within 5 seconds", subcommand)
 }
 
 func init() {
