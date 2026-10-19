@@ -117,7 +117,76 @@ var brokerProxyDisableCmd = &cobra.Command{
 	},
 }
 
+var notifyProxyConfigCmd = &cobra.Command{
+	Use:   "notify-proxy",
+	Short: "Manage desktop notification proxy configuration",
+}
+
+var notifyProxyEnableCmd = &cobra.Command{
+	Use:   "enable",
+	Short: "Forward container desktop notifications to the host",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		root := rootDir
+		if root == "" {
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
+		}
+
+		cfg, err := config.Load(root)
+		if err != nil {
+			return err
+		}
+
+		cfg.NotifyProxy = true
+		if err := cfg.Save(root); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+
+		rep.Message("Notify proxy enabled.")
+		rep.Message("The proxy starts on the next 'intuneme start'.")
+		rep.Message("Apps opened before it runs, such as Edge, must be restarted to use it.")
+		return nil
+	},
+}
+
+var notifyProxyDisableCmd = &cobra.Command{
+	Use:   "disable",
+	Short: "Stop forwarding container desktop notifications",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		root := rootDir
+		if root == "" {
+			var err error
+			root, err = config.DefaultRoot()
+			if err != nil {
+				return err
+			}
+		}
+
+		cfg, err := config.Load(root)
+		if err != nil {
+			return err
+		}
+
+		cfg.NotifyProxy = false
+		if err := cfg.Save(root); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+
+		pidPath := filepath.Join(root, "notify-proxy.pid")
+		broker.StopByPIDFile(pidPath)
+
+		rep.Message("Notify proxy disabled.")
+		return nil
+	},
+}
+
 func init() {
+	notifyProxyConfigCmd.AddCommand(notifyProxyEnableCmd)
+	notifyProxyConfigCmd.AddCommand(notifyProxyDisableCmd)
+	configCmd.AddCommand(notifyProxyConfigCmd)
 	brokerProxyConfigCmd.AddCommand(brokerProxyEnableCmd)
 	brokerProxyConfigCmd.AddCommand(brokerProxyDisableCmd)
 	configCmd.AddCommand(brokerProxyConfigCmd)
