@@ -254,3 +254,29 @@ func TestConfigRejectsPrivilegedAndSentinelIDs(t *testing.T) {
 		t.Fatal("accepted sentinel gid")
 	}
 }
+
+func TestMachineHelperScriptIsScoped(t *testing.T) {
+	script := MachineHelperScript("intuneme", 1000)
+	for _, want := range []string{
+		"machine='intuneme'",
+		"uid='1000'",
+		"machinectl poweroff \"$machine\"",
+		"machinectl bind --read-only --mkdir \"$machine\" \"$dir\" " + MCPMountDir,
+		"stat -c '%u' -- \"$dir\"",
+		"bind source must be owned by uid $uid",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("machine helper missing %q:\n%s", want, script)
+		}
+	}
+	for _, forbidden := range []string{
+		"manage-machines",
+		"host-shell",
+		"--bind", // no writable bind option
+		"sh -c",
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("machine helper must not contain %q:\n%s", forbidden, script)
+		}
+	}
+}

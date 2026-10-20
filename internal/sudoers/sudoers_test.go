@@ -97,6 +97,9 @@ func TestInstall_RuleHasNoWildcards(t *testing.T) {
 	if !strings.Contains(rule, "testuser ALL=(root) NOPASSWD: "+nshelper.Path) {
 		t.Errorf("sudoers rule does not reference the helper path:\n%s", rule)
 	}
+	if !strings.Contains(rule, "testuser ALL=(root) NOPASSWD: "+nshelper.MachineHelperPath) {
+		t.Errorf("sudoers rule does not reference the machine helper path:\n%s", rule)
+	}
 }
 
 func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
@@ -128,13 +131,24 @@ func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
 		t.Errorf("helper config = %+v", cfg)
 	}
 
-	var sawBinaryInstall, sawConfigInstall, sawDirInstall, sawBinaryRename, sawConfigRename bool
+	machine, ok := r.installed[nshelper.MachineHelperPath+".new"]
+	if !ok {
+		t.Fatalf("machine helper was not staged; commands: %v", r.commands)
+	}
+	if machine != nshelper.MachineHelperScript("intuneme", 1000) {
+		t.Errorf("machine helper content mismatch:\n%s", machine)
+	}
+
+	var sawBinaryInstall, sawConfigInstall, sawMachineInstall, sawDirInstall, sawBinaryRename, sawConfigRename, sawMachineRename bool
 	for _, c := range r.commands {
 		if strings.Contains(c, nshelper.Path+".new") && strings.Contains(c, "install -m 0755 -o root -g root") {
 			sawBinaryInstall = true
 		}
 		if strings.Contains(c, nshelper.ConfigPath+".new") && strings.Contains(c, "install -m 0644 -o root -g root") {
 			sawConfigInstall = true
+		}
+		if strings.Contains(c, nshelper.MachineHelperPath+".new") && strings.Contains(c, "install -m 0755 -o root -g root") {
+			sawMachineInstall = true
 		}
 		if strings.Contains(c, "install -d -m 0755 -o root -g root "+nshelper.Dir) {
 			sawDirInstall = true
@@ -144,6 +158,9 @@ func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
 		}
 		if c == "sudo mv -f "+nshelper.ConfigPath+".new "+nshelper.ConfigPath {
 			sawConfigRename = true
+		}
+		if c == "sudo mv -f "+nshelper.MachineHelperPath+".new "+nshelper.MachineHelperPath {
+			sawMachineRename = true
 		}
 	}
 	if !sawDirInstall {
@@ -155,11 +172,17 @@ func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
 	if !sawConfigInstall {
 		t.Errorf("expected helper config staged 0644 root:root; commands: %v", r.commands)
 	}
+	if !sawMachineInstall {
+		t.Errorf("expected machine helper staged 0755 root:root; commands: %v", r.commands)
+	}
 	if !sawBinaryRename {
 		t.Errorf("expected helper binary to be activated with mv; commands: %v", r.commands)
 	}
 	if !sawConfigRename {
 		t.Errorf("expected helper config to be activated with mv; commands: %v", r.commands)
+	}
+	if !sawMachineRename {
+		t.Errorf("expected machine helper to be activated with mv; commands: %v", r.commands)
 	}
 }
 
@@ -261,7 +284,7 @@ func TestRemove_RemovesRuleHelperAndConfig(t *testing.T) {
 		t.Fatalf("expected a single rm command, got: %v", r.commands)
 	}
 	cmd := r.commands[0]
-	for _, path := range []string{filePath, nshelper.Path, nshelper.Path + ".new", nshelper.ConfigPath, nshelper.ConfigPath + ".new"} {
+	for _, path := range []string{filePath, nshelper.Path, nshelper.Path + ".new", nshelper.ConfigPath, nshelper.ConfigPath + ".new", nshelper.MachineHelperPath, nshelper.MachineHelperPath + ".new"} {
 		if !strings.Contains(cmd, path) {
 			t.Errorf("Remove must delete %s, got: %s", path, cmd)
 		}

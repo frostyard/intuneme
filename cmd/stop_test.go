@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/nshelper"
 )
 
 func TestMain(m *testing.M) {
@@ -22,17 +23,15 @@ type stopMockRunner struct {
 }
 
 func (m *stopMockRunner) Run(name string, args ...string) ([]byte, error) {
-	if name == "machinectl" && len(args) > 0 {
-		switch args[0] {
-		case "poweroff":
-			return nil, m.poweroffErr
-		case "show":
-			m.showCallCount++
-			if m.showCallCount > m.showFailAfter {
-				return nil, fmt.Errorf("machine not found")
-			}
-			return []byte("Name=intuneme\n"), nil
+	if name == "sudo" && len(args) >= 2 && args[0] == nshelper.MachineHelperPath && args[1] == "stop" {
+		return nil, m.poweroffErr
+	}
+	if name == "machinectl" && len(args) > 0 && args[0] == "show" {
+		m.showCallCount++
+		if m.showCallCount > m.showFailAfter {
+			return nil, fmt.Errorf("machine not found")
 		}
+		return []byte("Name=intuneme\n"), nil
 	}
 	return nil, nil
 }
@@ -77,8 +76,8 @@ func TestRunStop_PoweroffError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from poweroff failure")
 	}
-	if !strings.Contains(err.Error(), "poweroff") {
-		t.Errorf("expected poweroff error, got: %v", err)
+	if !strings.Contains(err.Error(), "stop failed") {
+		t.Errorf("expected stop error, got: %v", err)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frostyard/intuneme/internal/nshelper"
 )
 
 type mockRunner struct {
@@ -313,7 +315,7 @@ func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
 
 func TestBuildNsenterArgs(t *testing.T) {
 	args := buildNsenterArgs("echo hi")
-	want := []string{NsenterHelperPath, "echo hi"}
+	want := []string{NsenterHelperPath, "exec", "echo hi"}
 	if len(args) != len(want) {
 		t.Fatalf("expected %d args, got %d: %v", len(want), len(args), args)
 	}
@@ -357,7 +359,7 @@ func TestExecDoesNotResolveLeader(t *testing.T) {
 
 func TestEnsureBindProbeDoesNotResolveLeader(t *testing.T) {
 	r := &mockRunner{}
-	if err := EnsureBind(r, "intuneme", "/tmp/host", "/opt/intuneme-mcp", "/opt/intuneme-mcp/server"); err != nil {
+	if err := EnsureBind(r, "/tmp/host", "/opt/intuneme-mcp/server"); err != nil {
 		t.Fatalf("EnsureBind failed: %v", err)
 	}
 	if len(r.commands) == 0 {
@@ -398,8 +400,8 @@ func TestStopAndWaitBlocksUntilDeregistered(t *testing.T) {
 	if err := StopAndWait(r, "intuneme", time.Millisecond, 60); err != nil {
 		t.Fatalf("StopAndWait: %v", err)
 	}
-	if r.commands[0] != "machinectl poweroff intuneme" {
-		t.Errorf("expected poweroff first, got %q", r.commands[0])
+	if r.commands[0] != "sudo "+nshelper.MachineHelperPath+" stop" {
+		t.Errorf("expected helper stop first, got %q", r.commands[0])
 	}
 	// It must keep polling past the point where the machine is still
 	// registered; returning after the first probe is the rootfs-deletion race.

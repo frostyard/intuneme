@@ -535,19 +535,26 @@ allow systemd_machined_t user_tmp_t:lnk_file { read };
 	return nil
 }
 
-// InstallPolkitRule installs the polkit rule on the host using sudo.
-func InstallPolkitRule(r runner.Runner, rulesDir string) error {
-	rule := `polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.machine1.manage-machines" ||
-         action.id == "org.freedesktop.machine1.manage-images" ||
-         action.id == "org.freedesktop.machine1.login" ||
-         action.id == "org.freedesktop.machine1.shell" ||
-         action.id == "org.freedesktop.machine1.host-shell") &&
+// polkitRule returns the host polkit rule. Only interactive container shells
+// are passwordless. Machine management (stop/bind) is handled by the scoped
+// root-owned machine helper, and host shells / image management are never
+// granted.
+func polkitRule() string {
+	return `// Only interactive container shells are passwordless. Machine management
+// (bind, poweroff) goes through the root-owned intuneme machine helper, and
+// host shells / image management are never granted.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.machine1.shell" &&
         (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
         return polkit.Result.YES;
     }
 });
 `
+}
+
+// InstallPolkitRule installs the polkit rule on the host using sudo.
+func InstallPolkitRule(r runner.Runner, rulesDir string) error {
+	rule := polkitRule()
 	// Write rule to a temp file, then sudo cp it into place
 	tmpFile, err := os.CreateTemp("", "intuneme-polkit-*.rules")
 	if err != nil {

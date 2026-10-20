@@ -712,6 +712,23 @@ func TestEnsureUserGroups_AddsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestPolkitRuleIsScoped(t *testing.T) {
+	rule := polkitRule()
+	if !strings.Contains(rule, `action.id == "org.freedesktop.machine1.shell"`) {
+		t.Errorf("rule must allow interactive container shells: %s", rule)
+	}
+	for _, forbidden := range []string{
+		"manage-machines",
+		"manage-images",
+		"machine1.login",
+		"host-shell",
+	} {
+		if strings.Contains(rule, forbidden) {
+			t.Errorf("rule must not grant %s: %s", forbidden, rule)
+		}
+	}
+}
+
 func TestWritePolkitRule(t *testing.T) {
 	tmp := t.TempDir()
 	rulesDir := filepath.Join(tmp, "etc", "polkit-1", "rules.d")

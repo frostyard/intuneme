@@ -1,12 +1,10 @@
-// Allow users in the sudo group to manage nspawn machines without authentication.
-// Installed by intuneme init to /etc/polkit-1/rules.d/50-intuneme.rules
+// Allow users in the sudo or wheel group to open an interactive shell in a
+// local container without authentication. Machine management and host shells
+// are deliberately not granted here; intuneme uses a scoped root-owned helper
+// for stop/bind instead.
 polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.machine1.manage-machines" ||
-         action.id == "org.freedesktop.machine1.manage-images" ||
-         action.id == "org.freedesktop.machine1.login" ||
-         action.id == "org.freedesktop.machine1.shell" ||
-         action.id == "org.freedesktop.machine1.host-shell") &&
-        subject.isInGroup("sudo")) {
+    if (action.id == "org.freedesktop.machine1.shell" &&
+        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
         return polkit.Result.YES;
     }
 });
