@@ -59,6 +59,13 @@ func runMCP(r runner.Runner, root, binaryPath string, serverArgs []string) error
 	hostDir := filepath.Dir(binaryPath)
 	containerBin := nspawn.MCPMountDir + "/" + filepath.Base(binaryPath)
 
+	// Resolve convenient host aliases before the privileged helper opens the
+	// canonical path without symlinks. A subsequent replacement is rejected.
+	hostDir, err = filepath.EvalSymlinks(hostDir)
+	if err != nil {
+		return fmt.Errorf("resolve MCP directory: %w", err)
+	}
+
 	// Re-establish the runtime bind mount if the binary isn't visible inside the
 	// container (e.g. after a fresh start or recreate). Idempotent and passwordless.
 	if err := nspawn.EnsureBind(r, hostDir, containerBin); err != nil {

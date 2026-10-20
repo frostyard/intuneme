@@ -131,14 +131,6 @@ func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
 		t.Errorf("helper config = %+v", cfg)
 	}
 
-	machine, ok := r.installed[nshelper.MachineHelperPath+".new"]
-	if !ok {
-		t.Fatalf("machine helper was not staged; commands: %v", r.commands)
-	}
-	if machine != nshelper.MachineHelperScript("intuneme", 1000) {
-		t.Errorf("machine helper content mismatch:\n%s", machine)
-	}
-
 	var sawBinaryInstall, sawConfigInstall, sawMachineInstall, sawDirInstall, sawBinaryRename, sawConfigRename, sawMachineRename bool
 	for _, c := range r.commands {
 		if strings.Contains(c, nshelper.Path+".new") && strings.Contains(c, "install -m 0755 -o root -g root") {

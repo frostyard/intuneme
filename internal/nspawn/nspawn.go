@@ -402,7 +402,20 @@ func Shell(r runner.Runner, machine, user string) error {
 }
 
 // Stop powers off the container.
-func Stop(r runner.Runner) error {
+var machineHelperExists = func() bool { _, err := os.Stat(nshelper.MachineHelperPath); return err == nil }
+
+func Stop(r runner.Runner, machine string) error {
+	// Missing helper on upgrade: authenticate normally, never restore the old
+	// broad polkit grant. Existing helper failures do not trigger a fallback.
+	if !machineHelperExists() {
+		if err := ValidateSudo(r); err != nil {
+			return err
+		}
+		if out, err := r.Run("sudo", "machinectl", "poweroff", machine); err != nil {
+			return fmt.Errorf("authenticated poweroff: %w: %s", err, out)
+		}
+		return nil
+	}
 	out, err := r.Run("sudo", nshelper.MachineHelperPath, "stop")
 	if err != nil {
 		return fmt.Errorf("container stop failed: %w\n%s", err, out)
@@ -427,7 +440,7 @@ const (
 // that window fails partway through with "Directory not empty", leaving a
 // half-erased tree behind.
 func StopAndWait(r runner.Runner, machine string, pollInterval time.Duration, maxAttempts int) error {
-	if err := Stop(r); err != nil {
+	if err := Stop(r, machine); err != nil {
 		return err
 	}
 	for range maxAttempts {

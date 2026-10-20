@@ -396,6 +396,9 @@ func (d *deregisteringRunner) Run(name string, args ...string) ([]byte, error) {
 }
 
 func TestStopAndWaitBlocksUntilDeregistered(t *testing.T) {
+	old := machineHelperExists
+	machineHelperExists = func() bool { return true }
+	t.Cleanup(func() { machineHelperExists = old })
 	r := &deregisteringRunner{showsBeforeGone: 3}
 	if err := StopAndWait(r, "intuneme", time.Millisecond, 60); err != nil {
 		t.Fatalf("StopAndWait: %v", err)
@@ -443,5 +446,56 @@ func TestHostWaylandSocket(t *testing.T) {
 				t.Errorf("HostWaylandSocket() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStopUpgradeFallbackAuthenticates(t *testing.T) {
+	old := machineHelperExists
+	machineHelperExists = func() bool { return false }
+	t.Cleanup(func() { machineHelperExists = old })
+	r := &mockRunner{}
+	if err := Stop(r, "intuneme"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(r.commands, "\n")
+	if got != "sudo -v\nsudo machinectl poweroff intuneme" {
+		t.Fatalf("unsafe fallback: %s", got)
+	}
+}
+
+type deniedStopRunner struct {
+	mockRunner
+	authDenied bool
+}
+
+func (r *deniedStopRunner) RunAttached(name string, args ...string) error {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	if r.authDenied {
+		return errors.New("authentication denied")
+	}
+	return nil
+}
+func (r *deniedStopRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return nil, errors.New("helper rejected target")
+}
+func TestStopDoesNotBypassDeniedAuthorization(t *testing.T) {
+	old := machineHelperExists
+	t.Cleanup(func() { machineHelperExists = old })
+	machineHelperExists = func() bool { return false }
+	r := &deniedStopRunner{authDenied: true}
+	if err := Stop(r, "intuneme"); err == nil {
+		t.Fatal("ignored authentication failure")
+	}
+	if len(r.commands) != 1 || r.commands[0] != "sudo -v" {
+		t.Fatalf("ran poweroff without authentication: %v", r.commands)
+	}
+	machineHelperExists = func() bool { return true }
+	r = &deniedStopRunner{}
+	if err := Stop(r, "intuneme"); err == nil {
+		t.Fatal("ignored helper rejection")
+	}
+	if len(r.commands) != 1 || r.commands[0] != "sudo "+nshelper.MachineHelperPath+" stop" {
+		t.Fatalf("bypassed helper: %v", r.commands)
 	}
 }

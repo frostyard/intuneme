@@ -107,7 +107,7 @@ var initCmd = &cobra.Command{
 
 		hostname, _ := os.Hostname()
 
-		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname); err != nil {
+		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname, cfg.MachineName); err != nil {
 			return err
 		}
 

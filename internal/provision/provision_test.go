@@ -713,7 +713,10 @@ func TestEnsureUserGroups_AddsWhenMissing(t *testing.T) {
 }
 
 func TestPolkitRuleIsScoped(t *testing.T) {
-	rule := polkitRule()
+	rule, err := polkitRule("intuneme", "testuser", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(rule, `action.id == "org.freedesktop.machine1.shell"`) {
 		t.Errorf("rule must allow interactive container shells: %s", rule)
 	}
@@ -734,7 +737,7 @@ func TestWritePolkitRule(t *testing.T) {
 	rulesDir := filepath.Join(tmp, "etc", "polkit-1", "rules.d")
 
 	r := &mockRunner{}
-	err := InstallPolkitRule(r, rulesDir)
+	err := InstallPolkitRule(r, rulesDir, "intuneme", "testuser", 1000)
 	if err != nil {
 		t.Fatalf("InstallPolkitRule error: %v", err)
 	}

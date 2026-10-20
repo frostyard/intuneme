@@ -37,7 +37,7 @@ func TestHelperKernelBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"plain", "setuid", "filecap", "exit"} {
+	for _, mode := range []string{"plain", "setuid", "filecap", "exit", "bind"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := exec.Command(unshare, append(args, exe, "-test.run=^TestHelperKernelBoundary$", "-test.v")...)
 			cmd.Env = append(os.Environ(), "INTUNEME_KERNEL_INNER=1", "INTUNEME_KERNEL_MODE="+mode)
@@ -82,6 +82,10 @@ func runKernelBoundary(t *testing.T) {
 	fixture := filepath.Join(dir, "fixture")
 	if err := os.WriteFile(fixture, data, 0755); err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv("INTUNEME_KERNEL_MODE") == "bind" {
+		runBindKernelBoundary(t, dir, fixture)
+		return
 	}
 	switch os.Getenv("INTUNEME_KERNEL_MODE") {
 	case "setuid":

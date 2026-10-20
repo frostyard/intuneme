@@ -1,10 +1,10 @@
-// Allow users in the sudo or wheel group to open an interactive shell in a
-// local container without authentication. Machine management and host shells
-// are deliberately not granted here; intuneme uses a scoped root-owned helper
-// for stop/bind instead.
+// Reference only. The CLI renders the actual rule with the configured machine,
+// caller UID, and target username. No broad group grants belong here.
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.machine1.shell" &&
-        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
+        subject.uid == 1000 &&
+        action.lookup("machine") == "intuneme" &&
+        action.lookup("user") == "example-user") {
         return polkit.Result.YES;
     }
 });

@@ -23,7 +23,7 @@ type stopMockRunner struct {
 }
 
 func (m *stopMockRunner) Run(name string, args ...string) ([]byte, error) {
-	if name == "sudo" && len(args) >= 2 && args[0] == nshelper.MachineHelperPath && args[1] == "stop" {
+	if name == "sudo" && len(args) >= 2 && ((args[0] == nshelper.MachineHelperPath && args[1] == "stop") || (args[0] == "machinectl" && args[1] == "poweroff")) {
 		return nil, m.poweroffErr
 	}
 	if name == "machinectl" && len(args) > 0 && args[0] == "show" {
@@ -76,7 +76,7 @@ func TestRunStop_PoweroffError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from poweroff failure")
 	}
-	if !strings.Contains(err.Error(), "stop failed") {
+	if !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("expected stop error, got: %v", err)
 	}
 }
