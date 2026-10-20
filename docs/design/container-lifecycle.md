@@ -65,6 +65,7 @@ Boots the container and sets up runtime environment.
 12. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
 13. **Ensure sudoers**: Reinstall sudoers rule and nsenter helper if either is missing (handles upgrades from the old wildcard-only rule; `IsInstalled` requires both)
 13b. **Ensure session scripts** — Unconditionally reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` (`provision.InstallSessionScripts`, idempotent), so the rootfs copy always matches the embedded one and CLI upgrades reach existing containers without a `recreate`
+13c. **Refresh container sudoers** — Rewrite `/etc/sudoers.d/intuneme` (`provision.EnsureContainerSudoers`) on every start, so existing containers pick up the scoped rule (no `NOPASSWD: ALL`) without a `recreate`
 14. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
 15. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
 16. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions

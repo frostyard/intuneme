@@ -57,6 +57,20 @@ func containerSudoersRule(user string) string {
 	return fmt.Sprintf("%s ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service\n", user)
 }
 
+// EnsureContainerSudoers (re)writes the container-side sudoers rule. It runs
+// from both provisioning and start so existing containers pick up the scoped
+// rule without a recreate.
+func EnsureContainerSudoers(r runner.Runner, rootfsPath, user string) error {
+	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
+	if err := sudoMkdirAll(r, sudoersDir); err != nil {
+		return fmt.Errorf("mkdir sudoers.d: %w", err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(containerSudoersRule(user)), 0440); err != nil {
+		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
+	}
+	return nil
+}
+
 func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostname string) error {
 	// /etc/hostname
 	if err := sudo.WriteFile(r,
@@ -109,17 +123,8 @@ WantedBy=multi-user.target
 		return err
 	}
 
-	// Passwordless sudo for the one system operation the user session performs.
-	// Do not grant NOPASSWD: ALL: the helper runs arbitrary user commands outside
-	// nspawn, so an all-powerful container sudo would let any user command become
-	// unrestricted host root.
-	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
-	if err := sudoMkdirAll(r, sudoersDir); err != nil {
-		return fmt.Errorf("mkdir sudoers.d: %w", err)
-	}
-	sudoersRule := containerSudoersRule(user)
-	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
-		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
+	if err := EnsureContainerSudoers(r, rootfsPath, user); err != nil {
+		return err
 	}
 
 	return nil

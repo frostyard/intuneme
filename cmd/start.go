@@ -199,6 +199,12 @@ var startCmd = &cobra.Command{
 			rep.Message("Installed session setup script.")
 		}
 
+		// Rewrite the container-side sudoers rule on every start so existing
+		// containers pick up the scoped rule without a recreate.
+		if err := provision.EnsureContainerSudoers(r, cfg.RootfsPath, cfg.HostUser); err != nil {
+			rep.Message("Warning: failed to update container sudoers rule: %v", err)
+		}
+
 		// Ensure the container user is in groups that depend on packages
 		// installed inside the image (currently plugdev for pcscd access).
 		// Self-heals containers provisioned before plugdev was in baseGroups.

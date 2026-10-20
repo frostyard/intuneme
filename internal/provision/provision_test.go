@@ -104,6 +104,24 @@ func TestContainerSudoersRuleIsScoped(t *testing.T) {
 	}
 }
 
+func TestEnsureContainerSudoers(t *testing.T) {
+	r := &mockRunner{}
+	rootfs := t.TempDir()
+	if err := EnsureContainerSudoers(r, rootfs, "testuser"); err != nil {
+		t.Fatalf("EnsureContainerSudoers error: %v", err)
+	}
+	got, ok := r.writes[filepath.Join(rootfs, "etc", "sudoers.d", "intuneme")]
+	if !ok {
+		t.Fatalf("sudoers file was not written; commands: %v", r.commands)
+	}
+	if got != containerSudoersRule("testuser") {
+		t.Errorf("sudoers content = %q, want %q", got, containerSudoersRule("testuser"))
+	}
+	if strings.Contains(got, "NOPASSWD: ALL") || strings.Contains(got, "NOPASSWD:ALL") {
+		t.Errorf("container sudoers must not grant unrestricted root: %q", got)
+	}
+}
+
 func TestWriteFixupsWritesScopedSudoers(t *testing.T) {
 	r := &mockRunner{}
 	rootfs := t.TempDir()
