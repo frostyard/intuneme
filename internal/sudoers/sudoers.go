@@ -2,6 +2,7 @@ package sudoers
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -22,6 +23,10 @@ var (
 	checkExecutable = verifyExecutable
 )
 
+// ErrUntrustedSource means the running binary is not safe to install as the
+// privileged helper (it is not root-owned, or its path is writable).
+var ErrUntrustedSource = errors.New("privileged helper source is not trusted")
+
 // Options are the values baked into the root-owned helper and its config.
 type Options struct {
 	User    string
@@ -30,6 +35,10 @@ type Options struct {
 	GID     int
 	Home    string
 	Rootfs  string
+	// AllowUntrustedSource is set only by the explicit, sudo-authenticated
+	// `init` command. `start` leaves it false so a user-owned binary cannot
+	// refresh the root-owned helper without an explicit install.
+	AllowUntrustedSource bool
 }
 
 func findVisudo(r runner.Runner) string {
@@ -64,13 +73,22 @@ func Install(r runner.Runner, opts Options) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	if !opts.AllowUntrustedSource {
+		exe, err := executablePath()
+		if err != nil {
+			return fmt.Errorf("locate current executable: %w", err)
+		}
+		if err := checkExecutable(exe); err != nil {
+			return err
+		}
+	}
 
 	// Install the helper first. It must be root-owned and not user-writable,
 	// since it runs as root before dropping to the container user.
 	if _, err := r.Run("sudo", "install", "-d", "-m", "0755", "-o", "root", "-g", "root", nshelper.Dir); err != nil {
 		return fmt.Errorf("create helper dir: %w", err)
 	}
-	if err := installExecutable(r); err != nil {
+	if err := installExecutable(r, opts); err != nil {
 		return err
 	}
 	if err := installConfig(r, cfg); err != nil {
@@ -121,7 +139,7 @@ func verifyExecutable(path string) error {
 		return fmt.Errorf("stat executable: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("refusing to install helper from %s: not an executable regular file", resolved)
+		return fmt.Errorf("%w: %s is not an executable regular file", ErrUntrustedSource, resolved)
 	}
 	for current := resolved; ; current = filepath.Dir(current) {
 		info, err := os.Stat(current)
@@ -130,10 +148,10 @@ func verifyExecutable(path string) error {
 		}
 		st, ok := info.Sys().(*syscall.Stat_t)
 		if !ok || st.Uid != 0 {
-			return fmt.Errorf("refusing to install helper from %s: %s is not root-owned", resolved, current)
+			return fmt.Errorf("%w: %s is not root-owned", ErrUntrustedSource, current)
 		}
 		if info.Mode().Perm()&0o022 != 0 {
-			return fmt.Errorf("refusing to install helper from %s: %s is group/world-writable", resolved, current)
+			return fmt.Errorf("%w: %s is group/world-writable", ErrUntrustedSource, current)
 		}
 		if current == "/" {
 			break
@@ -146,13 +164,15 @@ func verifyExecutable(path string) error {
 // helper path. The binary dispatches to internal/nshelper based on argv[0], so
 // the same code can be the CLI and the root-owned helper. The installed copy is
 // root-owned; later changes to the user's binary do not affect it.
-func installExecutable(r runner.Runner) error {
+func installExecutable(r runner.Runner, opts Options) error {
 	exe, err := executablePath()
 	if err != nil {
 		return fmt.Errorf("locate current executable: %w", err)
 	}
-	if err := checkExecutable(exe); err != nil {
-		return err
+	if !opts.AllowUntrustedSource {
+		if err := checkExecutable(exe); err != nil {
+			return err
+		}
 	}
 	// Install beside the destination and rename, so a running helper (for
 	// example a long-lived MCP server) cannot make the update fail with

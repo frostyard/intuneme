@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -168,7 +169,20 @@ var startCmd = &cobra.Command{
 			Home:    fmt.Sprintf("/home/%s", cfg.HostUser),
 			Rootfs:  cfg.RootfsPath,
 		}); err != nil {
-			rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
+			if errors.Is(err, sudoers.ErrUntrustedSource) {
+				if sudoers.IsInstalled(r) {
+					// Keep the existing root-owned helper. A user-owned build cannot
+					// refresh it implicitly; reinstall intuneme to a root-owned path
+					// or re-run init explicitly.
+				} else {
+					// Never leave an old shell helper or a half-installed rule
+					// authorizing a passwordless path we cannot trust.
+					sudoers.Remove(r)
+					rep.Message("Warning: removed an untrusted passwordless helper; install intuneme to a root-owned path and run 'intuneme start' again to enable app launch")
+				}
+			} else {
+				rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
+			}
 		} else if clix.Verbose {
 			rep.Message("Installed passwordless container helper.")
 		}

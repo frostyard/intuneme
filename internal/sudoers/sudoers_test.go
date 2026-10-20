@@ -1,6 +1,7 @@
 package sudoers
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,6 +60,9 @@ func testOptions() Options {
 		GID:     1000,
 		Home:    "/home/testuser",
 		Rootfs:  "/home/testuser/.local/share/intuneme/rootfs",
+		// Tests use a fake user-owned executable; the explicit-install mode
+		// skips the root-owned source check.
+		AllowUntrustedSource: true,
 	}
 }
 
@@ -207,6 +211,32 @@ func TestVerifyExecutableAcceptsRootOwnedBinary(t *testing.T) {
 	}
 	if err := verifyExecutable("/bin/sh"); err != nil {
 		t.Errorf("root-owned executable rejected: %v", err)
+	}
+}
+
+func TestInstall_RejectsUntrustedSource(t *testing.T) {
+	fakeExecutable(t)
+	checkExecutable = verifyExecutable
+	r := newMockRunner()
+	opts := testOptions()
+	opts.AllowUntrustedSource = false
+	err := Install(r, opts)
+	if !errors.Is(err, ErrUntrustedSource) {
+		t.Fatalf("expected ErrUntrustedSource, got %v", err)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("no commands should run for an untrusted source, got: %v", r.commands)
+	}
+}
+
+func TestInstall_AllowsUntrustedSourceWhenExplicit(t *testing.T) {
+	fakeExecutable(t)
+	checkExecutable = verifyExecutable
+	r := newMockRunner()
+	opts := testOptions()
+	opts.AllowUntrustedSource = true
+	if err := Install(r, opts); err != nil {
+		t.Fatalf("explicit install from a user-owned binary failed: %v", err)
 	}
 }
 

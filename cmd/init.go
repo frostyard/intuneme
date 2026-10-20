@@ -126,6 +126,10 @@ var initCmd = &cobra.Command{
 			GID:     os.Getgid(),
 			Home:    fmt.Sprintf("/home/%s", u.Username),
 			Rootfs:  cfg.RootfsPath,
+			// init is the explicit, sudo-authenticated install. It may run
+			// from a user-owned go-install binary; the root-owned copy is
+			// what later starts use.
+			AllowUntrustedSource: true,
 		}); err != nil {
 			rep.Warning("sudoers install failed: %v", err)
 		}

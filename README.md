@@ -22,6 +22,8 @@ Full documentation is at **https://frostyard.github.io/intuneme/**
 go install github.com/frostyard/intuneme@latest
 ```
 
+`intuneme init` installs the root-owned helper from the binary you run. Later `start` runs will not replace that helper from a user-owned `~/go/bin` build; use `make install` or `sudo install` it to a root-owned path if you want automatic helper upgrades.
+
 Alternatively, Arch Linux users can install `intuneme` or `intuneme-bin` from the Arch User Repository (AUR):
 
 - [intuneme](https://aur.archlinux.org/packages/intuneme) (build from source)
