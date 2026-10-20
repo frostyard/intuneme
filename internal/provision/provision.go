@@ -46,15 +46,12 @@ func sudoSymlink(r runner.Runner, target, link string) error {
 	return err
 }
 
-// containerSudoersRule is the only passwordless root command the container
-// user gets. The session setup script restarts the device broker after
-// initializing the keyring; nothing else needs root non-interactively. The
-// container user can still use sudo interactively with the password set by
-// init. The old `ALL=(ALL) NOPASSWD: ALL` rule turned every command run by the
-// host-side helper into unrestricted host root, because the helper executes
-// user commands outside the nspawn sandbox.
+// containerSudoersRule replaces the legacy grant with a comment-only file.
+// Broker restart is authorized by the container's scoped polkit policy. The
+// default sudo-group rule still permits password-authenticated administration
+// from interactive container sessions, never from the NNP app launch path.
 func containerSudoersRule(user string) string {
-	return fmt.Sprintf("%s ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service\n", user)
+	return fmt.Sprintf("# Installed by intuneme for %s: no passwordless sudo grants.\n", user)
 }
 
 // EnsureContainerSudoers (re)writes the container-side sudoers rule. It runs

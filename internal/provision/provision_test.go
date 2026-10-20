@@ -98,7 +98,7 @@ func TestContainerSudoersRuleIsScoped(t *testing.T) {
 	if strings.Contains(rule, "*") {
 		t.Errorf("rule must not contain wildcards: %q", rule)
 	}
-	want := "testuser ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service\n"
+	want := "# Installed by intuneme for testuser: no passwordless sudo grants.\n"
 	if rule != want {
 		t.Errorf("rule = %q, want %q", rule, want)
 	}
@@ -135,8 +135,8 @@ func TestWriteFixupsWritesScopedSudoers(t *testing.T) {
 	if strings.Contains(got, "NOPASSWD: ALL") || strings.Contains(got, "NOPASSWD:ALL") {
 		t.Fatalf("unrestricted container sudo rule written: %q", got)
 	}
-	if !strings.Contains(got, "systemctl restart microsoft-identity-device-broker.service") {
-		t.Errorf("scoped rule missing broker restart: %q", got)
+	if strings.Contains(got, "NOPASSWD") {
+		t.Errorf("unexpected passwordless grant: %q", got)
 	}
 }
 
