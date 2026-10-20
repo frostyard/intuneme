@@ -221,8 +221,10 @@ func credentialsFromRootfs(cfg *Config) (credential, error) {
 			if err != nil || uid != cfg.UID {
 				continue
 			}
-			if parsed, err := strconv.Atoi(fields[3]); err == nil && parsed >= 0 {
-				gid = parsed
+			if parsed, err := strconv.Atoi(fields[3]); err == nil {
+				if _, ok := uint32ID(parsed); ok {
+					gid = parsed
+				}
 			}
 			break
 		}
@@ -231,7 +233,11 @@ func credentialsFromRootfs(cfg *Config) (credential, error) {
 		return credential{}, fmt.Errorf("read container passwd: %w", err)
 	}
 
-	groups := []uint32{uint32(gid)}
+	primaryGID, ok := uint32ID(gid)
+	if !ok {
+		return credential{}, fmt.Errorf("invalid primary gid %d", gid)
+	}
+	groups := []uint32{primaryGID}
 	if groupFile, err := os.Open(filepath.Join(cfg.Rootfs, "etc", "group")); err == nil {
 		scanner := bufio.NewScanner(groupFile)
 		for scanner.Scan() {
@@ -240,12 +246,16 @@ func credentialsFromRootfs(cfg *Config) (credential, error) {
 				continue
 			}
 			gid, err := strconv.Atoi(fields[2])
-			if err != nil || gid < 0 {
+			if err != nil {
+				continue
+			}
+			groupGID, ok := uint32ID(gid)
+			if !ok {
 				continue
 			}
 			for member := range strings.SplitSeq(fields[3], ",") {
 				if strings.TrimSpace(member) == cfg.User {
-					groups = append(groups, uint32(gid))
+					groups = append(groups, groupGID)
 					break
 				}
 			}
@@ -257,7 +267,15 @@ func credentialsFromRootfs(cfg *Config) (credential, error) {
 
 	slices.Sort(groups)
 	groups = slices.Compact(groups)
-	return credential{GID: uint32(gid), Groups: groups}, nil
+	return credential{GID: primaryGID, Groups: groups}, nil
+}
+
+// uint32ID validates a parsed uid/gid before narrowing it to uint32.
+func uint32ID(n int) (uint32, bool) {
+	if n < 0 || int64(n) > maxID {
+		return 0, false
+	}
+	return uint32(n), true
 }
 
 // enterNamespaces opens every namespace fd before switching (so the target's

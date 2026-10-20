@@ -65,7 +65,9 @@ func TestConfigValidate(t *testing.T) {
 		{"empty user", func(c *Config) { c.User = "" }},
 		{"colon in user", func(c *Config) { c.User = "a:b" }},
 		{"negative uid", func(c *Config) { c.UID = -1 }},
+		{"uid overflow", func(c *Config) { c.UID = int(maxID) + 1 }},
 		{"negative gid", func(c *Config) { c.GID = -1 }},
+		{"gid overflow", func(c *Config) { c.GID = int(maxID) + 1 }},
 		{"relative rootfs", func(c *Config) { c.Rootfs = "rootfs" }},
 		{"relative home", func(c *Config) { c.Home = "home" }},
 	}
@@ -176,7 +178,8 @@ func TestCredentialsFromRootfsIgnoresPasswdUID(t *testing.T) {
 		"root:x:0:\n"+
 		"testuser:x:1000:\n"+
 		"render:x:992:testuser\n"+
-		"plugdev:x:46:testuser\n")
+		"plugdev:x:46:testuser\n"+
+		"huge:x:4294967296:testuser\n")
 
 	cred, err := credentialsFromRootfs(cfg)
 	if err != nil {

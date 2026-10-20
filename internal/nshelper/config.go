@@ -17,6 +17,9 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// maxID is the largest value representable in a Linux uid_t/gid_t (uint32).
+const maxID = int64(1)<<32 - 1
+
 const (
 	// Dir is the root-owned directory holding the helper and its config.
 	Dir = "/usr/local/libexec/intuneme"
@@ -65,10 +68,10 @@ func (c *Config) Validate() error {
 	if c.User == "" || strings.ContainsAny(c.User, ":\n\r\t") {
 		return fmt.Errorf("helper config: invalid user %q", c.User)
 	}
-	if c.UID < 0 {
+	if c.UID < 0 || int64(c.UID) > maxID {
 		return fmt.Errorf("helper config: invalid uid %d", c.UID)
 	}
-	if c.GID < 0 {
+	if c.GID < 0 || int64(c.GID) > maxID {
 		return fmt.Errorf("helper config: invalid gid %d", c.GID)
 	}
 	if !filepath.IsAbs(c.Home) || !filepath.IsAbs(c.Rootfs) {
