@@ -51,7 +51,7 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 At runtime the helper resolves the container leader from the baked machine name itself, verifies that the leader is in the host's initial user namespace and that `/proc/<pid>/root` is the configured rootfs, unshares `CLONE_FS` on a locked Go OS thread, enters the container's mount/UTS/IPC/net/PID namespaces, sets `no_new_privs`, clears capability bounding/ambient/inheritable sets, drops to the numeric configured UID/GID (supplementary groups come from the container's `/etc/group`), and only then execs `/bin/bash -c <script>`. It never runs `su`, never reads the UID from the container's `/etc/passwd`, and never executes a container-controlled binary while privileged. This matters: accepting a caller-supplied PID previously let a user-created user+mount namespace with a fake `/bin/su` run as host root; a container-root user could also set their passwd UID to 0 and have `su` execute as root. The numeric UID must be nonzero and neither UID nor GID may be the kernel sentinel `UINT32_MAX`. Setuid and file-capability execution cannot recover privileges. `TestHelperKernelBoundary` runs real namespace transitions and verifies descendant IDs, capabilities, namespace identities and exit status. See [ADR-0001](../adr/0001-make-helper-privilege-drop-irreversible.md).
 
-This indirection exists because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. A single wildcard-free helper path satisfies sudo-rs without exposing a caller-controlled PID. The helper binary and config are installed root-owned (`0755`/`0644`) and are not user-writable; `start` reinstalls all three pieces so upgrades from the old shell-script helper self-heal. The script the helper runs looks like:
+This indirection exists because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. Fixed wildcard-free helper paths satisfy sudo-rs without exposing a caller-controlled PID. The helper binary and config are installed root-owned (`0755`/`0644`) and are not user-writable; `start` reinstalls all three pieces so upgrades from the old shell-script helper self-heal. The script the helper runs looks like:
 
 ```
 export DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... \
@@ -440,3 +440,27 @@ The container workflow uses `actions/attest` for attestation (matching ublue-os/
 - [Container Lifecycle](container-lifecycle.md) — init, start, stop, destroy, recreate flows
 - [Broker Proxy](broker-proxy.md) — D-Bus forwarding for host-side SSO
 - [Container Image](../specs/container-image.md) — Build process, packages, and system configuration
+
+### Scoped machine operations and migration
+
+`machine-exec` is a copy of the Go binary with its own argv[0] dispatch and the
+same root-owned config as `nsenter-exec`. It resolves and validates the target
+before stop/bind, sanitizes the machinectl environment, and pins bind sources
+with `openat2` plus `fstat`. Symlinks in any source component are rejected.
+Machined receives a descriptor path belonging to the waiting helper, never the
+caller's replaceable pathname. The fixed destination is `/opt/intuneme-mcp` and
+the bind is always read-only. The CLI resolves normal host aliases first.
+
+`refreshStartSecurity` runs after sudo authentication, before boot or the
+already-running return. It replaces the broad host polkit rule, refreshes both
+trusted helpers and config, installs the container broker restart policy and
+session script, and revokes legacy container sudo grants. Errors are fatal;
+untrusted helper sources also trigger helper authorization removal. An absent
+machine helper permits authenticated poweroff for stop/recreate; a present
+helper's error does not. Root linger setup explicitly uses authenticated sudo.
+
+`TestHostShellAuthorizationDecisions` evaluates generated policy JavaScript.
+`TestBindSourcePinsDirectoryAcrossReplacement` and the kernel bind case check
+source replacement and read-only enforcement. Start and stop tests exercise
+migration ordering, failures, dry-run, and authentication denial. See
+[ADR-0002](../adr/0002-pin-machine-operations-and-scope-shell-authorization.md).

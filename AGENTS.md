@@ -23,9 +23,9 @@ The repository has two main components:
 - **systemd-run --machine** — requires root (direct bus transport), bypasses polkit. Permission denied as a normal user.
 - **machinectl shell + systemd-run --user** — the transient user service has a minimal PATH that skips `/usr/local/bin/` wrappers, and the sanitized environment breaks X11 auth.
 
-A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme init` and reinstalled by every `intuneme start`, removed by `intuneme destroy`) makes app launch passwordless, so the GNOME extension does not need a terminal for sudo prompts. The rule authorizes only a single root-owned helper at `/usr/local/libexec/intuneme/nsenter-exec`. The helper is a copy of the intuneme binary dispatched by `argv[0]`; its machine, user, UID, home, and rootfs are baked into a root-owned TOML config at install time. The caller supplies only the script to run.
+A sudoers rule at `/etc/sudoers.d/intuneme-exec` (installed by `intuneme init` and reinstalled by every `intuneme start`, removed by `intuneme destroy`) makes app launch passwordless, so the GNOME extension does not need a terminal for sudo prompts. The rule authorizes root-owned `nsenter-exec` and `machine-exec` helpers under `/usr/local/libexec/intuneme/`. The helper is a copy of the intuneme binary dispatched by `argv[0]`; its machine, user, UID, home, and rootfs are baked into a root-owned TOML config at install time. The caller supplies only the script to run.
 
-The helper resolves the container leader from the baked machine name itself, verifies the target is in the host's initial user namespace and that its root is the configured rootfs, enters the container's mount/UTS/IPC/net/PID namespaces, drops to the **numeric** configured UID/GID (with supplementary groups read from the container's `/etc/group`), and only then execs `/bin/bash -c <script>`. It does not use `su` or execute any container-controlled binary while privileged. This is deliberate: an earlier version accepted the leader PID from the caller and ran the container's `/bin/su` as root, so a user-created user+mount namespace with a fake `/bin/su` (or a modified `/etc/passwd`) yielded host root. `sudoers.Install` validates the config, installs the helper `0755` root:root and the config `0644` root:root, and validates the wildcard-free rule with `visudo -c`. `init` may install from a user-owned `go install` binary because it is the explicit, sudo-authenticated install; `start` refuses to replace the root-owned helper from a source that is not root-owned or whose path is group/world-writable. Install intuneme to a root-owned path to get automatic helper refreshes. `start` reinstalls the pieces on every boot, so upgrades from the old shell-script helper self-heal. See `internal/nshelper`.
+The helper resolves the container leader from the baked machine name itself, verifies the target is in the host's initial user namespace and that its root is the configured rootfs, enters the container's mount/UTS/IPC/net/PID namespaces, drops to the **numeric** configured UID/GID (with supplementary groups read from the container's `/etc/group`), and only then execs `/bin/bash -c <script>`. It does not use `su` or execute any container-controlled binary while privileged. This is deliberate: an earlier version accepted the leader PID from the caller and ran the container's `/bin/su` as root, so a user-created user+mount namespace with a fake `/bin/su` (or a modified `/etc/passwd`) yielded host root. `sudoers.Install` validates the config, installs the helper `0755` root:root and the config `0644` root:root, and validates the wildcard-free rule with `visudo -c`. `init` may install from a user-owned `go install` binary because it is the explicit, sudo-authenticated install; `start` fails and removes passwordless helper authorization if its source is not root-owned or its path is group/world-writable; it never silently keeps an older helper. Install intuneme to a root-owned path to get automatic helper refreshes. `start` reconciles all security artifacts before boot or returning for an already-running machine. See `internal/nshelper`.
 
 **Session setup runs on the nsenter path too.** The nsenter shell is *non-login*, so it never sources `/etc/profile.d`. `nspawn.Exec()` therefore runs `/usr/local/bin/intuneme-session-setup` (the shared script that `/etc/profile.d/intuneme.sh` also sources) before launching the app. Broker restart uses a container polkit policy limited to `manage-units`, the device-broker unit, and `restart`; no session-side sudo is needed. The canonical policy is in `ubuntu-intune/system_files`, embedded for upgrade reconciliation. That script pushes `DISPLAY`/`XAUTHORITY` into the **D-Bus activation environment** (`dbus-update-activation-environment`) and unlocks gnome-keyring. This is mandatory: the Microsoft identity broker is a GTK app that the session D-Bus daemon activates on demand — without a display in the activation environment it dies on startup (`cannot open display`) and **Edge can't authenticate**. The same activation environment carries `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1`; without them the broker's WebKitGTK sign-in window renders blank white on a Wayland host. Anything the broker must see has to be named in the script's `_env_vars` propagation list — a bare `export` never reaches a D-Bus-activated process. `start` reinstalls the script on every boot, unconditionally, so CLI upgrades reach existing containers without a `recreate`. See `docs/design/overview.md` → "Session Setup".
 
@@ -82,3 +82,24 @@ sudo grants remain. Broker restart uses the scoped container polkit policy.
 sudoers file before boot or the already-running return. A migration error is
 fatal. App/MCP sessions cannot use sudo because the helper sets `no_new_privs`;
 interactive `intuneme shell` administration still uses the container password.
+
+## Host authorization and upgrade invariants
+
+The generated host polkit rule matches `subject.uid`, the configured machine,
+and the configured non-root username. Never restore a group-wide `shell` grant:
+it also authorizes root and unrelated-container shells. Broker linger setup
+uses the start command's authenticated sudo session; ordinary user sessions
+still use the scoped passwordless shell grant.
+
+`machine-exec` is a second copy of the trusted Go binary, dispatched by argv[0],
+using the same root-owned TOML config. It validates the target, accepts only
+`stop` or `bind <directory>`, and clears the command environment. For binds it
+uses `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` and fstat, then passes
+`/proc/<helper-pid>/fd/<fd>` to machined while retaining the descriptor until the
+reply. Never replace this with pathname validation followed by pathname use.
+The CLI resolves legitimate host path aliases before the privileged open.
+
+Missing machine helpers on upgrade permit an explicitly authenticated
+`sudo machinectl poweroff` fallback. A present helper's rejection never falls
+back. `start` refreshes host polkit, helpers, container broker policy and sudoers
+before its already-running return; failure is fatal. See ADR-0002.

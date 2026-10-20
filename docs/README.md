@@ -20,6 +20,7 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 ### Decisions (ADRs)
 
 - [0001 — Make the helper privilege drop irreversible](adr/0001-make-helper-privilege-drop-irreversible.md)
+- [0002 — Pin machine operations and scope shell authorization](adr/0002-pin-machine-operations-and-scope-shell-authorization.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
