@@ -10,6 +10,7 @@ package nshelper
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -61,6 +62,9 @@ func (c *Config) Validate() error {
 	}
 	if !machineRe.MatchString(c.Machine) {
 		return fmt.Errorf("helper config: invalid machine name %q", c.Machine)
+	}
+	if c.UID == 0 || c.UID == math.MaxUint32 || c.GID == math.MaxUint32 {
+		return fmt.Errorf("helper config: invalid unprivileged uid/gid")
 	}
 	if c.User == "" || strings.ContainsAny(c.User, ":\n\r\t") {
 		return fmt.Errorf("helper config: invalid user %q", c.User)

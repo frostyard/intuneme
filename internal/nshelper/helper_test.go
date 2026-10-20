@@ -239,3 +239,18 @@ func TestIsHelperName(t *testing.T) {
 		t.Error("CLI basename must not match")
 	}
 }
+
+func TestConfigRejectsPrivilegedAndSentinelIDs(t *testing.T) {
+	for _, uid := range []uint32{0, ^uint32(0)} {
+		cfg := testConfig(t)
+		cfg.UID = uid
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("accepted uid %d", uid)
+		}
+	}
+	cfg := testConfig(t)
+	cfg.GID = ^uint32(0)
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("accepted sentinel gid")
+	}
+}

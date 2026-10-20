@@ -61,6 +61,10 @@ func Main(args []string) int {
 // Run resolves the configured machine, validates the target, enters its
 // namespaces, drops to the configured numeric UID, and runs script.
 func Run(cfg *Config, script string) int {
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "nsenter-exec: must be run as root")
 		return 1
@@ -86,6 +90,11 @@ func Run(cfg *Config, script string) int {
 	}
 	if err := enterNamespaces("/proc", leader); err != nil {
 		fmt.Fprintf(os.Stderr, "nsenter-exec: enter container: %v\n", err)
+		return 1
+	}
+
+	if err := restrictPrivileges(); err != nil {
+		fmt.Fprintf(os.Stderr, "nsenter-exec: restrict privileges: %v\n", err)
 		return 1
 	}
 
@@ -268,6 +277,11 @@ func credentialsFromRootfs(cfg *Config) (credential, error) {
 // the helper needs.
 func enterNamespaces(procRoot string, pid int) error {
 	runtime.LockOSThread()
+	// Go threads share fs_struct. Locking a thread alone does not make setns
+	// legal; give this thread its own root/cwd/umask before changing mounts.
+	if err := unix.Unshare(unix.CLONE_FS); err != nil {
+		return fmt.Errorf("unshare filesystem state: %w", err)
+	}
 
 	namespaces := []struct {
 		name string
@@ -329,4 +343,40 @@ func findInPath(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s not found in %s", name, helperPATH)
+}
+
+// restrictPrivileges applies to the locked execution thread and its children.
+// NNP forbids setuid/file-capability elevation; clearing the bounding and
+// ambient sets also prevents a descendant from recovering host capabilities.
+// The helper never unlocks this thread or reuses it for other work.
+func restrictPrivileges() error {
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		return err
+	}
+	if err := unix.Prctl(unix.PR_CAP_AMBIENT, unix.PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0); err != nil {
+		return err
+	}
+	for capability := uintptr(0); ; capability++ {
+		_, err := unix.PrctlRetInt(unix.PR_CAPBSET_READ, capability, 0, 0, 0)
+		if err == unix.EINVAL {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if err := unix.Prctl(unix.PR_CAPBSET_DROP, capability, 0, 0, 0); err != nil {
+			return err
+		}
+	}
+	// Clear inheritable capabilities while retaining the effective/permitted
+	// capabilities needed by ForkExec to set the child's numeric credentials.
+	header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	data := [2]unix.CapUserData{}
+	if err := unix.Capget(&header, &data[0]); err != nil {
+		return err
+	}
+	for i := range data {
+		data[i].Inheritable = 0
+	}
+	return unix.Capset(&header, &data[0])
 }

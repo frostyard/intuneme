@@ -136,7 +136,7 @@ if [ ! -f "$_keyring_marker" ]; then
     # The user-session identity broker is D-Bus-activated (not a systemd unit), so
     # it is NOT restarted here — it re-activates with a fresh process, and now
     # working environment, on the next call from Edge.
-    sudo systemctl restart microsoft-identity-device-broker.service 2>/dev/null
+    systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
 fi
 
 # Start the intune agent timer if it isn't already running.
