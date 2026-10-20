@@ -157,15 +157,20 @@ var startCmd = &cobra.Command{
 			rep.Message("Installed udev hotplug rules.")
 		}
 
-		// Ensure the sudoers rule for passwordless app launch exists.
-		// Normally installed by init; reinstall here if missing (upgrade
-		// from older version, or manual deletion).
-		if !sudoers.IsInstalled(r) {
-			if err := sudoers.Install(r, cfg.HostUser); err != nil {
-				rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
-			} else if clix.Verbose {
-				rep.Message("Installed passwordless nsenter rule.")
-			}
+		// Reinstall the helper on every start. This ensures the root-owned
+		// binary, its baked config, and the sudoers rule match the current CLI
+		// and config, including upgrades from the old shell-script helper.
+		if err := sudoers.Install(r, sudoers.Options{
+			User:    cfg.HostUser,
+			Machine: cfg.MachineName,
+			UID:     cfg.HostUID,
+			GID:     os.Getgid(),
+			Home:    fmt.Sprintf("/home/%s", cfg.HostUser),
+			Rootfs:  cfg.RootfsPath,
+		}); err != nil {
+			rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
+		} else if clix.Verbose {
+			rep.Message("Installed passwordless container helper.")
 		}
 
 		// Reinstall the shared session-setup script on every start, so the

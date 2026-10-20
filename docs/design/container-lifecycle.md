@@ -19,7 +19,7 @@ One-time provisioning that creates the container from scratch.
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
 8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (`<user> ALL=(ALL) NOPASSWD: ALL`)
 9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
-10. **Install sudoers rule + helper**: root-owned helper at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`) plus `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
+10. **Install sudoers rule + helper**: root-owned helper binary at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`), its root-owned config at `nsenter-exec.toml` (`0644`), and `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The config bakes the machine name, user, numeric UID/GID, home, and rootfs. The helper resolves and validates the container leader itself and drops to the numeric UID before executing the script, so the caller cannot supply a PID or influence the target UID. The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
 12. **Save config** — Write `config.toml`
 
@@ -97,7 +97,7 @@ Removes container and host modifications. By default preserves user files in `~/
 2. **Stop container** if running — `nspawn.StopAndWait()`
 3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
 4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
-5. **Remove sudoers rule + helper**: Delete `/etc/sudoers.d/intuneme-exec` and `/usr/local/libexec/intuneme/nsenter-exec`
+5. **Remove sudoers rule + helper**: Delete `/etc/sudoers.d/intuneme-exec`, `/usr/local/libexec/intuneme/nsenter-exec`, and `nsenter-exec.toml`
 6. **Delete rootfs** — `sudo rm -rf` the rootfs directory
 7. **Remove config** — Delete `config.toml`
 8. **Clean enrollment state** from `~/Intune`:

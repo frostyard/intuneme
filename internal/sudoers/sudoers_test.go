@@ -2,10 +2,13 @@ package sudoers
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
-	"github.com/frostyard/intuneme/internal/nspawn"
+	"github.com/BurntSushi/toml"
+	"github.com/frostyard/intuneme/internal/nshelper"
 )
 
 // mockRunner records commands and captures the content installed to each
@@ -48,9 +51,35 @@ func contains(s []string, v string) bool {
 	return false
 }
 
+func testOptions() Options {
+	return Options{
+		User:    "testuser",
+		Machine: "intuneme",
+		UID:     1000,
+		GID:     1000,
+		Home:    "/home/testuser",
+		Rootfs:  "/home/testuser/.local/share/intuneme/rootfs",
+	}
+}
+
+// fakeExecutable points the installer at a small file instead of the test
+// binary. It returns a cleanup function.
+func fakeExecutable(t *testing.T) {
+	t.Helper()
+	path := t.TempDir() + "/intuneme"
+	if err := os.WriteFile(path, []byte("fake-intuneme-binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath, oldCheck := executablePath, checkExecutable
+	executablePath = func() (string, error) { return path, nil }
+	checkExecutable = func(string) error { return nil }
+	t.Cleanup(func() { executablePath, checkExecutable = oldPath, oldCheck })
+}
+
 func TestInstall_RuleHasNoWildcards(t *testing.T) {
+	fakeExecutable(t)
 	r := newMockRunner()
-	if err := Install(r, "testuser"); err != nil {
+	if err := Install(r, testOptions()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -61,47 +90,79 @@ func TestInstall_RuleHasNoWildcards(t *testing.T) {
 	if strings.Contains(rule, "*") {
 		t.Errorf("sudoers rule must not contain wildcards (sudo-rs rejects them):\n%s", rule)
 	}
-	if !strings.Contains(rule, "testuser ALL=(root) NOPASSWD: "+nspawn.NsenterHelperPath) {
+	if !strings.Contains(rule, "testuser ALL=(root) NOPASSWD: "+nshelper.Path) {
 		t.Errorf("sudoers rule does not reference the helper path:\n%s", rule)
 	}
 }
 
-func TestInstall_InstallsHelper(t *testing.T) {
+func TestInstall_InstallsHelperBinaryAndConfig(t *testing.T) {
+	fakeExecutable(t)
 	r := newMockRunner()
-	if err := Install(r, "testuser"); err != nil {
+	if err := Install(r, testOptions()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
-	helper, ok := r.installed[nspawn.NsenterHelperPath]
+	helper, ok := r.installed[nshelper.Path+".new"]
 	if !ok {
-		t.Fatalf("helper script was not installed; commands: %v", r.commands)
+		t.Fatalf("helper binary was not staged; commands: %v", r.commands)
 	}
-	if helper != nspawn.NsenterHelperScript("testuser") {
-		t.Errorf("installed helper does not match NsenterHelperScript output:\n%s", helper)
+	if helper != "fake-intuneme-binary" {
+		t.Errorf("installed helper = %q, want fake-intuneme-binary", helper)
 	}
 
-	// Helper must be installed root-owned and executable (0755), and the
-	// directory created with the same ownership.
-	var sawHelperInstall, sawDirInstall bool
+	raw, ok := r.installed[nshelper.ConfigPath+".new"]
+	if !ok {
+		t.Fatalf("helper config was not staged; commands: %v", r.commands)
+	}
+	var cfg nshelper.Config
+	if _, err := toml.Decode(raw, &cfg); err != nil {
+		t.Fatalf("helper config is not valid TOML: %v\n%s", err, raw)
+	}
+	if cfg.Machine != "intuneme" || cfg.User != "testuser" || cfg.UID != 1000 ||
+		cfg.GID != 1000 || cfg.Home != "/home/testuser" ||
+		cfg.Rootfs != "/home/testuser/.local/share/intuneme/rootfs" {
+		t.Errorf("helper config = %+v", cfg)
+	}
+
+	var sawBinaryInstall, sawConfigInstall, sawDirInstall, sawBinaryRename, sawConfigRename bool
 	for _, c := range r.commands {
-		if strings.Contains(c, nspawn.NsenterHelperPath) && strings.Contains(c, "install -m 0755 -o root -g root") {
-			sawHelperInstall = true
+		if strings.Contains(c, nshelper.Path+".new") && strings.Contains(c, "install -m 0755 -o root -g root") {
+			sawBinaryInstall = true
 		}
-		if strings.Contains(c, "install -d -m 0755 -o root -g root "+nspawn.NsenterHelperDir) {
+		if strings.Contains(c, nshelper.ConfigPath+".new") && strings.Contains(c, "install -m 0644 -o root -g root") {
+			sawConfigInstall = true
+		}
+		if strings.Contains(c, "install -d -m 0755 -o root -g root "+nshelper.Dir) {
 			sawDirInstall = true
+		}
+		if c == "sudo mv -f "+nshelper.Path+".new "+nshelper.Path {
+			sawBinaryRename = true
+		}
+		if c == "sudo mv -f "+nshelper.ConfigPath+".new "+nshelper.ConfigPath {
+			sawConfigRename = true
 		}
 	}
 	if !sawDirInstall {
 		t.Errorf("expected helper directory to be created root-owned; commands: %v", r.commands)
 	}
-	if !sawHelperInstall {
-		t.Errorf("expected helper to be installed 0755 root:root; commands: %v", r.commands)
+	if !sawBinaryInstall {
+		t.Errorf("expected helper binary staged 0755 root:root; commands: %v", r.commands)
+	}
+	if !sawConfigInstall {
+		t.Errorf("expected helper config staged 0644 root:root; commands: %v", r.commands)
+	}
+	if !sawBinaryRename {
+		t.Errorf("expected helper binary to be activated with mv; commands: %v", r.commands)
+	}
+	if !sawConfigRename {
+		t.Errorf("expected helper config to be activated with mv; commands: %v", r.commands)
 	}
 }
 
 func TestInstall_ValidatesBeforeInstallingRule(t *testing.T) {
+	fakeExecutable(t)
 	r := newMockRunner()
-	if err := Install(r, "testuser"); err != nil {
+	if err := Install(r, testOptions()); err != nil {
 		t.Fatalf("Install failed: %v", err)
 	}
 
@@ -125,7 +186,44 @@ func TestInstall_ValidatesBeforeInstallingRule(t *testing.T) {
 	}
 }
 
-func TestRemove_RemovesRuleAndHelper(t *testing.T) {
+func TestVerifyExecutableRejectsUserOwnedPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "intuneme")
+	if err := os.WriteFile(path, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyExecutable(path); err == nil {
+		t.Error("expected a user-owned executable path to be rejected")
+	}
+}
+
+func TestVerifyExecutableAcceptsRootOwnedBinary(t *testing.T) {
+	info, err := os.Stat("/bin/sh")
+	if err != nil {
+		t.Skip("/bin/sh not available")
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || st.Uid != 0 {
+		t.Skip("/bin/sh is not root-owned in this environment")
+	}
+	if err := verifyExecutable("/bin/sh"); err != nil {
+		t.Errorf("root-owned executable rejected: %v", err)
+	}
+}
+
+func TestInstall_RejectsUnsafeConfig(t *testing.T) {
+	fakeExecutable(t)
+	r := newMockRunner()
+	opts := testOptions()
+	opts.Machine = ".host"
+	if err := Install(r, opts); err == nil {
+		t.Fatal("expected .host machine to be rejected")
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("no commands should run for invalid config, got: %v", r.commands)
+	}
+}
+
+func TestRemove_RemovesRuleHelperAndConfig(t *testing.T) {
 	r := newMockRunner()
 	Remove(r)
 
@@ -133,10 +231,9 @@ func TestRemove_RemovesRuleAndHelper(t *testing.T) {
 		t.Fatalf("expected a single rm command, got: %v", r.commands)
 	}
 	cmd := r.commands[0]
-	if !strings.Contains(cmd, filePath) {
-		t.Errorf("Remove must delete the sudoers rule, got: %s", cmd)
-	}
-	if !strings.Contains(cmd, nspawn.NsenterHelperPath) {
-		t.Errorf("Remove must delete the nsenter helper, got: %s", cmd)
+	for _, path := range []string{filePath, nshelper.Path, nshelper.Path + ".new", nshelper.ConfigPath, nshelper.ConfigPath + ".new"} {
+		if !strings.Contains(cmd, path) {
+			t.Errorf("Remove must delete %s, got: %s", path, cmd)
+		}
 	}
 }

@@ -46,14 +46,15 @@ Set the `TERMINAL` environment variable to override the default search order —
 
 `intuneme init` installs a sudoers rule at `/etc/sudoers.d/intuneme-exec` that allows the host user to launch container apps without a password prompt. This is what enables the extension (and [desktop shortcuts](desktop-shortcuts.md)) to launch Edge and Intune Portal without a terminal window appearing to ask for a sudo password.
 
-Instead of authorizing `nsenter` directly, the rule grants passwordless `sudo` for a single root-owned helper script at `/usr/local/libexec/intuneme/nsenter-exec`. The helper hard-codes the exact `nsenter`/`su` invocation and accepts only the container's process ID and the command to run. This is required because `sudo-rs` (the Rust `sudo`/`su` that ships by default on Ubuntu 25.10 and later) rejects wildcards inside command arguments, which the previous rule relied on and which caused an error on every `sudo` command.
+Instead of authorizing `nsenter` directly, the rule grants passwordless `sudo` for a single root-owned helper at `/usr/local/libexec/intuneme/nsenter-exec`. The helper is a copy of the intuneme binary; the machine, user, numeric UID, home, and container rootfs are baked into a root-owned config at install time, and the caller supplies only the command to run. At runtime the helper looks up and validates the container itself, enters only that container's namespaces, drops to the configured numeric UID, and then runs the command. This is required because `sudo-rs` (the Rust `sudo`/`su` that ships by default on Ubuntu 25.10 and later) rejects wildcards inside command arguments, which the previous rule relied on and which caused an error on every `sudo` command.
 
 The rule is narrowly scoped:
 
-- It only permits the single fixed helper script; the nsenter flags are baked into the helper, not supplied by the caller.
-- The helper only runs `su` to the host user (not arbitrary users), and is installed root-owned and not user-writable.
-- It persists across `intuneme start` and `intuneme stop` cycles.
-- It is removed (along with the helper) when you run `intuneme destroy`.
+- It only permits the single fixed helper; the nsenter flags and target container are baked into the helper, not supplied by the caller.
+- The caller cannot supply a process ID, and the helper never executes a container-controlled binary (such as `/bin/su`) while privileged. It drops to the host user's numeric UID first.
+- The helper binary and its config are installed root-owned and not user-writable.
+- It persists across `intuneme start` and `intuneme stop` cycles; `start` reinstalls it so CLI upgrades apply.
+- It is removed (along with the helper and config) when you run `intuneme destroy`.
 
 !!! tip
     If the rule or helper goes missing (for example, after upgrading from an older version that used the wildcard rule), running `intuneme start` will reinstall both automatically.

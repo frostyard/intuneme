@@ -47,13 +47,11 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ### Command Execution Inside the Container
 
-`nspawn.Exec()` enters the container's namespaces and runs commands as the user via `su`. Rather than invoking `sudo nsenter …` directly, it calls a fixed, root-owned helper script `/usr/local/libexec/intuneme/nsenter-exec <leader_pid> <script>` through passwordless `sudo`. The helper hard-codes the nsenter+su shape:
+`nspawn.Exec()` enters the container's namespaces and runs commands as the user via a single root-owned helper, `/usr/local/libexec/intuneme/nsenter-exec <script>`, invoked through passwordless `sudo`. The helper is a copy of the intuneme binary dispatched by `argv[0]` (`internal/nshelper`). Its machine, user, UID, home, and rootfs are baked into a root-owned TOML config (`nsenter-exec.toml`) at install time; **the caller supplies only the script**.
 
-```
-exec /usr/bin/nsenter -t "$1" -m -u -i -n -p -- /bin/su -s /bin/bash <user> -c "$2"
-```
+At runtime the helper resolves the container leader from the baked machine name itself, verifies that the leader is in the host's initial user namespace and that `/proc/<pid>/root` is the configured rootfs, enters only the container's mount/UTS/IPC/net/PID namespaces, drops to the numeric configured UID/GID (supplementary groups come from the container's `/etc/group`), and only then execs `/bin/bash -c <script>`. It never runs `su`, never reads the UID from the container's `/etc/passwd`, and never executes a container-controlled binary while privileged. This matters: accepting a caller-supplied PID previously let a user-created user+mount namespace with a fake `/bin/su` run as host root; a container-root user could also set their passwd UID to 0 and have `su` execute as root. Both paths are closed by resolving the leader internally and dropping to a numeric UID before exec.
 
-so the only per-call variation is the leader PID (`$1`) and the script (`$2`). This indirection exists because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. The previous rule used `*` for the leader PID and script and was rejected, breaking *every* `sudo` invocation. A single wildcard-free helper path satisfies sudo-rs while keeping the same effective authorization (the leader PID and script are still caller-controlled). The helper is installed root-owned and `0755` (not user-writable, since it runs as root before dropping to `<user>`). This is the only reliable approach for launching GUI apps non-interactively. The script the helper runs looks like:
+This indirection exists because **sudo-rs** (the default `sudo`/`su` on Ubuntu 25.10+) forbids wildcards inside command arguments. A single wildcard-free helper path satisfies sudo-rs without exposing a caller-controlled PID. The helper binary and config are installed root-owned (`0755`/`0644`) and are not user-writable; `start` reinstalls all three pieces so upgrades from the old shell-script helper self-heal. The script the helper runs looks like:
 
 ```
 export DISPLAY=... XAUTHORITY=... WAYLAND_DISPLAY=... PIPEWIRE_REMOTE=... \
@@ -65,7 +63,7 @@ nohup <app> >/dev/null 2>&1 &
 
 The script conditionally sets Wayland, PipeWire, PulseAudio, Nvidia, and D-Bus variables based on detected host sockets and GPU. It then runs `intuneme-session-setup` (see [Session Setup](#session-setup-shared-between-login-and-launch-paths)) before launching the app. Because this is a non-login shell, that script is what pushes `DISPLAY`/`XAUTHORITY` into the D-Bus activation environment (so the GTK identity broker can start) and unlocks the keyring. Without it the broker crashes on activation and authentication fails.
 
-A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless so the GNOME extension can launch apps without a terminal. The rule and the helper are installed together (by `init`, self-healed by `start`); `sudoers.IsInstalled()` requires *both* to exist so an upgrade from the old wildcard-only rule reinstalls the wildcard-free rule and helper. See [AGENTS.md](../../AGENTS.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
+A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless so the GNOME extension can launch apps without a terminal. `sudoers.Install` writes the helper binary, its config, and the rule; `start` reinstalls them on every boot so CLI upgrades and config changes reach existing installs. `sudoers.IsInstalled()` requires the binary, config, and rule to exist. See [AGENTS.md](../../AGENTS.md) for why alternatives (`machinectl shell`, `systemd-run`) don't work.
 
 `nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same helper invocation (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code); backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
 
@@ -296,7 +294,7 @@ The CLI uses `frostyard/clix` and `frostyard/std/reporter` for consistent output
 
 ### Sudoers Rule Safety
 
-The `internal/sudoers/` package writes the nsenter sudoers rule via a safe workflow: write to a temp file, validate syntax with `visudo -c -f <tmpfile>`, then `sudo install` to `/etc/sudoers.d/intuneme-exec`. This prevents a broken sudoers file from locking out sudo. The rule is scoped to a specific nsenter invocation pattern: `/usr/bin/nsenter -t * -m -u -i -n -p -- /bin/su -s /bin/bash <user> -c *`.
+The `internal/sudoers/` package writes the sudoers rule via a safe workflow: write to a temp file, validate syntax with `visudo -c -f <tmpfile>`, then `sudo install` to `/etc/sudoers.d/intuneme-exec`. This prevents a broken sudoers file from locking out sudo. The rule authorizes exactly one root-owned helper path with no wildcards: `<user> ALL=(root) NOPASSWD: /usr/local/libexec/intuneme/nsenter-exec`. All target selection (machine, leader, rootfs, UID) is baked into the helper and its root-owned config, never supplied by the caller.
 
 ### Runner Abstraction
 
