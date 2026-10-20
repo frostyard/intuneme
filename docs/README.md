@@ -19,8 +19,8 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 
 ### Decisions (ADRs)
 
-*(none yet — org-wide decisions binding this repo are listed in
-[org-adrs.md](org-adrs.md))*
+- [0001 — Make the helper privilege drop irreversible](adr/0001-make-helper-privilege-drop-irreversible.md)
+- Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
 

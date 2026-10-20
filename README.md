@@ -36,3 +36,10 @@ See the [contributing guide](https://frostyard.github.io/intuneme/contributing/)
 ## License
 
 MIT
+
+### Helper security
+
+App and MCP launches permanently disable setuid/file-capability elevation and
+run as your configured numeric user. Container administration requiring sudo
+must use an interactive `intuneme shell` session. The session restarts only the
+Microsoft device broker through a scoped container D-Bus policy.
