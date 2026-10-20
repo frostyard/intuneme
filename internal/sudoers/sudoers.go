@@ -3,6 +3,7 @@ package sudoers
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -46,11 +47,17 @@ func findVisudo(r runner.Runner) string {
 // helper must resolve the container itself rather than receiving a PID and
 // script from the caller. See internal/nshelper.
 func Install(r runner.Runner, opts Options) error {
+	if opts.UID < 0 || uint64(opts.UID) > math.MaxUint32 {
+		return fmt.Errorf("invalid uid %d", opts.UID)
+	}
+	if opts.GID < 0 || uint64(opts.GID) > math.MaxUint32 {
+		return fmt.Errorf("invalid gid %d", opts.GID)
+	}
 	cfg := &nshelper.Config{
 		Machine: opts.Machine,
 		User:    opts.User,
-		UID:     opts.UID,
-		GID:     opts.GID,
+		UID:     uint32(opts.UID),
+		GID:     uint32(opts.GID),
 		Home:    opts.Home,
 		Rootfs:  opts.Rootfs,
 	}
