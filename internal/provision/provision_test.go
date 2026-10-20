@@ -13,10 +13,20 @@ import (
 type mockRunner struct {
 	commands []string
 	outputs  [][]byte // if non-empty, popped in order for Run calls
+	writes   map[string]string
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
 	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	if name == "sudo" && len(args) >= 4 && args[0] == "install" {
+		src, dst := args[len(args)-2], args[len(args)-1]
+		if data, err := os.ReadFile(src); err == nil {
+			if m.writes == nil {
+				m.writes = map[string]string{}
+			}
+			m.writes[dst] = string(data)
+		}
+	}
 	if len(m.outputs) > 0 {
 		out := m.outputs[0]
 		m.outputs = m.outputs[1:]
@@ -77,6 +87,38 @@ func TestWriteFixups(t *testing.T) {
 		if !found {
 			t.Errorf("expected symlink command for %q", want)
 		}
+	}
+}
+
+func TestContainerSudoersRuleIsScoped(t *testing.T) {
+	rule := containerSudoersRule("testuser")
+	if strings.Contains(rule, "NOPASSWD: ALL") || strings.Contains(rule, "NOPASSWD:ALL") {
+		t.Fatalf("container sudoers rule must not grant unrestricted root: %q", rule)
+	}
+	if strings.Contains(rule, "*") {
+		t.Errorf("rule must not contain wildcards: %q", rule)
+	}
+	want := "testuser ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service\n"
+	if rule != want {
+		t.Errorf("rule = %q, want %q", rule, want)
+	}
+}
+
+func TestWriteFixupsWritesScopedSudoers(t *testing.T) {
+	r := &mockRunner{}
+	rootfs := t.TempDir()
+	if err := WriteFixups(r, rootfs, "testuser", 1000, 1000, "testhost"); err != nil {
+		t.Fatalf("WriteFixups error: %v", err)
+	}
+	got, ok := r.writes[filepath.Join(rootfs, "etc", "sudoers.d", "intuneme")]
+	if !ok {
+		t.Fatalf("sudoers file was not written; commands: %v", r.commands)
+	}
+	if strings.Contains(got, "NOPASSWD: ALL") || strings.Contains(got, "NOPASSWD:ALL") {
+		t.Fatalf("unrestricted container sudo rule written: %q", got)
+	}
+	if !strings.Contains(got, "systemctl restart microsoft-identity-device-broker.service") {
+		t.Errorf("scoped rule missing broker restart: %q", got)
 	}
 }
 

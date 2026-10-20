@@ -46,6 +46,17 @@ func sudoSymlink(r runner.Runner, target, link string) error {
 	return err
 }
 
+// containerSudoersRule is the only passwordless root command the container
+// user gets. The session setup script restarts the device broker after
+// initializing the keyring; nothing else needs root non-interactively. The
+// container user can still use sudo interactively with the password set by
+// init. The old `ALL=(ALL) NOPASSWD: ALL` rule turned every command run by the
+// host-side helper into unrestricted host root, because the helper executes
+// user commands outside the nspawn sandbox.
+func containerSudoersRule(user string) string {
+	return fmt.Sprintf("%s ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service\n", user)
+}
+
 func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostname string) error {
 	// /etc/hostname
 	if err := sudo.WriteFile(r,
@@ -98,12 +109,15 @@ WantedBy=multi-user.target
 		return err
 	}
 
-	// Passwordless sudo for the container user
+	// Passwordless sudo for the one system operation the user session performs.
+	// Do not grant NOPASSWD: ALL: the helper runs arbitrary user commands outside
+	// nspawn, so an all-powerful container sudo would let any user command become
+	// unrestricted host root.
 	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
 	if err := sudoMkdirAll(r, sudoersDir); err != nil {
 		return fmt.Errorf("mkdir sudoers.d: %w", err)
 	}
-	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
+	sudoersRule := containerSudoersRule(user)
 	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
 		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
 	}
