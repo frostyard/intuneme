@@ -94,9 +94,12 @@ still use the scoped passwordless shell grant.
 `machine-exec` is a second copy of the trusted Go binary, dispatched by argv[0],
 using the same root-owned TOML config. It validates the target, accepts only
 `stop` or `bind <directory>`, and clears the command environment. For binds it
-uses `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` and fstat, then passes
-`/proc/<helper-pid>/fd/<fd>` to machined while retaining the descriptor until the
-reply. Never replace this with pathname validation followed by pathname use.
+uses `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` and fstat, then
+`open_tree`, `mount_setattr`, and `move_mount` on descriptors to attach a
+read-only, nosuid, nodev mount inside the validated container mount namespace.
+Destination components are also opened without symlinks. This needs Linux 5.12+
+and fails closed on older kernels. Never pass a descriptor pathname through
+machined: older systemd versions resolve it back to a replaceable pathname.
 The CLI resolves legitimate host path aliases before the privileged open.
 
 Missing machine helpers on upgrade permit an explicitly authenticated

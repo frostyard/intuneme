@@ -447,9 +447,14 @@ The container workflow uses `actions/attest` for attestation (matching ublue-os/
 same root-owned config as `nsenter-exec`. It resolves and validates the target
 before stop/bind, sanitizes the machinectl environment, and pins bind sources
 with `openat2` plus `fstat`. Symlinks in any source component are rejected.
-Machined receives a descriptor path belonging to the waiting helper, never the
-caller's replaceable pathname. The fixed destination is `/opt/intuneme-mcp` and
-the bind is always read-only. The CLI resolves normal host aliases first.
+The helper clones the pinned source with `open_tree`, sets read-only/nosuid/nodev
+with `mount_setattr`, then enters the validated mount namespace on a locked
+thread after `unshare(CLONE_FS)`. It opens the fixed `/opt/intuneme-mcp`
+destination beneath the pinned target root without symlinks and attaches the
+clone using `move_mount` with empty-path descriptor flags. No validated object
+is converted back to a pathname. Older machined implementations resolve even
+`/proc/<pid>/fd` sources back to pathnames, so they cannot provide this guarantee.
+The CLI resolves normal host aliases first. Linux 5.12+ is required for binds.
 
 `refreshStartSecurity` runs after sudo authentication, before boot or the
 already-running return. It replaces the broad host polkit rule, refreshes both
