@@ -84,7 +84,7 @@ func runKernelBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if os.Getenv("INTUNEME_KERNEL_MODE") == "bind" {
-		runBindKernelBoundary(t, dir, fixture)
+		runBindKernelBoundary(t, dir)
 		return
 	}
 	switch os.Getenv("INTUNEME_KERNEL_MODE") {

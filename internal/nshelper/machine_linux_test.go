@@ -5,12 +5,12 @@ package nshelper
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestBindSourceRejectsSymlinksAndWrongOwner(t *testing.T) {
@@ -85,16 +85,11 @@ func TestMachineHelperRejectsUnscopedOperations(t *testing.T) {
 	}
 }
 
-// runBindKernelBoundary substitutes only the machined transport: a separate
-// process resolves the helper's pinned FD, performs the real kernel bind, and
-// verifies it is read-only even after replacing the source pathname.
-func runBindKernelBoundary(t *testing.T, dir, fixture string) {
+// Exercise the native kernel mount operations on pinned descriptors. All
+// mounts live in the disposable test namespace, never on the real host.
+func runBindKernelBoundary(t *testing.T, dir string) {
 	t.Helper()
 	if err := unix.Mount("tmpfs", "/opt", "tmpfs", 0, "mode=0755"); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = unix.Unmount("/opt", 0) }()
-	if err := os.Mkdir(MCPMountDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	source := filepath.Join(dir, "source")
@@ -107,44 +102,83 @@ func runBindKernelBoundary(t *testing.T, dir, fixture string) {
 	if err := os.WriteFile(filepath.Join(source, "marker"), []byte("original"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	transport := filepath.Join(dir, "machinectl")
-	script := fmt.Sprintf("#!/bin/sh\nINTUNEME_MOUNT_SOURCE='%s' exec '%s' -test.run=^TestMachineMountChild$ -- \"$@\"\n", source, fixture)
-	if err := os.WriteFile(transport, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	findExecutable = func(string) (string, error) { return transport, nil }
+	findExecutable = func(string) (string, error) { return "/unused", nil }
 	commandOutput = func(string, ...string) ([]byte, error) { return []byte(strconv.Itoa(os.Getpid())), nil }
 	cfg := &Config{Machine: "test", User: "test", UID: 1000, GID: 1000, Home: "/", Rootfs: "/"}
+	wrongRoot := *cfg
+	wrongRoot.Rootfs = dir
+	if err := runMachine(&wrongRoot, []string{"bind", source}); err == nil {
+		t.Fatal("accepted mismatched target root")
+	}
 	if err := runMachine(cfg, []string{"bind", source}); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Println("KERNEL_BOUNDARY_OK")
-}
-
-func TestMachineMountChild(t *testing.T) {
-	source := os.Getenv("INTUNEME_MOUNT_SOURCE")
-	if source == "" {
-		t.Skip("subprocess only")
+	assertReadOnlyMCP(t)
+	if err := unix.Unmount(MCPMountDir, 0); err != nil {
+		t.Fatal(err)
 	}
-	args := os.Args[len(os.Args)-6:]
-	if args[0] != "bind" || args[1] != "--read-only" || args[2] != "--mkdir" || args[3] != "test" || args[5] != MCPMountDir {
-		t.Fatalf("unsafe bind arguments: %v", args)
+	// Force the replacement precisely after source validation, before mounting.
+	pinned, err := pinBindSource(source, 1000)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.HasPrefix(args[4], "/proc/") || !strings.Contains(args[4], "/fd/") {
-		t.Fatalf("source was not pinned: %s", args[4])
-	}
+	defer func() { _ = pinned.Close() }()
 	if err := os.Rename(source, source+"-old"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("/etc", source); err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Mount(args[4], MCPMountDir, "", unix.MS_BIND, ""); err != nil {
+	mount, err := cloneReadOnlyMount(pinned)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = unix.Unmount(MCPMountDir, 0) }()
-	if err := unix.Mount("", MCPMountDir, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
+	defer func() {
+		if mount >= 0 {
+			_ = unix.Close(mount)
+		}
+	}()
+	root, err := unix.Open("/", unix.O_PATH|unix.O_DIRECTORY, 0)
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(root) }()
+	if err := attachMCPMount(mount, root); err != nil {
+		t.Fatal(err)
+	}
+	assertReadOnlyMCP(t)
+	if err := unix.Close(mount); err != nil {
+		t.Fatal(err)
+	}
+	mount = -1
+	if err := unix.Unmount(MCPMountDir, 0); err != nil {
+		t.Fatalf("unmount pinned clone: %v", err)
+	}
+	if err := os.Remove(MCPMountDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc", MCPMountDir); err != nil {
+		t.Fatal(err)
+	}
+	mount, err = cloneReadOnlyMount(pinned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := attachMCPMount(mount, root); err == nil {
+		t.Fatal("followed destination symlink")
+	}
+	fmt.Println("KERNEL_BOUNDARY_OK")
+}
+
+func assertReadOnlyMCP(t *testing.T) {
+	t.Helper()
+	var stat unix.Statfs_t
+	if err := unix.Statfs(MCPMountDir, &stat); err != nil {
+		t.Fatal(err)
+	}
+	want := int64(unix.ST_RDONLY | unix.ST_NOSUID | unix.ST_NODEV)
+	if stat.Flags&want != want {
+		t.Fatalf("unsafe mount flags: %#x", stat.Flags)
 	}
 	data, err := os.ReadFile(filepath.Join(MCPMountDir, "marker"))
 	if err != nil || string(data) != "original" {
