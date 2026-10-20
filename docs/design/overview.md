@@ -205,7 +205,7 @@ During provisioning (`WriteFixups`), the container hostname is set to `<host-hos
 
 ### Container User Groups
 
-The container user is added to: `adm,sudo,video,audio` (plus `render` if a render group exists matching the host's render GID). The container-side sudoers rule at `/etc/sudoers.d/intuneme` grants only `<user> ALL=(root) NOPASSWD: /usr/bin/systemctl restart microsoft-identity-device-broker.service`; that is the one system operation the user session needs (the session setup script restarts the broker after initializing the keyring). Interactive `sudo` still requires the container password set by `init`. Do not broaden this to `NOPASSWD: ALL`: the host-side helper runs user commands outside nspawn, so unrestricted container sudo is effectively unrestricted host root.
+The container user is added to: `adm,sudo,video,audio` (plus `render` if a render group exists matching the host's render GID). The container-side sudoers rule at `/etc/sudoers.d/intuneme` contains only a comment; broker restart is authorized by the container polkit policy. Interactive `sudo` still requires the container password set by `init`. Do not broaden this to `NOPASSWD: ALL`: the host-side helper runs user commands outside nspawn, so unrestricted container sudo is effectively unrestricted host root.
 
 ### SELinux Support
 

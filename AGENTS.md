@@ -73,3 +73,12 @@ decision rationale rather than user-facing guides.
   that must stay in sync with the code.
 - User-facing docs are separate: the MkDocs site content lives in `site/`
   (`mkdocs.yml`, published to GitHub Pages).
+
+## Container privilege policy
+
+The container-side `/etc/sudoers.d/intuneme` is now comment-only: no passwordless
+sudo grants remain. Broker restart uses the scoped container polkit policy.
+`start` authenticates and reconciles that policy, the session scripts, and the
+sudoers file before boot or the already-running return. A migration error is
+fatal. App/MCP sessions cannot use sudo because the helper sets `no_new_privs`;
+interactive `intuneme shell` administration still uses the container password.
