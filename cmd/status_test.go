@@ -62,7 +62,7 @@ func TestBrokerProxyStatus(t *testing.T) {
 		{"foreign owner", broker.NameOwner{PID: 12345, Name: "microsoft-identity-broker"}, true,
 			"not running (bus name owned by PID 12345 (microsoft-identity-broker))"},
 		{"foreign owner no name", broker.NameOwner{PID: 7}, true, "not running (bus name owned by PID 7)"},
-		{"activated proxy", broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true}, true,
+		{"activated proxy", broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: dir}, true,
 			"running (PID 99, D-Bus activated)"},
 	}
 	for _, tt := range tests {
@@ -72,6 +72,38 @@ func TestBrokerProxyStatus(t *testing.T) {
 				t.Errorf("brokerProxyStatus() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestBrokerProxyStatusDifferentRoot is the regression test for a bus name
+// owned by a broker-proxy that serves another root. That is a conflict, not
+// this instance's proxy.
+func TestBrokerProxyStatusDifferentRoot(t *testing.T) {
+	old := findNameOwner
+	defer func() { findNameOwner = old }()
+
+	dir := t.TempDir()
+	other := filepath.Join(dir, "other") + string(filepath.Separator)
+	findNameOwner = func() (broker.NameOwner, bool) {
+		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: other}, true
+	}
+	want := fmt.Sprintf("not running (bus name owned by intuneme broker-proxy for root %s, PID 99)", filepath.Join(dir, "other"))
+	if got := brokerProxyStatus(dir); got != want {
+		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
+	}
+}
+
+func TestBrokerProxyStatusSameRootCleaned(t *testing.T) {
+	old := findNameOwner
+	defer func() { findNameOwner = old }()
+
+	dir := t.TempDir()
+	findNameOwner = func() (broker.NameOwner, bool) {
+		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: filepath.Join(dir, ".")}, true
+	}
+	want := "running (PID 99, D-Bus activated)"
+	if got := brokerProxyStatus(dir); got != want {
+		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
 	}
 }
 

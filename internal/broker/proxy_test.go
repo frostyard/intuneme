@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/intuneme/internal/config"
 )
 
 func TestBrokerMethods(t *testing.T) {
@@ -42,7 +44,10 @@ func TestContainerBusAddress(t *testing.T) {
 }
 
 func TestDBusServiceFileContent(t *testing.T) {
-	content := DBusServiceFileContent("/usr/local/bin/intuneme", "/home/u/.local/share/intuneme")
+	content, err := DBusServiceFileContent("/usr/local/bin/intuneme", "/home/u/.local/share/intuneme")
+	if err != nil {
+		t.Fatalf("DBusServiceFileContent() error: %v", err)
+	}
 	if !strings.Contains(content, BusName) {
 		t.Errorf("missing bus name in service file content:\n%s", content)
 	}
@@ -55,11 +60,98 @@ func TestDBusServiceFileContent(t *testing.T) {
 	}
 }
 
-func TestDBusServiceFileContentQuotesRoot(t *testing.T) {
-	content := DBusServiceFileContent("/opt/my tools/intuneme", "/home/u/my root/it's")
-	want := "Exec='/opt/my tools/intuneme' broker-proxy --root '/home/u/my root/it'\\''s'\n"
-	if !strings.Contains(content, want) {
-		t.Errorf("missing exec line %q in service file content:\n%s", want, content)
+// TestDBusServiceFileContentRoundTrip parses the generated service file the
+// way dbus-daemon does, through both layers, and requires the exact argv.
+func TestDBusServiceFileContentRoundTrip(t *testing.T) {
+	tests := []struct {
+		name     string
+		execPath string
+		root     string
+	}{
+		{"plain", "/usr/local/bin/intuneme", "/home/u/.local/share/intuneme"},
+		{"space", "/opt/my tools/intuneme", "/home/u/my root"},
+		{"apostrophe", "/usr/local/bin/intuneme", "/home/u/it's"},
+		{"backslash", "/usr/local/bin/intuneme", `/home/u/back\slash`},
+		{"double quote", "/usr/local/bin/intuneme", `/home/u/say "hi"`},
+		{"newline", "/usr/local/bin/intuneme", "/home/u/line\nbreak"},
+		{"tab", "/usr/local/bin/intuneme", "/home/u/tab\there"},
+		{"dollar and star", "/usr/local/bin/intuneme", "/home/u/$HOME/*"},
+		{"apostrophe in exec path", "/opt/it's/intuneme", "/srv/in"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := DBusServiceFileContent(tt.execPath, tt.root)
+			if err != nil {
+				t.Fatalf("DBusServiceFileContent() error: %v", err)
+			}
+			argv, err := serviceFileExec(content)
+			if err != nil {
+				t.Fatalf("service file cannot be parsed: %v\n%s", err, content)
+			}
+			want := []string{tt.execPath, "broker-proxy", "--root", tt.root}
+			if !slices.Equal(argv, want) {
+				t.Errorf("Exec parsed as %q, want %q\nservice file:\n%s", argv, want, content)
+			}
+		})
+	}
+}
+
+// TestServiceFileExecRejectsLayer2OnlyEscape proves the round-trip test
+// catches the old quoting. Layer-2 quoting alone writes a backslash-apostrophe
+// for an apostrophe, which layer 1 rejects, so dbus-daemon cannot load the file.
+func TestServiceFileExecRejectsLayer2OnlyEscape(t *testing.T) {
+	old := `Exec='/usr/local/bin/intuneme' broker-proxy --root '/home/u/it'\''s'` + "\n"
+	if _, err := serviceFileExec(old); err == nil {
+		t.Fatal("layer-1 parser accepted a backslash-apostrophe escape; the round-trip test would not detect the old bug")
+	}
+}
+
+func TestDBusServiceFileContentRejectsNUL(t *testing.T) {
+	if _, err := DBusServiceFileContent("/usr/local/bin/intuneme", "/home/u/nul\x00root"); err == nil {
+		t.Error("expected an error for a NUL byte in the root")
+	}
+	if _, err := DBusServiceFileContent("/usr/local/bin/in\x00tuneme", "/srv/in"); err == nil {
+		t.Error("expected an error for a NUL byte in the executable path")
+	}
+}
+
+func TestProxyRoot(t *testing.T) {
+	tests := []struct {
+		name    string
+		cmdline string
+		root    string
+		isProxy bool
+	}{
+		{"separate flag", "/usr/bin/intuneme\x00broker-proxy\x00--root\x00/srv/a\x00", "/srv/a", true},
+		{"equals flag", "/usr/bin/intuneme\x00broker-proxy\x00--root=/srv/b\x00", "/srv/b", true},
+		{"flag before subcommand", "/usr/bin/intuneme\x00--root\x00/srv/c\x00broker-proxy\x00", "/srv/c", true},
+		{"no root", "/usr/bin/intuneme\x00broker-proxy\x00", "", true},
+		{"not a proxy", "/usr/bin/intuneme\x00status\x00--root\x00/srv/d\x00", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeProc(t, 4242, "intuneme", tt.cmdline)
+			root, isProxy := ProxyRoot(4242)
+			if root != tt.root || isProxy != tt.isProxy {
+				t.Errorf("ProxyRoot() = (%q, %t), want (%q, %t)", root, isProxy, tt.root, tt.isProxy)
+			}
+		})
+	}
+}
+
+func TestFindNameOwnerResolvesDefaultRoot(t *testing.T) {
+	fakeProc(t, 4243, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00")
+	stubOwnerLookup(t, 4243, true, nil)
+	owner, ok := FindNameOwner()
+	if !ok {
+		t.Fatal("expected an owner")
+	}
+	want, err := config.DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.IsProxy || owner.ProxyRoot != want {
+		t.Errorf("FindNameOwner() = %+v, want ProxyRoot %q", owner, want)
 	}
 }
 

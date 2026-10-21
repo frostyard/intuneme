@@ -14,6 +14,8 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
+
+	"github.com/frostyard/intuneme/internal/config"
 )
 
 const (
@@ -100,17 +102,66 @@ func ContainerBusAddress(root string) string {
 // DBusServiceFileContent returns the content of a D-Bus service activation file
 // that launches the broker-proxy subcommand. The root is passed with --root so
 // a D-Bus activated instance uses the same root (and PID file) as
-// "intuneme start". The D-Bus Exec line uses shell-like quoting, so paths with
-// spaces or special characters are quoted.
-func DBusServiceFileContent(execPath, root string) string {
-	return fmt.Sprintf("[D-BUS Service]\nName=%s\nExec=%s broker-proxy --root %s\n",
-		BusName, quoteExecArg(execPath), quoteExecArg(root))
+// "intuneme start".
+//
+// dbus-daemon parses an Exec value in two layers. First the service-file
+// string is unescaped (only \s, \t, \n, \r and \\ are valid escapes), then
+// the result is split with shell-like rules. The arguments are quoted for the
+// shell layer and the whole value is escaped for the service-file layer.
+//
+// It returns an error when an argument contains a NUL byte, because a
+// service-file value cannot carry one.
+func DBusServiceFileContent(execPath, root string) (string, error) {
+	exec, err := execLineValue([]string{execPath, "broker-proxy", "--root", root})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("[D-BUS Service]\nName=%s\nExec=%s\n", BusName, exec), nil
+}
+
+// execLineValue builds the Exec value for an argv: each argument gets
+// layer-2 (shell-like) quoting, then the joined command line gets layer-1
+// (service-file) escaping.
+func execLineValue(argv []string) (string, error) {
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		if strings.ContainsRune(arg, 0) {
+			return "", fmt.Errorf("exec argument %d contains a NUL byte", i)
+		}
+		quoted[i] = quoteExecArg(arg)
+	}
+	return escapeServiceFileValue(strings.Join(quoted, " ")), nil
+}
+
+// escapeServiceFileValue escapes a command line for a service-file value.
+// dbus-daemon unescapes \s, \t, \n, \r and \\, and rejects every other
+// escape, so a literal backslash must be doubled and the control characters
+// that have an escape must use it.
+func escapeServiceFileValue(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			b.WriteString(`\\`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }
 
 // quoteExecArg quotes one argument of a D-Bus service file Exec line.
 // dbus-daemon splits Exec with shell-like rules, so an argument that has
 // characters outside a safe set is wrapped in single quotes (a single quote
-// inside becomes '\”).
+// inside becomes '\”). The result must still pass through
+// escapeServiceFileValue before it goes into the file.
 func quoteExecArg(arg string) string {
 	if arg != "" && !strings.ContainsFunc(arg, needsExecQuote) {
 		return arg
@@ -178,27 +229,46 @@ func ProcessName(pid int) string {
 // IsProxyProcess reports whether the process is an "intuneme broker-proxy"
 // instance, judged from /proc/<pid>/cmdline.
 func IsProxyProcess(pid int) bool {
+	_, isProxy := ProxyRoot(pid)
+	return isProxy
+}
+
+// ProxyRoot returns the --root value from an "intuneme broker-proxy" command
+// line. isProxy is false when the process is not an intuneme broker-proxy.
+// root is empty when the proxy was started without --root; callers must then
+// use the default root (see FindNameOwner).
+func ProxyRoot(pid int) (root string, isProxy bool) {
 	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
 	if err != nil {
-		return false
+		return "", false
 	}
 	args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
 	if len(args) < 2 || !strings.HasPrefix(filepath.Base(args[0]), "intuneme") {
-		return false
+		return "", false
 	}
-	for _, a := range args[1:] {
-		if a == "broker-proxy" {
-			return true
+	for i := 1; i < len(args); i++ {
+		switch {
+		case args[i] == "broker-proxy":
+			isProxy = true
+		case args[i] == "--root" && i+1 < len(args):
+			i++
+			root = args[i]
+		case strings.HasPrefix(args[i], "--root="):
+			root = strings.TrimPrefix(args[i], "--root=")
 		}
 	}
-	return false
+	if !isProxy {
+		return "", false
+	}
+	return root, true
 }
 
 // NameOwner describes the process that owns BusName.
 type NameOwner struct {
-	PID     int
-	Name    string // from /proc/<pid>/comm, may be empty
-	IsProxy bool   // an "intuneme broker-proxy" instance
+	PID       int
+	Name      string // from /proc/<pid>/comm, may be empty
+	IsProxy   bool   // an "intuneme broker-proxy" instance
+	ProxyRoot string // root the proxy serves; default root when --root was absent
 }
 
 // String returns "PID 12345 (microsoft-identity-broker)", or "PID 12345" when
@@ -211,13 +281,26 @@ func (o NameOwner) String() string {
 }
 
 // FindNameOwner returns the owner of BusName on the host session bus. It
-// returns ok=false when the name has no owner or the lookup fails.
+// returns ok=false when the name has no owner or the lookup fails. For an
+// intuneme broker-proxy it also reports the root the proxy serves; a proxy
+// started without --root uses the default root.
 func FindNameOwner() (owner NameOwner, ok bool) {
 	pid, owned, err := LookupNameOwner()
 	if err != nil || !owned || pid <= 0 {
 		return NameOwner{}, false
 	}
-	return NameOwner{PID: pid, Name: ProcessName(pid), IsProxy: IsProxyProcess(pid)}, true
+	proxyRoot, isProxy := ProxyRoot(pid)
+	if isProxy && proxyRoot == "" {
+		if def, err := config.DefaultRoot(); err == nil {
+			proxyRoot = def
+		}
+	}
+	return NameOwner{
+		PID:       pid,
+		Name:      ProcessName(pid),
+		IsProxy:   isProxy,
+		ProxyRoot: proxyRoot,
+	}, true
 }
 
 // alreadyOwnedError builds the error for a failed bus name claim. It names the

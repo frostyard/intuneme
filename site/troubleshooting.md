@@ -167,7 +167,7 @@ Common issues and solutions. Click an item to expand it.
     ```
 
 ??? question "Broker proxy reports \"bus name com.microsoft.identity.broker1 already owned\""
-    Another process already owns the broker name on your host session bus. The error names it, for example `already owned by PID 12345 (microsoft-identity-broker)`. `intuneme status` shows the same owner. It is usually a Microsoft identity broker installed on the host, or another `intuneme broker-proxy` (for example one started for a different `--root`).
+    Another process already owns the broker name on your host session bus. The error names it, for example `already owned by PID 12345 (microsoft-identity-broker)`. `intuneme status` shows the same owner. It is usually a Microsoft identity broker installed on the host, or another `intuneme broker-proxy` (for example one started for a different `--root`). A proxy for a different root shows as a conflict, `not running (bus name owned by intuneme broker-proxy for root <R>, PID N)`, and not as your running proxy.
 
     Check the process:
 

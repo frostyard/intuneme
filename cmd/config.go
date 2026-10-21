@@ -30,7 +30,7 @@ func dbusServiceContent(execPath, root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve root path: %w", err)
 	}
-	return broker.DBusServiceFileContent(execPath, absRoot), nil
+	return broker.DBusServiceFileContent(execPath, absRoot)
 }
 
 var brokerProxyEnableCmd = &cobra.Command{
