@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/sudoers"
 )
 
 type startSecurityRunner struct {
@@ -34,6 +36,7 @@ func (r *startSecurityRunner) RunBackground(name string, args ...string) error {
 func (r *startSecurityRunner) LookPath(name string) (string, error) { return "/usr/bin/" + name, nil }
 
 func TestStartMigratesRunningContainer(t *testing.T) {
+	mockLaunchInstall(t)
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "rootfs"), 0755); err != nil {
 		t.Fatal(err)
@@ -43,7 +46,7 @@ func TestStartMigratesRunningContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := strings.Join(r.commands, "\n")
-	for _, want := range []string{"sudo -v", "49-intuneme-broker.rules", "sudoers.d/intuneme"} {
+	for _, want := range []string{"sudo -v", "50-intuneme.rules", "install-helpers", "49-intuneme-broker.rules", "sudoers.d/intuneme"} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("missing %s: %s", want, all)
 		}
@@ -57,7 +60,8 @@ func TestStartMigratesRunningContainer(t *testing.T) {
 }
 
 func TestStartMigrationFailsClosed(t *testing.T) {
-	for _, fail := range []string{"sudo -v", "49-intuneme-broker.rules", "sudoers.d/intuneme"} {
+	mockLaunchInstall(t)
+	for _, fail := range []string{"sudo -v", "50-intuneme.rules", "install-helpers", "49-intuneme-broker.rules", "sudoers.d/intuneme"} {
 		t.Run(fail, func(t *testing.T) {
 			root := t.TempDir()
 			if err := os.Mkdir(filepath.Join(root, "rootfs"), 0755); err != nil {
@@ -88,4 +92,14 @@ func TestStartMigrationDryRun(t *testing.T) {
 	if strings.Contains(strings.Join(r.commands, "\n"), "sudo ") {
 		t.Fatal("dry run changed security configuration")
 	}
+}
+
+func mockLaunchInstall(t *testing.T) {
+	t.Helper()
+	old := installLaunchHelpers
+	installLaunchHelpers = func(r runner.Runner, opts sudoers.Options) error {
+		_, err := r.Run("sudo", "install-helpers")
+		return err
+	}
+	t.Cleanup(func() { installLaunchHelpers = old })
 }

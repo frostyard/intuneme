@@ -18,7 +18,7 @@ One-time provisioning that creates the container from scratch.
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
 8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (a comment-only file with no grants; interactive sudo still requires the container password)
-9. **Install polkit rule** — `50-intuneme.rules` to `/etc/polkit-1/rules.d/` (allows sudo group to use machinectl)
+9. **Install polkit rule** — `50-intuneme.rules` grants only the configured caller UID a shell as the configured non-root user in the configured machine
 10. **Install sudoers rule + helper**: root-owned helper binary at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`), its root-owned config at `nsenter-exec.toml` (`0644`), and `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The config bakes the machine name, user, numeric UID/GID, home, and rootfs. The helper resolves and validates the container leader itself and drops to the numeric UID before executing the script, so the caller cannot supply a PID or influence the target UID. The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`)
 12. **Save config** — Write `config.toml`
@@ -217,3 +217,17 @@ See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
 Generates markdown CLI reference pages for the MkDocs documentation site.
 
 **Usage:** `intuneme gendocs <output-dir>`
+
+### Security migration before lifecycle operations
+
+`start` authenticates and runs `refreshStartSecurity` before either booting or
+returning "already running". Both helper binaries, their baked config, host
+shell authorization, container broker authorization, session scripts and the
+comment-only container sudoers file are reconciled. An error stops the command.
+A user-owned executable is not an acceptable helper refresh source.
+
+`StopAndWait`, used by stop/destroy/recreate, authenticates and falls back to
+`sudo machinectl poweroff <machine>` only if the machine helper is absent.
+This permits upgrading a running installation without needing to start it
+first. Helper rejections are never bypassed. Deregistration is still awaited
+before deleting or replacing the rootfs. See [ADR-0002](../adr/0002-pin-machine-operations-and-scope-shell-authorization.md).

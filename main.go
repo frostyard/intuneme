@@ -17,6 +17,9 @@ var builtBy = "local"
 func main() {
 	// The intuneme binary is also installed as the privileged helper. Dispatch
 	// on argv[0] before Cobra sees the helper's arguments.
+	if nshelper.IsMachineHelperName(os.Args[0]) {
+		os.Exit(nshelper.MachineMain(os.Args[1:]))
+	}
 	if nshelper.IsHelperName(os.Args[0]) {
 		os.Exit(nshelper.Main(os.Args[1:]))
 	}

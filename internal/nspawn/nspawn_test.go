@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/frostyard/intuneme/internal/nshelper"
 )
 
 type mockRunner struct {
@@ -313,7 +315,7 @@ func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
 
 func TestBuildNsenterArgs(t *testing.T) {
 	args := buildNsenterArgs("echo hi")
-	want := []string{NsenterHelperPath, "echo hi"}
+	want := []string{NsenterHelperPath, "exec", "echo hi"}
 	if len(args) != len(want) {
 		t.Fatalf("expected %d args, got %d: %v", len(want), len(args), args)
 	}
@@ -357,7 +359,7 @@ func TestExecDoesNotResolveLeader(t *testing.T) {
 
 func TestEnsureBindProbeDoesNotResolveLeader(t *testing.T) {
 	r := &mockRunner{}
-	if err := EnsureBind(r, "intuneme", "/tmp/host", "/opt/intuneme-mcp", "/opt/intuneme-mcp/server"); err != nil {
+	if err := EnsureBind(r, "/tmp/host", "/opt/intuneme-mcp/server"); err != nil {
 		t.Fatalf("EnsureBind failed: %v", err)
 	}
 	if len(r.commands) == 0 {
@@ -394,12 +396,15 @@ func (d *deregisteringRunner) Run(name string, args ...string) ([]byte, error) {
 }
 
 func TestStopAndWaitBlocksUntilDeregistered(t *testing.T) {
+	old := machineHelperExists
+	machineHelperExists = func() bool { return true }
+	t.Cleanup(func() { machineHelperExists = old })
 	r := &deregisteringRunner{showsBeforeGone: 3}
 	if err := StopAndWait(r, "intuneme", time.Millisecond, 60); err != nil {
 		t.Fatalf("StopAndWait: %v", err)
 	}
-	if r.commands[0] != "machinectl poweroff intuneme" {
-		t.Errorf("expected poweroff first, got %q", r.commands[0])
+	if r.commands[0] != "sudo "+nshelper.MachineHelperPath+" stop" {
+		t.Errorf("expected helper stop first, got %q", r.commands[0])
 	}
 	// It must keep polling past the point where the machine is still
 	// registered; returning after the first probe is the rootfs-deletion race.
@@ -441,5 +446,56 @@ func TestHostWaylandSocket(t *testing.T) {
 				t.Errorf("HostWaylandSocket() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestStopUpgradeFallbackAuthenticates(t *testing.T) {
+	old := machineHelperExists
+	machineHelperExists = func() bool { return false }
+	t.Cleanup(func() { machineHelperExists = old })
+	r := &mockRunner{}
+	if err := Stop(r, "intuneme"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(r.commands, "\n")
+	if got != "sudo -v\nsudo machinectl poweroff intuneme" {
+		t.Fatalf("unsafe fallback: %s", got)
+	}
+}
+
+type deniedStopRunner struct {
+	mockRunner
+	authDenied bool
+}
+
+func (r *deniedStopRunner) RunAttached(name string, args ...string) error {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	if r.authDenied {
+		return errors.New("authentication denied")
+	}
+	return nil
+}
+func (r *deniedStopRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return nil, errors.New("helper rejected target")
+}
+func TestStopDoesNotBypassDeniedAuthorization(t *testing.T) {
+	old := machineHelperExists
+	t.Cleanup(func() { machineHelperExists = old })
+	machineHelperExists = func() bool { return false }
+	r := &deniedStopRunner{authDenied: true}
+	if err := Stop(r, "intuneme"); err == nil {
+		t.Fatal("ignored authentication failure")
+	}
+	if len(r.commands) != 1 || r.commands[0] != "sudo -v" {
+		t.Fatalf("ran poweroff without authentication: %v", r.commands)
+	}
+	machineHelperExists = func() bool { return true }
+	r = &deniedStopRunner{}
+	if err := Stop(r, "intuneme"); err == nil {
+		t.Fatal("ignored helper rejection")
+	}
+	if len(r.commands) != 1 || r.commands[0] != "sudo "+nshelper.MachineHelperPath+" stop" {
+		t.Fatalf("bypassed helper: %v", r.commands)
 	}
 }

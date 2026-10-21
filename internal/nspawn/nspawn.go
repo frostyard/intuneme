@@ -307,22 +307,21 @@ func ExecForeground(r runner.Runner, uid int, command string) error {
 // MCP server binary is bind-mounted by EnsureBind. The mount is runtime-only
 // (gone on poweroff) so the binary never enters the rootfs and survives
 // `intuneme recreate`.
-const MCPMountDir = "/opt/intuneme-mcp"
+const MCPMountDir = nshelper.MCPMountDir
 
-// EnsureBind makes hostDir available read-only at containerDir inside the running
+// EnsureBind makes hostDir available read-only at MCPMountDir inside the running
 // machine, idempotently. It first probes whether probePath already exists inside
 // the container (via the privileged helper) and only calls
-// `machinectl bind` if it does not. `machinectl bind` is authorized passwordless
-// by the intuneme polkit rule (org.freedesktop.machine1.manage-machines), so this
-// re-establishes the mount automatically after a recreate without a prompt.
-func EnsureBind(r runner.Runner, machine, hostDir, containerDir, probePath string) error {
+// the scoped machine helper if it does not. The helper forces a read-only bind
+// of a user-owned directory at the fixed MCP mount path, so it re-establishes
+// the mount after a recreate without exposing broad machinectl management.
+func EnsureBind(r runner.Runner, hostDir, probePath string) error {
 	probe := buildNsenterArgs("test -e " + ShellQuote(probePath))
 	if _, err := r.Run("sudo", probe...); err == nil {
 		return nil // already bound and visible
 	}
-	if out, err := r.Run("machinectl", "bind", "--read-only", "--mkdir",
-		machine, hostDir, containerDir); err != nil {
-		return fmt.Errorf("bind %s into container %s: %w\n%s", hostDir, machine, err, out)
+	if out, err := r.Run("sudo", nshelper.MachineHelperPath, "bind", hostDir); err != nil {
+		return fmt.Errorf("bind %s into container: %w\n%s", hostDir, err, out)
 	}
 	return nil
 }
@@ -371,7 +370,7 @@ const NsenterHelperPath = nshelper.Path
 // invokes the privileged helper. The shape matches the intuneme-exec sudoers
 // rule exactly.
 func buildNsenterArgs(script string) []string {
-	return []string{NsenterHelperPath, script}
+	return []string{NsenterHelperPath, "exec", script}
 }
 
 // ShellQuote single-quotes s for safe interpolation into a /bin/sh command.
@@ -403,10 +402,23 @@ func Shell(r runner.Runner, machine, user string) error {
 }
 
 // Stop powers off the container.
+var machineHelperExists = func() bool { _, err := os.Stat(nshelper.MachineHelperPath); return err == nil }
+
 func Stop(r runner.Runner, machine string) error {
-	out, err := r.Run("machinectl", "poweroff", machine)
+	// Missing helper on upgrade: authenticate normally, never restore the old
+	// broad polkit grant. Existing helper failures do not trigger a fallback.
+	if !machineHelperExists() {
+		if err := ValidateSudo(r); err != nil {
+			return err
+		}
+		if out, err := r.Run("sudo", "machinectl", "poweroff", machine); err != nil {
+			return fmt.Errorf("authenticated poweroff: %w: %s", err, out)
+		}
+		return nil
+	}
+	out, err := r.Run("sudo", nshelper.MachineHelperPath, "stop")
 	if err != nil {
-		return fmt.Errorf("machinectl poweroff failed: %w\n%s", err, out)
+		return fmt.Errorf("container stop failed: %w\n%s", err, out)
 	}
 	return nil
 }

@@ -51,11 +51,11 @@ func Main(args []string) int {
 		fmt.Fprintf(os.Stderr, "nsenter-exec: %v\n", err)
 		return 1
 	}
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: nsenter-exec <script>")
+	if len(args) != 2 || args[0] != "exec" {
+		fmt.Fprintln(os.Stderr, "usage: nsenter-exec exec <script>")
 		return 1
 	}
-	return Run(cfg, args[0])
+	return Run(cfg, args[1])
 }
 
 // Run resolves the configured machine, validates the target, enters its

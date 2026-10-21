@@ -2,13 +2,16 @@ package provision
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/nshelper"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudo"
@@ -535,19 +538,42 @@ allow systemd_machined_t user_tmp_t:lnk_file { read };
 	return nil
 }
 
-// InstallPolkitRule installs the polkit rule on the host using sudo.
-func InstallPolkitRule(r runner.Runner, rulesDir string) error {
-	rule := `polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.machine1.manage-machines" ||
-         action.id == "org.freedesktop.machine1.manage-images" ||
-         action.id == "org.freedesktop.machine1.login" ||
-         action.id == "org.freedesktop.machine1.shell" ||
-         action.id == "org.freedesktop.machine1.host-shell") &&
-        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
+// polkitRule returns the host polkit rule. Only interactive container shells
+// are passwordless. Machine management (stop/bind) is handled by the scoped
+// root-owned machine helper, and host shells / image management are never
+// granted.
+func polkitRule(machine, user string, uid int) (string, error) {
+	_, numericUser := strconv.ParseUint(user, 10, 32)
+	if user == "root" || numericUser == nil {
+		return "", fmt.Errorf("root shell grants are forbidden")
+	}
+	if uid <= 0 || uint64(uid) >= math.MaxUint32 {
+		return "", fmt.Errorf("invalid host uid")
+	}
+	cfg := nshelper.Config{Machine: machine, User: user, UID: uint32(uid), GID: uint32(uid), Home: "/", Rootfs: "/"}
+	if err := cfg.Validate(); err != nil {
+		return "", err
+	}
+	machineJSON, _ := json.Marshal(machine)
+	userJSON, _ := json.Marshal(user)
+	return fmt.Sprintf(`// Only the configured caller and non-root container identity are passwordless.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.machine1.shell" &&
+        subject.uid == %d &&
+        action.lookup("machine") == %s &&
+        action.lookup("user") == %s) {
         return polkit.Result.YES;
     }
 });
-`
+`, uid, machineJSON, userJSON), nil
+}
+
+// InstallPolkitRule installs the polkit rule on the host using sudo.
+func InstallPolkitRule(r runner.Runner, rulesDir, machine, user string, uid int) error {
+	rule, err := polkitRule(machine, user, uid)
+	if err != nil {
+		return err
+	}
 	// Write rule to a temp file, then sudo cp it into place
 	tmpFile, err := os.CreateTemp("", "intuneme-polkit-*.rules")
 	if err != nil {
@@ -580,7 +606,7 @@ func InstallPolkitRule(r runner.Runner, rulesDir string) error {
 // ProvisionContainer runs the shared provisioning sequence used by both init
 // and recreate: GPU render group setup, container user creation, fixups, and
 // polkit rule installation.
-func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, username string, uid, gid int, hostname string) error {
+func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, username string, uid, gid int, hostname, machine string) error {
 	// Ensure container has a render group matching the host for GPU access
 	if renderGID, err := FindHostRenderGID(); err == nil && renderGID >= 0 {
 		if clix.Verbose {
@@ -606,8 +632,8 @@ func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, user
 	if clix.Verbose {
 		rep.Message("Installing polkit rules...")
 	}
-	if err := InstallPolkitRule(r, "/etc/polkit-1/rules.d"); err != nil {
-		rep.Warning("polkit install failed: %v", err)
+	if err := InstallPolkitRule(r, "/etc/polkit-1/rules.d", machine, username, uid); err != nil {
+		return fmt.Errorf("polkit install failed: %w", err)
 	}
 
 	return nil

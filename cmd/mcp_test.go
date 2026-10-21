@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/frostyard/intuneme/internal/nshelper"
 	"github.com/frostyard/intuneme/internal/nspawn"
 )
 
@@ -41,7 +42,7 @@ func (m *mcpMockRunner) Run(name string, args ...string) ([]byte, error) {
 	case name == "sudo" && len(args) > 0 && args[0] == nspawn.NsenterHelperPath:
 		// EnsureBind probe (test -e <bin>), run via the nsenter helper.
 		return nil, m.probeErr
-	case name == "machinectl" && len(args) > 0 && args[0] == "bind":
+	case name == "sudo" && len(args) > 1 && args[0] == nshelper.MachineHelperPath && args[1] == "bind":
 		return nil, m.bindErr
 	}
 	return nil, nil
@@ -58,7 +59,7 @@ func (m *mcpMockRunner) LookPath(name string) (string, error) {
 
 func (m *mcpMockRunner) bound() bool {
 	for _, c := range m.runCalls {
-		if len(c) > 1 && c[0] == "machinectl" && c[1] == "bind" {
+		if len(c) > 2 && c[0] == "sudo" && c[1] == nshelper.MachineHelperPath && c[2] == "bind" {
 			return true
 		}
 	}
@@ -147,7 +148,7 @@ func TestRunMCP_BindsAndLaunches(t *testing.T) {
 		t.Fatalf("runMCP returned error: %v", err)
 	}
 	if !r.bound() {
-		t.Error("expected a 'machinectl bind' call when binary not yet visible")
+		t.Error("expected a helper bind call when binary not yet visible")
 	}
 	cmd := r.lastForegroundCommand(t)
 	if !strings.Contains(cmd, "exec env DOTNET_BUNDLE_EXTRACT_BASE_DIR=") {
@@ -166,7 +167,7 @@ func TestRunMCP_SkipsBindWhenPresent(t *testing.T) {
 		t.Fatalf("runMCP returned error: %v", err)
 	}
 	if r.bound() {
-		t.Error("did not expect 'machinectl bind' when binary already visible")
+		t.Error("did not expect a helper bind when binary already visible")
 	}
 	if len(r.attachedCalls) == 0 {
 		t.Error("expected a foreground launch")

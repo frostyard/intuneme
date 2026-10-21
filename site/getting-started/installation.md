@@ -72,3 +72,12 @@ intuneme --version
 ## Next step
 
 Once intuneme is installed, follow the [Quick Start](quick-start.md) guide to provision and boot the container.
+
+## Applying the security upgrade
+
+Install the updated CLI in a root-owned path, then run `intuneme start`. It asks
+for sudo authorization and refreshes security policy even when the container is
+already running. If migration fails, resolve the reported error and rerun it.
+Development binaries in user-owned paths cannot refresh privileged helpers.
+For an older running installation without the new machine helper, `intuneme stop`
+and `intuneme recreate` use an authenticated stop fallback.

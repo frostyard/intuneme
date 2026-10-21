@@ -94,11 +94,17 @@ func Install(r runner.Runner, opts Options) error {
 	if err := installConfig(r, cfg); err != nil {
 		return err
 	}
+	if err := installMachineHelper(r); err != nil {
+		return err
+	}
 
 	rule := fmt.Sprintf(
-		"# Installed by intuneme: passwordless helper for container app launch.\n"+
+		"# Installed by intuneme: passwordless helpers for container app launch,\n"+
+			"# machine stop, and the read-only MCP bind.\n"+
+			"%s ALL=(root) NOPASSWD: %s\n"+
 			"%s ALL=(root) NOPASSWD: %s\n",
 		opts.User, nshelper.Path,
+		opts.User, nshelper.MachineHelperPath,
 	)
 
 	tmp, err := os.CreateTemp("", "intuneme-sudoers-*")
@@ -187,6 +193,16 @@ func installExecutable(r runner.Runner, opts Options) error {
 	return nil
 }
 
+// installMachineHelper installs the same trusted binary under a separate argv[0].
+func installMachineHelper(r runner.Runner) error {
+	staged := nshelper.MachineHelperPath + ".new"
+	if _, err := r.Run("sudo", "install", "-m", "0755", "-o", "root", "-g", "root", nshelper.Path, staged); err != nil {
+		return err
+	}
+	_, err := r.Run("sudo", "mv", "-f", staged, nshelper.MachineHelperPath)
+	return err
+}
+
 // installConfig writes the baked machine/user/rootfs values root-owned next to
 // the helper. These values are never taken from the caller.
 func installConfig(r runner.Runner, cfg *nshelper.Config) error {
@@ -220,14 +236,19 @@ func installConfig(r runner.Runner, cfg *nshelper.Config) error {
 // Remove deletes the sudoers rule, the helper, and its config. Intentionally
 // graceful: missing files and failed removals are not errors.
 func Remove(r runner.Runner) {
-	_, _ = r.Run("sudo", "rm", "-f", filePath, nshelper.Path, nshelper.Path+".new", nshelper.ConfigPath, nshelper.ConfigPath+".new")
+	_, _ = r.Run("sudo", "rm", "-f",
+		filePath,
+		nshelper.Path, nshelper.Path+".new",
+		nshelper.ConfigPath, nshelper.ConfigPath+".new",
+		nshelper.MachineHelperPath, nshelper.MachineHelperPath+".new",
+	)
 }
 
 // IsInstalled reports whether the sudoers rule, helper, and helper config all
 // exist. Requiring the config means an upgrade from the old shell-script helper
 // counts as not installed and is replaced by start.
 func IsInstalled(r runner.Runner) bool {
-	for _, path := range []string{nshelper.Path, nshelper.ConfigPath, filePath} {
+	for _, path := range []string{nshelper.Path, nshelper.ConfigPath, nshelper.MachineHelperPath, filePath} {
 		if _, err := os.Stat(path); err != nil {
 			return false
 		}

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -167,35 +166,6 @@ func runStart(r runner.Runner, root string) error {
 		rep.Message("Installed udev hotplug rules.")
 	}
 
-	// Reinstall the helper on every start. This ensures the root-owned
-	// binary, its baked config, and the sudoers rule match the current CLI
-	// and config, including upgrades from the old shell-script helper.
-	if err := sudoers.Install(r, sudoers.Options{
-		User:    cfg.HostUser,
-		Machine: cfg.MachineName,
-		UID:     cfg.HostUID,
-		GID:     os.Getgid(),
-		Home:    fmt.Sprintf("/home/%s", cfg.HostUser),
-		Rootfs:  cfg.RootfsPath,
-	}); err != nil {
-		if errors.Is(err, sudoers.ErrUntrustedSource) {
-			if sudoers.IsInstalled(r) {
-				// Keep the existing root-owned helper. A user-owned build cannot
-				// refresh it implicitly; reinstall intuneme to a root-owned path
-				// or re-run init explicitly.
-			} else {
-				// Never leave an old shell helper or a half-installed rule
-				// authorizing a passwordless path we cannot trust.
-				sudoers.Remove(r)
-				rep.Message("Warning: removed an untrusted passwordless helper; install intuneme to a root-owned path and run 'intuneme start' again to enable app launch")
-			}
-		} else {
-			rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
-		}
-	} else if clix.Verbose {
-		rep.Message("Installed passwordless container helper.")
-	}
-
 	// Ensure the container user is in groups that depend on packages
 	// installed inside the image (currently plugdev for pcscd access).
 	// Self-heals containers provisioned before plugdev was in baseGroups.
@@ -257,7 +227,7 @@ func runStart(r runner.Runner, root string) error {
 
 	if cfg.BrokerProxy {
 		rep.Message("Enabling linger for container user...")
-		if _, err := r.Run("machinectl", broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+		if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
 			return fmt.Errorf("failed to enable linger: %w", err)
 		}
 
@@ -322,7 +292,21 @@ func init() {
 
 // Run before boot and before the already-running return. A failed security
 // migration must never be reported as a successful start.
+var installLaunchHelpers = sudoers.Install
+
 func refreshStartSecurity(r runner.Runner, cfg *config.Config) error {
+	// Revoke the old broad host grant before installing or replacing helpers.
+	if err := provision.InstallPolkitRule(r, "/etc/polkit-1/rules.d", cfg.MachineName, cfg.HostUser, cfg.HostUID); err != nil {
+		return err
+	}
+	if err := installLaunchHelpers(r, sudoers.Options{
+		User: cfg.HostUser, Machine: cfg.MachineName, UID: cfg.HostUID, GID: os.Getgid(),
+		Home: fmt.Sprintf("/home/%s", cfg.HostUser), Rootfs: cfg.RootfsPath,
+	}); err != nil {
+		sudoers.Remove(r)
+		return fmt.Errorf("install trusted helpers (install intuneme in a root-owned path): %w", err)
+	}
+
 	if err := provision.InstallSessionScripts(r, cfg.RootfsPath); err != nil {
 		return err
 	}
