@@ -5,6 +5,7 @@ import (
 
 	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/cmd"
+	"github.com/frostyard/intuneme/internal/nshelper"
 	pkgversion "github.com/frostyard/intuneme/internal/version"
 )
 
@@ -14,6 +15,12 @@ var date = "unknown"
 var builtBy = "local"
 
 func main() {
+	// The intuneme binary is also installed as the privileged helper. Dispatch
+	// on argv[0] before Cobra sees the helper's arguments.
+	if nshelper.IsHelperName(os.Args[0]) {
+		os.Exit(nshelper.Main(os.Args[1:]))
+	}
+
 	pkgversion.Version = version
 
 	app := clix.App{

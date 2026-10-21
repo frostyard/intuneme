@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -311,14 +312,20 @@ func TestBuildBootArgs_NoNvidiaDevices(t *testing.T) {
 }
 
 func TestBuildNsenterArgs(t *testing.T) {
-	args := buildNsenterArgs("4321", "echo hi")
-	want := []string{NsenterHelperPath, "4321", "echo hi"}
+	args := buildNsenterArgs("echo hi")
+	want := []string{NsenterHelperPath, "echo hi"}
 	if len(args) != len(want) {
 		t.Fatalf("expected %d args, got %d: %v", len(want), len(args), args)
 	}
 	for i := range want {
 		if args[i] != want[i] {
 			t.Errorf("arg %d = %q, want %q", i, args[i], want[i])
+		}
+	}
+	// The caller must never supply the target PID. The helper resolves it.
+	for _, a := range args {
+		if _, err := strconv.Atoi(a); err == nil {
+			t.Errorf("nsenter args must not contain a caller-supplied pid, got %q", a)
 		}
 	}
 	// sudo-rs forbids interior wildcards; the helper indirection must keep the
@@ -330,22 +337,39 @@ func TestBuildNsenterArgs(t *testing.T) {
 	}
 }
 
-func TestNsenterHelperScript(t *testing.T) {
-	script := NsenterHelperScript("testuser")
-	if !strings.HasPrefix(script, "#!/bin/bash") {
-		t.Errorf("helper script must start with a bash shebang, got:\n%s", script)
+func TestExecDoesNotResolveLeader(t *testing.T) {
+	r := &mockRunner{}
+	if err := Exec(r, 1000, "echo hi"); err != nil {
+		t.Fatalf("Exec failed: %v", err)
 	}
-	for _, want := range []string{
-		`/usr/bin/nsenter -t "$1" -m -u -i -n -p --`,
-		`/bin/su -s /bin/bash testuser -c "$2"`,
-		"set -euo pipefail",
-	} {
-		if !strings.Contains(script, want) {
-			t.Errorf("helper script missing %q, got:\n%s", want, script)
+	if len(r.commands) != 1 {
+		t.Fatalf("expected one helper invocation, got: %v", r.commands)
+	}
+	if !strings.HasPrefix(r.commands[0], "sudo "+NsenterHelperPath+" ") {
+		t.Errorf("expected helper invocation, got: %s", r.commands[0])
+	}
+	for _, c := range r.commands {
+		if strings.HasPrefix(c, "machinectl show") {
+			t.Errorf("Exec must not resolve the leader itself: %s", c)
 		}
 	}
-	if strings.Contains(script, "*") {
-		t.Errorf("helper script should not contain wildcards, got:\n%s", script)
+}
+
+func TestEnsureBindProbeDoesNotResolveLeader(t *testing.T) {
+	r := &mockRunner{}
+	if err := EnsureBind(r, "intuneme", "/tmp/host", "/opt/intuneme-mcp", "/opt/intuneme-mcp/server"); err != nil {
+		t.Fatalf("EnsureBind failed: %v", err)
+	}
+	if len(r.commands) == 0 {
+		t.Fatal("expected commands")
+	}
+	if !strings.HasPrefix(r.commands[0], "sudo "+NsenterHelperPath+" ") {
+		t.Errorf("expected helper probe, got: %s", r.commands[0])
+	}
+	for _, c := range r.commands {
+		if strings.HasPrefix(c, "machinectl show") {
+			t.Errorf("EnsureBind must not resolve the leader itself: %s", c)
+		}
 	}
 }
 

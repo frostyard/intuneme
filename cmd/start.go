@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,15 +158,33 @@ var startCmd = &cobra.Command{
 			rep.Message("Installed udev hotplug rules.")
 		}
 
-		// Ensure the sudoers rule for passwordless app launch exists.
-		// Normally installed by init; reinstall here if missing (upgrade
-		// from older version, or manual deletion).
-		if !sudoers.IsInstalled(r) {
-			if err := sudoers.Install(r, cfg.HostUser); err != nil {
+		// Reinstall the helper on every start. This ensures the root-owned
+		// binary, its baked config, and the sudoers rule match the current CLI
+		// and config, including upgrades from the old shell-script helper.
+		if err := sudoers.Install(r, sudoers.Options{
+			User:    cfg.HostUser,
+			Machine: cfg.MachineName,
+			UID:     cfg.HostUID,
+			GID:     os.Getgid(),
+			Home:    fmt.Sprintf("/home/%s", cfg.HostUser),
+			Rootfs:  cfg.RootfsPath,
+		}); err != nil {
+			if errors.Is(err, sudoers.ErrUntrustedSource) {
+				if sudoers.IsInstalled(r) {
+					// Keep the existing root-owned helper. A user-owned build cannot
+					// refresh it implicitly; reinstall intuneme to a root-owned path
+					// or re-run init explicitly.
+				} else {
+					// Never leave an old shell helper or a half-installed rule
+					// authorizing a passwordless path we cannot trust.
+					sudoers.Remove(r)
+					rep.Message("Warning: removed an untrusted passwordless helper; install intuneme to a root-owned path and run 'intuneme start' again to enable app launch")
+				}
+			} else {
 				rep.Message("Warning: failed to install sudoers rule (open commands will need sudo prompt): %v", err)
-			} else if clix.Verbose {
-				rep.Message("Installed passwordless nsenter rule.")
 			}
+		} else if clix.Verbose {
+			rep.Message("Installed passwordless container helper.")
 		}
 
 		// Reinstall the shared session-setup script on every start, so the

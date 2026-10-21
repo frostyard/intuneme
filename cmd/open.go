@@ -43,7 +43,7 @@ func makeOpenAppCmd(use, short, command string) *cobra.Command {
 				return fmt.Errorf("container is not running — run 'intuneme start' first")
 			}
 
-			return nspawn.Exec(r, cfg.MachineName, cfg.HostUser, cfg.HostUID, command)
+			return nspawn.Exec(r, cfg.HostUID, command)
 		},
 	}
 }

@@ -106,3 +106,13 @@ The container image works in concert with `internal/provision/intuneme-profile.s
    - Stores a test secret via `secret-tool` to force default collection creation
    - Restarts both identity brokers to pick up the initialized keyring
 8. Starts the `intune-agent` timer for compliance checks if not already active
+
+## Broker restart authorization
+
+`system_files/etc/polkit-1/rules.d/49-intuneme-broker.rules` grants the container
+sudo group only `org.freedesktop.systemd1.manage-units` with unit
+`microsoft-identity-device-broker.service` and verb `restart`. All other requests
+fall through to the normal policy. The same file is embedded by the
+`containerimage` Go package for upgrades. `TestBrokerRestartAuthorization`
+evaluates the shipped JavaScript against allowed and denied requests.
+See [ADR-0001](../adr/0001-make-helper-privilege-drop-irreversible.md).

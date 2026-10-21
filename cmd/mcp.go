@@ -61,7 +61,7 @@ func runMCP(r runner.Runner, root, binaryPath string, serverArgs []string) error
 
 	// Re-establish the runtime bind mount if the binary isn't visible inside the
 	// container (e.g. after a fresh start or recreate). Idempotent and passwordless.
-	if err := nspawn.EnsureBind(r, cfg.MachineName, cfg.HostUser,
+	if err := nspawn.EnsureBind(r, cfg.MachineName,
 		hostDir, nspawn.MCPMountDir, containerBin); err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func runMCP(r runner.Runner, root, binaryPath string, serverArgs []string) error
 	}
 	command := strings.Join(parts, " ")
 
-	return nspawn.ExecForeground(r, cfg.MachineName, cfg.HostUser, cfg.HostUID, command)
+	return nspawn.ExecForeground(r, cfg.HostUID, command)
 }
 
 var mcpCmd = &cobra.Command{

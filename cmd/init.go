@@ -119,7 +119,18 @@ var initCmd = &cobra.Command{
 		if clix.Verbose {
 			rep.Message("Installing sudoers rule for passwordless app launch...")
 		}
-		if err := sudoers.Install(r, u.Username); err != nil {
+		if err := sudoers.Install(r, sudoers.Options{
+			User:    u.Username,
+			Machine: cfg.MachineName,
+			UID:     os.Getuid(),
+			GID:     os.Getgid(),
+			Home:    fmt.Sprintf("/home/%s", u.Username),
+			Rootfs:  cfg.RootfsPath,
+			// init is the explicit, sudo-authenticated install. It may run
+			// from a user-owned go-install binary; the root-owned copy is
+			// what later starts use.
+			AllowUntrustedSource: true,
+		}); err != nil {
 			rep.Warning("sudoers install failed: %v", err)
 		}
 

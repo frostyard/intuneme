@@ -758,3 +758,20 @@ func directives(conf string) []string {
 	}
 	return out
 }
+
+func TestSessionRestartDoesNotNeedPrivilegeElevation(t *testing.T) {
+	script := string(intuneSessionSetupScript)
+	if strings.Contains(script, "sudo systemctl") {
+		t.Fatal("session requires setuid elevation")
+	}
+	if !strings.Contains(script, "systemctl --no-ask-password restart microsoft-identity-device-broker.service") {
+		t.Fatal("missing constrained D-Bus restart")
+	}
+	r := &mockRunner{}
+	if err := InstallSessionScripts(r, "/fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(r.commands, "\n"), "/fixture/etc/polkit-1/rules.d/49-intuneme-broker.rules") {
+		t.Fatal("upgrade did not install restart policy")
+	}
+}

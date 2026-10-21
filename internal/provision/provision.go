@@ -12,6 +12,7 @@ import (
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudo"
+	containerimage "github.com/frostyard/intuneme/ubuntu-intune"
 	"github.com/frostyard/std/reporter"
 )
 
@@ -143,6 +144,14 @@ func OverrideX11Tmpfiles(r runner.Runner, rootfsPath string) error {
 // the nsenter launch path (nspawn.Exec) rely on the shared script existing at
 // /usr/local/bin/intuneme-session-setup. Idempotent — safe to re-run.
 func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
+	policyDir := filepath.Join(rootfsPath, "etc/polkit-1/rules.d")
+	if err := sudoMkdirAll(r, policyDir); err != nil {
+		return err
+	}
+	if err := sudo.WriteFile(r, filepath.Join(policyDir, "49-intuneme-broker.rules"), containerimage.BrokerRestartPolicy, 0644); err != nil {
+		return err
+	}
+
 	binDir := filepath.Join(rootfsPath, filepath.Dir(sessionSetupPath))
 	if err := sudoMkdirAll(r, binDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", binDir, err)

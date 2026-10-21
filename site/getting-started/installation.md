@@ -36,6 +36,12 @@ go install github.com/frostyard/intuneme@latest
 
 This places the `intuneme` binary in `$GOPATH/bin` (typically `~/go/bin`). Make sure that directory is on your `$PATH`.
 
+`intuneme init` is the explicit, sudo-authenticated install and will copy the running binary to the root-owned helper path even when the source is under your home directory. Later `intuneme start` runs will not silently replace that root-owned helper from a user-owned binary. To let automatic helper updates work after a CLI upgrade, install intuneme to a root-owned path:
+
+```bash
+sudo install -m 0755 "$(go env GOPATH)/bin/intuneme" /usr/local/bin/intuneme
+```
+
 ## Build from source
 
 Clone the repository and build with `make`:
