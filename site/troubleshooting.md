@@ -17,6 +17,16 @@ Common issues and solutions. Click an item to expand it.
     TMPDIR=/var/tmp intuneme init
     ```
 
+??? question "`intuneme init` fails with \"SELinux policy setup failed\""
+    `init` stops when `semanage` fails for a real reason, such as a missing `semanage` or an unreadable policy store. It does not save `config.toml` and does not report success, so the rootfs can be left half-configured.
+
+    Install `policycoreutils-python-utils`, which provides `semanage`, fix any policy-store error named in the message, then re-run with `--force` (the rootfs already exists, so a plain `init` refuses):
+
+    ```bash
+    sudo dnf install policycoreutils-python-utils
+    intuneme init --force
+    ```
+
 ??? question "`intuneme shell` fails on Fedora/Bazzite (SELinux)"
     `intuneme init` handles this automatically: it relabels the rootfs as `container_file_t` and installs a policy module that grants `systemd-machined` the PTY access it needs for `machinectl shell`.
 

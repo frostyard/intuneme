@@ -49,8 +49,32 @@ func TestInstallSELinuxPolicySemanage(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "success", out: "", err: nil},
-		{name: "already defined", out: "ValueError: File context for /x(/.*)? already defined\n", err: exitErr},
+		{name: "legacy single already defined line", out: "ValueError: File context for /x(/.*)? already defined\n", err: exitErr},
 		{name: "already exists", out: "libsemanage: Already Exists\n", err: exitErr},
+		{
+			name:    "already defined then modify failure",
+			out:     "File context for /x(/.*)? already defined, modifying instead\nValueError: Could not modify file context for /x(/.*)?\n",
+			err:     exitErr,
+			wantErr: true,
+		},
+		{
+			name:    "already defined then commit failure",
+			out:     "File context for /x(/.*)? already defined, modifying instead\nlibsemanage.semanage_commit_sandbox: Could not commit semanage transaction\n",
+			err:     exitErr,
+			wantErr: true,
+		},
+		{
+			name:    "already defined informational line only",
+			out:     "File context for /x(/.*)? already defined, modifying instead\n",
+			err:     exitErr,
+			wantErr: true,
+		},
+		{
+			name:    "already exists with a second output line",
+			out:     "libsemanage: Already Exists\nlibsemanage.semanage_commit_sandbox: Could not commit\n",
+			err:     exitErr,
+			wantErr: true,
+		},
 		{name: "command not found", out: "sudo: semanage: command not found\n", err: exitErr, wantErr: true},
 		{name: "permission denied", out: "ValueError: SELinux policy is not managed or store cannot be accessed.\n", err: exitErr, wantErr: true},
 	}

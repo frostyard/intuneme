@@ -211,10 +211,12 @@ The container user is added to: `adm,sudo,video,audio` (plus `render` if a rende
 
 On SELinux-enabled systems (Fedora, Bazzite — both enforcing and permissive modes), `InstallSELinuxPolicy()` during `init`:
 
-1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`. `semanage fcontext -a` exits non-zero when the rule already exists; only that case (output contains "already defined" or "already exists") is ignored. Any other `semanage` failure (missing tool, unmanaged policy store) stops provisioning with the `semanage` output, rather than letting `restorecon` apply the wrong label
+1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`. A non-zero `semanage fcontext -a` exit is ignored only when its output is exactly one non-empty line that contains "already defined" or "already exists" and does not contain "modifying instead" — the legacy error older semanage versions printed for an existing rule. Current semanage prints `File context for <path> already defined, modifying instead` and then re-adds the rule; a successful re-add exits zero, so that line in a non-zero exit means the later modify or commit step failed. Every other failure (missing tool, unmanaged policy store, modify or commit error) returns an error with the `semanage` output instead of letting `restorecon` apply the wrong label.
 2. Installs a custom policy module (`intuneme-machined`) that allows `systemd_machined_t` to:
    - Open/read/write/ioctl PTY devices (`user_devpts_t`) — required for `machinectl shell`
    - Read symlinks in `/tmp` (`user_tmp_t`) — required for `/tmp/ptmx` traversal
+
+A SELinux failure stops `init` before it saves `config.toml` and before it prints the success message. The error names the likely cause (`policycoreutils-python-utils`, which provides `semanage`) and tells the user to run `intuneme init --force`. The force flag is required because the rootfs already exists at that point, so a plain re-run refuses with "already initialized". The SELinux step is the last fallible step of `init`; `cmd.finishInit` owns it together with the config save and success message, and takes its SELinux detection and installer as injected dependencies so tests can prove that a failure never reaches either.
 
 ### Password Setting
 
