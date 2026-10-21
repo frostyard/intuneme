@@ -46,6 +46,28 @@ func sudoSymlink(r runner.Runner, target, link string) error {
 	return err
 }
 
+// containerSudoersRule replaces the legacy grant with a comment-only file.
+// Broker restart is authorized by the container's scoped polkit policy. The
+// default sudo-group rule still permits password-authenticated administration
+// from interactive container sessions, never from the NNP app launch path.
+func containerSudoersRule(user string) string {
+	return fmt.Sprintf("# Installed by intuneme for %s: no passwordless sudo grants.\n", user)
+}
+
+// EnsureContainerSudoers (re)writes the container-side sudoers rule. It runs
+// from both provisioning and start so existing containers pick up the scoped
+// rule without a recreate.
+func EnsureContainerSudoers(r runner.Runner, rootfsPath, user string) error {
+	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
+	if err := sudoMkdirAll(r, sudoersDir); err != nil {
+		return fmt.Errorf("mkdir sudoers.d: %w", err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(containerSudoersRule(user)), 0440); err != nil {
+		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
+	}
+	return nil
+}
+
 func WriteFixups(r runner.Runner, rootfsPath, user string, uid, gid int, hostname string) error {
 	// /etc/hostname
 	if err := sudo.WriteFile(r,
@@ -98,14 +120,8 @@ WantedBy=multi-user.target
 		return err
 	}
 
-	// Passwordless sudo for the container user
-	sudoersDir := filepath.Join(rootfsPath, "etc", "sudoers.d")
-	if err := sudoMkdirAll(r, sudoersDir); err != nil {
-		return fmt.Errorf("mkdir sudoers.d: %w", err)
-	}
-	sudoersRule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: ALL\n", user)
-	if err := sudo.WriteFile(r, filepath.Join(sudoersDir, "intuneme"), []byte(sudoersRule), 0440); err != nil {
-		return fmt.Errorf("write sudoers.d/intuneme: %w", err)
+	if err := EnsureContainerSudoers(r, rootfsPath, user); err != nil {
+		return err
 	}
 
 	return nil

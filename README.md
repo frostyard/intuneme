@@ -43,3 +43,7 @@ App and MCP launches permanently disable setuid/file-capability elevation and
 run as your configured numeric user. Container administration requiring sudo
 must use an interactive `intuneme shell` session. The session restarts only the
 Microsoft device broker through a scoped container D-Bus policy.
+
+After upgrading, run `intuneme start` even if the container is already running.
+It authenticates and refreshes the security policy without rebooting the
+container. A failed policy update stops the command with an error.
