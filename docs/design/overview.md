@@ -211,7 +211,7 @@ The container user is added to: `adm,sudo,video,audio` (plus `render` if a rende
 
 On SELinux-enabled systems (Fedora, Bazzite — both enforcing and permissive modes), `InstallSELinuxPolicy()` during `init`:
 
-1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`
+1. Labels the rootfs tree as `container_file_t` via `semanage fcontext` + `restorecon -RF`. `semanage fcontext -a` exits non-zero when the rule already exists; only that case (output contains "already defined" or "already exists") is ignored. Any other `semanage` failure (missing tool, unmanaged policy store) stops provisioning with the `semanage` output, rather than letting `restorecon` apply the wrong label
 2. Installs a custom policy module (`intuneme-machined`) that allows `systemd_machined_t` to:
    - Open/read/write/ioctl PTY devices (`user_devpts_t`) — required for `machinectl shell`
    - Read symlinks in `/tmp` (`user_tmp_t`) — required for `/tmp/ptmx` traversal

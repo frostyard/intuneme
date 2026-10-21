@@ -486,7 +486,7 @@ func InstallSELinuxPolicy(r runner.Runner, rootfsPath string) error {
 		// semanage exits non-zero when the context already exists; only suppress that case.
 		msg := strings.ToLower(string(out))
 		if !strings.Contains(msg, "already defined") && !strings.Contains(msg, "already exists") {
-			return fmt.Errorf("semanage fcontext failed: %w", err)
+			return fmt.Errorf("semanage fcontext failed: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
 
