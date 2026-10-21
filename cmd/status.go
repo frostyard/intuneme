@@ -105,7 +105,10 @@ func brokerProxyStatus(root string) string {
 		return "not running"
 	}
 	if owner.IsProxy {
-		ownerRoot := resolveStatusPath(owner.ProxyRoot)
+		if !owner.RootResolved {
+			return fmt.Sprintf("not running (bus name owned by intuneme broker-proxy with unresolved root %q, PID %d)", owner.ProxyRoot, owner.PID)
+		}
+		ownerRoot := filepath.Clean(owner.ProxyRoot)
 		if ownerRoot == resolveStatusPath(root) {
 			return fmt.Sprintf("running (PID %d, D-Bus activated)", owner.PID)
 		}

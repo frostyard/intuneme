@@ -270,6 +270,11 @@ type NameOwner struct {
 	Name      string // from /proc/<pid>/comm, may be empty
 	IsProxy   bool   // an "intuneme broker-proxy" instance
 	ProxyRoot string // root the proxy serves; default root when --root was absent
+	// RootResolved is true when ProxyRoot is absolute. A relative --root is
+	// resolved against the owner's working directory (/proc/<pid>/cwd); when
+	// that cannot be read, ProxyRoot keeps the raw value and RootResolved is
+	// false, so callers must not assume it matches their own root.
+	RootResolved bool
 }
 
 // String returns "PID 12345 (microsoft-identity-broker)", or "PID 12345" when
@@ -291,17 +296,39 @@ func FindNameOwner() (owner NameOwner, ok bool) {
 		return NameOwner{}, false
 	}
 	proxyRoot, isProxy := ProxyRoot(pid)
-	if isProxy && proxyRoot == "" {
-		if def, err := config.DefaultRoot(); err == nil {
-			proxyRoot = def
-		}
+	resolved := false
+	if isProxy {
+		proxyRoot, resolved = resolveProxyRoot(pid, proxyRoot)
 	}
 	return NameOwner{
-		PID:       pid,
-		Name:      ProcessName(pid),
-		IsProxy:   isProxy,
-		ProxyRoot: proxyRoot,
+		PID:          pid,
+		Name:         ProcessName(pid),
+		IsProxy:      isProxy,
+		ProxyRoot:    proxyRoot,
+		RootResolved: resolved,
 	}, true
+}
+
+// resolveProxyRoot makes the root of a proxy process absolute. An empty root
+// means the default root. A relative root is joined to the owner's working
+// directory, read from /proc/<pid>/cwd, not to the caller's. ok is false when
+// the root cannot be made absolute; root is then the raw value.
+func resolveProxyRoot(pid int, root string) (string, bool) {
+	if root == "" {
+		def, err := config.DefaultRoot()
+		if err != nil {
+			return "", false
+		}
+		return filepath.Clean(def), true
+	}
+	if filepath.IsAbs(root) {
+		return filepath.Clean(root), true
+	}
+	cwd, err := os.Readlink(filepath.Join(procRoot, strconv.Itoa(pid), "cwd"))
+	if err != nil || !filepath.IsAbs(cwd) {
+		return root, false
+	}
+	return filepath.Join(cwd, root), true
 }
 
 // alreadyOwnedError builds the error for a failed bus name claim. It names the

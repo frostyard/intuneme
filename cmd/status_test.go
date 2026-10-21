@@ -62,7 +62,7 @@ func TestBrokerProxyStatus(t *testing.T) {
 		{"foreign owner", broker.NameOwner{PID: 12345, Name: "microsoft-identity-broker"}, true,
 			"not running (bus name owned by PID 12345 (microsoft-identity-broker))"},
 		{"foreign owner no name", broker.NameOwner{PID: 7}, true, "not running (bus name owned by PID 7)"},
-		{"activated proxy", broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: dir}, true,
+		{"activated proxy", broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, RootResolved: true, ProxyRoot: dir}, true,
 			"running (PID 99, D-Bus activated)"},
 	}
 	for _, tt := range tests {
@@ -85,7 +85,7 @@ func TestBrokerProxyStatusDifferentRoot(t *testing.T) {
 	dir := t.TempDir()
 	other := filepath.Join(dir, "other") + string(filepath.Separator)
 	findNameOwner = func() (broker.NameOwner, bool) {
-		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: other}, true
+		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, RootResolved: true, ProxyRoot: other}, true
 	}
 	want := fmt.Sprintf("not running (bus name owned by intuneme broker-proxy for root %s, PID 99)", filepath.Join(dir, "other"))
 	if got := brokerProxyStatus(dir); got != want {
@@ -99,7 +99,7 @@ func TestBrokerProxyStatusSameRootCleaned(t *testing.T) {
 
 	dir := t.TempDir()
 	findNameOwner = func() (broker.NameOwner, bool) {
-		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, ProxyRoot: filepath.Join(dir, ".")}, true
+		return broker.NameOwner{PID: 99, Name: "intuneme", IsProxy: true, RootResolved: true, ProxyRoot: filepath.Join(dir, ".")}, true
 	}
 	want := "running (PID 99, D-Bus activated)"
 	if got := brokerProxyStatus(dir); got != want {
@@ -120,6 +120,41 @@ func TestBrokerProxyStatusPIDFileWins(t *testing.T) {
 	}
 	want := fmt.Sprintf("running (PID %d)", os.Getpid())
 	if got := brokerProxyStatus(dir); got != want {
+		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
+	}
+}
+
+// A proxy started in /srv/a with --root enrolled must not count as running
+// for "intuneme --root enrolled status" run from another directory.
+func TestBrokerProxyStatusRelativeRootDifferentCwd(t *testing.T) {
+	old := findNameOwner
+	defer func() { findNameOwner = old }()
+
+	ownerDir := t.TempDir()
+	callerDir := t.TempDir()
+	ownerRoot := filepath.Join(ownerDir, "enrolled")
+	findNameOwner = func() (broker.NameOwner, bool) {
+		return broker.NameOwner{PID: 77, Name: "intuneme", IsProxy: true, RootResolved: true, ProxyRoot: ownerRoot}, true
+	}
+	t.Chdir(callerDir)
+	want := fmt.Sprintf("not running (bus name owned by intuneme broker-proxy for root %s, PID 77)", ownerRoot)
+	if got := brokerProxyStatus("enrolled"); got != want {
+		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
+	}
+}
+
+// When the owner's working directory cannot be read, a relative owner root
+// must not be assumed to match the caller's root.
+func TestBrokerProxyStatusUnresolvedOwnerRoot(t *testing.T) {
+	old := findNameOwner
+	defer func() { findNameOwner = old }()
+
+	findNameOwner = func() (broker.NameOwner, bool) {
+		return broker.NameOwner{PID: 78, Name: "intuneme", IsProxy: true, ProxyRoot: "enrolled"}, true
+	}
+	t.Chdir(t.TempDir())
+	want := `not running (bus name owned by intuneme broker-proxy with unresolved root "enrolled", PID 78)`
+	if got := brokerProxyStatus("enrolled"); got != want {
 		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
 	}
 }

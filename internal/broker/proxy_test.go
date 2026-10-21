@@ -293,3 +293,50 @@ func TestStopByPIDFile_MissingFile(t *testing.T) {
 	// Should not panic on missing file
 	StopByPIDFile("/nonexistent/path/test.pid")
 }
+
+// fakeCwd points /proc/<pid>/cwd of the fake proc tree at dir.
+func fakeCwd(t *testing.T, pid int, dir string) {
+	t.Helper()
+	if err := os.Symlink(dir, filepath.Join(procRoot, strconv.Itoa(pid), "cwd")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFindNameOwnerResolvesRelativeRootAgainstOwnerCwd(t *testing.T) {
+	fakeProc(t, 4244, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00--root\x00enrolled\x00")
+	fakeCwd(t, 4244, "/srv/a")
+	stubOwnerLookup(t, 4244, true, nil)
+	// The caller runs somewhere else: the owner's cwd must win.
+	t.Chdir(t.TempDir())
+	owner, ok := FindNameOwner()
+	if !ok {
+		t.Fatal("expected an owner")
+	}
+	if !owner.RootResolved || owner.ProxyRoot != "/srv/a/enrolled" {
+		t.Errorf("FindNameOwner() = %+v, want resolved ProxyRoot %q", owner, "/srv/a/enrolled")
+	}
+}
+
+func TestFindNameOwnerRelativeRootWithoutCwd(t *testing.T) {
+	fakeProc(t, 4245, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00--root=enrolled\x00")
+	stubOwnerLookup(t, 4245, true, nil)
+	owner, ok := FindNameOwner()
+	if !ok {
+		t.Fatal("expected an owner")
+	}
+	if owner.RootResolved || owner.ProxyRoot != "enrolled" {
+		t.Errorf("FindNameOwner() = %+v, want unresolved ProxyRoot %q", owner, "enrolled")
+	}
+}
+
+func TestFindNameOwnerAbsoluteRootIgnoresCwd(t *testing.T) {
+	fakeProc(t, 4246, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00--root\x00/srv/b/x/../enrolled\x00")
+	stubOwnerLookup(t, 4246, true, nil)
+	owner, ok := FindNameOwner()
+	if !ok {
+		t.Fatal("expected an owner")
+	}
+	if !owner.RootResolved || owner.ProxyRoot != "/srv/b/enrolled" {
+		t.Errorf("FindNameOwner() = %+v, want resolved ProxyRoot %q", owner, "/srv/b/enrolled")
+	}
+}
