@@ -471,6 +471,33 @@ func SELinuxEnabled() bool {
 	return s == "0" || s == "1"
 }
 
+// isSemanageAlreadyDefined reports whether a failed `semanage fcontext -a`
+// only reports that the rule already exists.
+//
+// Older semanage versions raised a single "ValueError: File context for <path>
+// already defined" (or "Already Exists") line and exited non-zero. Current
+// semanage instead prints "File context for <path> already defined, modifying
+// instead" and re-adds the rule; a successful re-add exits zero, so the same
+// informational line in a non-zero exit means a later modify or commit step
+// failed. Such mixed output is a real failure, so only one non-empty line that
+// carries no "modifying instead" marker is treated as benign.
+func isSemanageAlreadyDefined(out []byte) bool {
+	var lines []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 1 {
+		return false
+	}
+	msg := strings.ToLower(lines[0])
+	if strings.Contains(msg, "modifying instead") {
+		return false
+	}
+	return strings.Contains(msg, "already defined") || strings.Contains(msg, "already exists")
+}
+
 // InstallSELinuxPolicy applies the SELinux configuration needed for systemd-machined
 // to access the rootfs and allocate PTYs — required on SELinux-enforcing systems such
 // as Fedora and Bazzite.
@@ -481,10 +508,11 @@ func SELinuxEnabled() bool {
 //     devices (user_devpts_t), which is required for machinectl shell to work.
 func InstallSELinuxPolicy(r runner.Runner, rootfsPath string) error {
 	// 1. Persist the file context so restorecon knows the target label.
-	if _, err := r.Run("sudo", "semanage", "fcontext", "-a", "-t", "container_file_t",
+	if out, err := r.Run("sudo", "semanage", "fcontext", "-a", "-t", "container_file_t",
 		rootfsPath+"(/.*)?"); err != nil {
-		// If the context already exists semanage exits non-zero; treat as non-fatal.
-		_ = err
+		if !isSemanageAlreadyDefined(out) {
+			return fmt.Errorf("semanage fcontext failed: %w: %s", err, strings.TrimSpace(string(out)))
+		}
 	}
 
 	// 2. Relabel the rootfs tree.

@@ -1,9 +1,15 @@
 package cmd
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/intuneme/internal/config"
+	"github.com/frostyard/intuneme/internal/runner"
 )
 
 func TestValidatePassword(t *testing.T) {
@@ -209,4 +215,101 @@ func FuzzValidatePassword(f *testing.F) {
 		// validatePassword must never panic regardless of input.
 		_ = validatePassword(username, password)
 	})
+}
+
+// initTestReporter captures Message and Warning calls so a test can prove that
+// a failed init never reports success.
+type initTestReporter struct {
+	messages []string
+	warnings []string
+}
+
+func (r *initTestReporter) Step(int, int, string)       {}
+func (r *initTestReporter) Progress(int, string)        {}
+func (r *initTestReporter) MessagePlain(string, ...any) {}
+func (r *initTestReporter) Error(error, string)         {}
+func (r *initTestReporter) Complete(string, any)        {}
+func (r *initTestReporter) IsJSON() bool                { return false }
+func (r *initTestReporter) Message(format string, args ...any) {
+	r.messages = append(r.messages, fmt.Sprintf(format, args...))
+}
+func (r *initTestReporter) Warning(format string, args ...any) {
+	r.warnings = append(r.warnings, fmt.Sprintf(format, args...))
+}
+
+// useInitTestReporter swaps the package reporter for a recorder.
+func useInitTestReporter(t *testing.T) *initTestReporter {
+	t.Helper()
+	rec := &initTestReporter{}
+	origRep := rep
+	rep = rec
+	t.Cleanup(func() { rep = origRep })
+	return rec
+}
+
+func TestFinishInitSELinuxFailureStopsBeforeSave(t *testing.T) {
+	rec := useInitTestReporter(t)
+
+	root := t.TempDir()
+	cfg := &config.Config{MachineName: "intuneme", RootfsPath: filepath.Join(root, "rootfs")}
+	installErr := errors.New("exit status 1: sudo: semanage: command not found")
+	deps := initCompletionDeps{
+		SELinuxEnabled: func() bool { return true },
+		InstallSELinuxPolicy: func(runner.Runner, string) error {
+			return installErr
+		},
+	}
+
+	err := finishInit(&runner.SystemRunner{}, cfg, root, "alice", 1000, deps)
+	if err == nil {
+		t.Fatal("finishInit returned nil after a SELinux policy failure")
+	}
+	if !errors.Is(err, installErr) {
+		t.Errorf("error %v does not wrap the installer error", err)
+	}
+	for _, want := range []string{"policycoreutils-python-utils", "intuneme init --force"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "config.toml")); !os.IsNotExist(statErr) {
+		t.Errorf("config.toml exists after a SELinux failure (stat error: %v)", statErr)
+	}
+	for _, msg := range rec.messages {
+		if strings.Contains(msg, "Initialized intuneme") {
+			t.Errorf("success message reported after a SELinux failure: %q", msg)
+		}
+	}
+}
+
+func TestFinishInitSuccessWritesConfig(t *testing.T) {
+	rec := useInitTestReporter(t)
+
+	root := t.TempDir()
+	cfg := &config.Config{MachineName: "intuneme", RootfsPath: filepath.Join(root, "rootfs")}
+	deps := initCompletionDeps{
+		SELinuxEnabled:       func() bool { return true },
+		InstallSELinuxPolicy: func(runner.Runner, string) error { return nil },
+	}
+
+	if err := finishInit(&runner.SystemRunner{}, cfg, root, "alice", 1000, deps); err != nil {
+		t.Fatalf("finishInit returned an error: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "config.toml")); err != nil {
+		t.Errorf("config.toml was not written: %v", err)
+	}
+	if cfg.HostUser != "alice" || cfg.HostUID != 1000 {
+		t.Errorf("config host fields = %q/%d, want alice/1000", cfg.HostUser, cfg.HostUID)
+	}
+	found := false
+	for _, msg := range rec.messages {
+		if strings.Contains(msg, "Initialized intuneme at "+root) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("success message missing; messages: %q", rec.messages)
+	}
 }

@@ -134,27 +134,62 @@ var initCmd = &cobra.Command{
 			rep.Warning("sudoers install failed: %v", err)
 		}
 
-		if provision.SELinuxEnabled() {
-			if clix.Verbose {
-				rep.Message("Applying SELinux policy (required for machinectl shell on SELinux systems)...")
-			}
-			if err := provision.InstallSELinuxPolicy(r, cfg.RootfsPath); err != nil {
-				rep.Warning("SELinux policy setup failed: %v", err)
-			}
-		}
-
-		if clix.Verbose {
-			rep.Message("Saving config...")
-		}
-		cfg.HostUID = os.Getuid()
-		cfg.HostUser = u.Username
-		if err := cfg.Save(root); err != nil {
+		if err := finishInit(r, cfg, root, u.Username, os.Getuid(), initCompletionDeps{}); err != nil {
 			return err
 		}
-
-		rep.Message("Initialized intuneme at %s", root)
 		return nil
 	},
+}
+
+// initCompletionDeps are the SELinux dependencies of finishInit. A nil field
+// selects the production implementation, so init passes an empty value and
+// tests inject fakes.
+type initCompletionDeps struct {
+	SELinuxEnabled       func() bool
+	InstallSELinuxPolicy func(runner.Runner, string) error
+}
+
+func (d initCompletionDeps) selinuxEnabled() bool {
+	if d.SELinuxEnabled != nil {
+		return d.SELinuxEnabled()
+	}
+	return provision.SELinuxEnabled()
+}
+
+func (d initCompletionDeps) installSELinuxPolicy(r runner.Runner, rootfsPath string) error {
+	if d.InstallSELinuxPolicy != nil {
+		return d.InstallSELinuxPolicy(r, rootfsPath)
+	}
+	return provision.InstallSELinuxPolicy(r, rootfsPath)
+}
+
+// finishInit runs the last steps of init: apply the SELinux policy when
+// SELinux is enabled, save the config, and report success. A SELinux policy
+// failure returns an error before the config is saved and before success is
+// reported, because a mislabeled rootfs cannot run the container user session.
+func finishInit(r runner.Runner, cfg *config.Config, root, hostUser string, hostUID int, deps initCompletionDeps) error {
+	if deps.selinuxEnabled() {
+		if clix.Verbose {
+			rep.Message("Applying SELinux policy (required for machinectl shell on SELinux systems)...")
+		}
+		if err := deps.installSELinuxPolicy(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("SELinux policy setup failed: %w\n"+
+				"Install policycoreutils-python-utils (which provides semanage) or repair the SELinux policy store, then run %q",
+				err, "intuneme init --force")
+		}
+	}
+
+	if clix.Verbose {
+		rep.Message("Saving config...")
+	}
+	cfg.HostUID = hostUID
+	cfg.HostUser = hostUser
+	if err := cfg.Save(root); err != nil {
+		return err
+	}
+
+	rep.Message("Initialized intuneme at %s", root)
+	return nil
 }
 
 // validatePassword checks the password against the same rules enforced by the
