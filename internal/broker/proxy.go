@@ -160,7 +160,7 @@ func escapeServiceFileValue(s string) string {
 // quoteExecArg quotes one argument of a D-Bus service file Exec line.
 // dbus-daemon splits Exec with shell-like rules, so an argument that has
 // characters outside a safe set is wrapped in single quotes (a single quote
-// inside becomes '\”). The result must still pass through
+// inside becomes '\''). The result must still pass through
 // escapeServiceFileValue before it goes into the file.
 func quoteExecArg(arg string) string {
 	if arg != "" && !strings.ContainsFunc(arg, needsExecQuote) {
