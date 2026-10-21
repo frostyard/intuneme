@@ -328,7 +328,7 @@ The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
 
 The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME Shell 47–50) installs to `~/.local/share/gnome-shell/extensions/` and provides:
 - Quick Settings toggle (start/stop container)
-- Status display (container running/stopped, broker proxy state)
+- Status display (container running/stopped, broker proxy state; when the PID file shows no proxy it also reports the owner of the broker bus name, see [Broker Proxy](broker-proxy.md))
 - Menu shortcuts for shell, Edge, Intune Portal
 - Monitors container state via `org.freedesktop.machine1` D-Bus signals with 5-second polling fallback
 - Finds a terminal emulator (checks `$TERMINAL`, then ghostty/ptyxis/kgx/gnome-terminal/xterm)

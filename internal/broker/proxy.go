@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -97,9 +98,137 @@ func ContainerBusAddress(root string) string {
 }
 
 // DBusServiceFileContent returns the content of a D-Bus service activation file
-// that launches the broker-proxy subcommand.
-func DBusServiceFileContent(execPath string) string {
-	return fmt.Sprintf("[D-BUS Service]\nName=%s\nExec=%s broker-proxy\n", BusName, execPath)
+// that launches the broker-proxy subcommand. The root is passed with --root so
+// a D-Bus activated instance uses the same root (and PID file) as
+// "intuneme start". The D-Bus Exec line uses shell-like quoting, so paths with
+// spaces or special characters are quoted.
+func DBusServiceFileContent(execPath, root string) string {
+	return fmt.Sprintf("[D-BUS Service]\nName=%s\nExec=%s broker-proxy --root %s\n",
+		BusName, quoteExecArg(execPath), quoteExecArg(root))
+}
+
+// quoteExecArg quotes one argument of a D-Bus service file Exec line.
+// dbus-daemon splits Exec with shell-like rules, so an argument that has
+// characters outside a safe set is wrapped in single quotes (a single quote
+// inside becomes '\”).
+func quoteExecArg(arg string) string {
+	if arg != "" && !strings.ContainsFunc(arg, needsExecQuote) {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+}
+
+func needsExecQuote(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return false
+	}
+	return !strings.ContainsRune("/._-+:,@=%", r)
+}
+
+// NameOwnerLookup asks a message bus which process owns BusName. It returns
+// owned=false when nobody owns the name.
+type NameOwnerLookup func() (pid int, owned bool, err error)
+
+// LookupNameOwner is the lookup used by Run and by "intuneme status". It asks
+// the host session bus. Tests replace it so they do not need a session bus.
+var LookupNameOwner NameOwnerLookup = sessionBusNameOwner
+
+// procRoot is the proc filesystem mount. Tests replace it.
+var procRoot = "/proc"
+
+// sessionBusNameOwner connects to the host session bus and resolves the owner
+// of BusName with org.freedesktop.DBus.GetNameOwner and
+// org.freedesktop.DBus.GetConnectionUnixProcessID.
+func sessionBusNameOwner() (int, bool, error) {
+	conn, err := dbus.ConnectSessionBus()
+	if err != nil {
+		return 0, false, fmt.Errorf("connect host session bus: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	return nameOwnerOnBus(conn.BusObject())
+}
+
+func nameOwnerOnBus(bus dbus.BusObject) (int, bool, error) {
+	var owner string
+	if err := bus.Call("org.freedesktop.DBus.GetNameOwner", 0, BusName).Store(&owner); err != nil {
+		var derr dbus.Error
+		if errors.As(err, &derr) && derr.Name == "org.freedesktop.DBus.Error.NameHasNoOwner" {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get owner of %s: %w", BusName, err)
+	}
+	var pid uint32
+	if err := bus.Call("org.freedesktop.DBus.GetConnectionUnixProcessID", 0, owner).Store(&pid); err != nil {
+		return 0, true, fmt.Errorf("get PID of %s: %w", owner, err)
+	}
+	return int(pid), true, nil
+}
+
+// ProcessName returns the name of a process from /proc/<pid>/comm, or "" if
+// it cannot be read.
+func ProcessName(pid int) string {
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "comm"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// IsProxyProcess reports whether the process is an "intuneme broker-proxy"
+// instance, judged from /proc/<pid>/cmdline.
+func IsProxyProcess(pid int) bool {
+	data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return false
+	}
+	args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	if len(args) < 2 || !strings.HasPrefix(filepath.Base(args[0]), "intuneme") {
+		return false
+	}
+	for _, a := range args[1:] {
+		if a == "broker-proxy" {
+			return true
+		}
+	}
+	return false
+}
+
+// NameOwner describes the process that owns BusName.
+type NameOwner struct {
+	PID     int
+	Name    string // from /proc/<pid>/comm, may be empty
+	IsProxy bool   // an "intuneme broker-proxy" instance
+}
+
+// String returns "PID 12345 (microsoft-identity-broker)", or "PID 12345" when
+// the process name is unknown.
+func (o NameOwner) String() string {
+	if o.Name == "" {
+		return fmt.Sprintf("PID %d", o.PID)
+	}
+	return fmt.Sprintf("PID %d (%s)", o.PID, o.Name)
+}
+
+// FindNameOwner returns the owner of BusName on the host session bus. It
+// returns ok=false when the name has no owner or the lookup fails.
+func FindNameOwner() (owner NameOwner, ok bool) {
+	pid, owned, err := LookupNameOwner()
+	if err != nil || !owned || pid <= 0 {
+		return NameOwner{}, false
+	}
+	return NameOwner{PID: pid, Name: ProcessName(pid), IsProxy: IsProxyProcess(pid)}, true
+}
+
+// alreadyOwnedError builds the error for a failed bus name claim. It names the
+// owner when the lookup works and keeps the plain message when it does not.
+func alreadyOwnedError() error {
+	owner, ok := FindNameOwner()
+	if !ok {
+		return fmt.Errorf("bus name %s already owned", BusName)
+	}
+	return fmt.Errorf("bus name %s already owned by %s; another identity broker or another intuneme broker-proxy is probably running on the host",
+		BusName, owner)
 }
 
 // DBusServiceFilePath returns the path where the D-Bus service activation file
@@ -267,7 +396,7 @@ func Run(ctx context.Context, root string) error {
 		return fmt.Errorf("request bus name %s: %w", BusName, err)
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
-		return fmt.Errorf("bus name %s already owned", BusName)
+		return alreadyOwnedError()
 	}
 
 	log.Printf("Broker proxy running: forwarding %s to %s", BusName, addr)

@@ -24,7 +24,9 @@ intuneme stop && intuneme start
 
 The restart is required so `intuneme start` can set up the bind mount and create a login session inside the container (needed for gnome-keyring and the user broker service).
 
-After enabling, `intuneme status` will include a line showing whether the proxy is running.
+After enabling, `intuneme status` will include a line showing whether the proxy is running. If the proxy is not running because another process already owns `com.microsoft.identity.broker1` on your session bus, the line names that process, for example `not running (bus name owned by PID 12345 (microsoft-identity-broker))`. If the proxy was started by D-Bus activation, it shows `running (PID 12345, D-Bus activated)`.
+
+The D-Bus activation file records the intuneme root (`--root`). If you enabled the proxy with an older release, run `intuneme config broker-proxy enable` again to refresh the file.
 
 ## Disable the proxy
 

@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,15 +42,104 @@ func TestContainerBusAddress(t *testing.T) {
 }
 
 func TestDBusServiceFileContent(t *testing.T) {
-	content := DBusServiceFileContent("/usr/local/bin/intuneme")
+	content := DBusServiceFileContent("/usr/local/bin/intuneme", "/home/u/.local/share/intuneme")
 	if !strings.Contains(content, BusName) {
 		t.Errorf("missing bus name in service file content:\n%s", content)
 	}
-	if !strings.Contains(content, "Exec=/usr/local/bin/intuneme broker-proxy") {
-		t.Errorf("missing exec line in service file content:\n%s", content)
+	want := "Exec=/usr/local/bin/intuneme broker-proxy --root /home/u/.local/share/intuneme\n"
+	if !strings.Contains(content, want) {
+		t.Errorf("missing exec line %q in service file content:\n%s", want, content)
 	}
 	if !strings.Contains(content, "[D-BUS Service]") {
 		t.Errorf("missing [D-BUS Service] header in service file content:\n%s", content)
+	}
+}
+
+func TestDBusServiceFileContentQuotesRoot(t *testing.T) {
+	content := DBusServiceFileContent("/opt/my tools/intuneme", "/home/u/my root/it's")
+	want := "Exec='/opt/my tools/intuneme' broker-proxy --root '/home/u/my root/it'\\''s'\n"
+	if !strings.Contains(content, want) {
+		t.Errorf("missing exec line %q in service file content:\n%s", want, content)
+	}
+}
+
+func stubOwnerLookup(t *testing.T, pid int, owned bool, err error) {
+	t.Helper()
+	old := LookupNameOwner
+	LookupNameOwner = func() (int, bool, error) { return pid, owned, err }
+	t.Cleanup(func() { LookupNameOwner = old })
+}
+
+func fakeProc(t *testing.T, pid int, comm, cmdline string) {
+	t.Helper()
+	old := procRoot
+	procRoot = t.TempDir()
+	t.Cleanup(func() { procRoot = old })
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(comm+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(cmdline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAlreadyOwnedErrorNamesOwner(t *testing.T) {
+	fakeProc(t, 12345, "microsoft-identity-broker", "x\x00")
+	stubOwnerLookup(t, 12345, true, nil)
+	msg := alreadyOwnedError().Error()
+	want := "bus name com.microsoft.identity.broker1 already owned by PID 12345 (microsoft-identity-broker)"
+	if !strings.Contains(msg, want) {
+		t.Errorf("error %q does not contain %q", msg, want)
+	}
+	if !strings.Contains(msg, "another intuneme broker-proxy") {
+		t.Errorf("error %q has no hint", msg)
+	}
+}
+
+func TestAlreadyOwnedErrorWithoutProcName(t *testing.T) {
+	fakeProc(t, 1, "init", "init\x00")
+	stubOwnerLookup(t, 999, true, nil)
+	msg := alreadyOwnedError().Error()
+	if !strings.Contains(msg, "already owned by PID 999;") {
+		t.Errorf("unexpected error %q", msg)
+	}
+}
+
+func TestAlreadyOwnedErrorFallback(t *testing.T) {
+	want := "bus name com.microsoft.identity.broker1 already owned"
+	for name, tc := range map[string]struct {
+		pid   int
+		owned bool
+		err   error
+	}{
+		"lookup error": {0, false, errors.New("no session bus")},
+		"no owner":     {0, false, nil},
+		"bad pid":      {0, true, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stubOwnerLookup(t, tc.pid, tc.owned, tc.err)
+			if got := alreadyOwnedError().Error(); got != want {
+				t.Errorf("error = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestIsProxyProcess(t *testing.T) {
+	fakeProc(t, 42, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00--root\x00/x\x00")
+	if !IsProxyProcess(42) {
+		t.Error("expected broker-proxy process")
+	}
+	if IsProxyProcess(43) {
+		t.Error("missing process must not match")
+	}
+	fakeProc(t, 44, "microsoft-ident", "/opt/microsoft/identity-broker/bin/microsoft-identity-broker\x00")
+	if IsProxyProcess(44) {
+		t.Error("foreign broker must not match")
 	}
 }
 

@@ -54,7 +54,7 @@ var brokerProxyEnableCmd = &cobra.Command{
 		if err := os.MkdirAll(filepath.Dir(svcPath), 0755); err != nil {
 			return fmt.Errorf("create dbus services dir: %w", err)
 		}
-		content := broker.DBusServiceFileContent(execPath)
+		content := broker.DBusServiceFileContent(execPath, root)
 		if err := os.WriteFile(svcPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write dbus service file: %w", err)
 		}

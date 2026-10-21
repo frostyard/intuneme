@@ -51,12 +51,7 @@ var statusCmd = &cobra.Command{
 
 		brokerStatus := ""
 		if cfg.BrokerProxy {
-			pidPath := filepath.Join(root, "broker-proxy.pid")
-			if pid, running := broker.IsRunningByPIDFile(pidPath); running {
-				brokerStatus = fmt.Sprintf("running (PID %d)", pid)
-			} else {
-				brokerStatus = "not running"
-			}
+			brokerStatus = brokerProxyStatus(root)
 		}
 
 		channel := "stable"
@@ -88,6 +83,29 @@ var statusCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// findNameOwner is replaced in tests so they need no session bus.
+var findNameOwner = broker.FindNameOwner
+
+// brokerProxyStatus describes the broker proxy. It checks the PID file first.
+// When the PID file shows no running proxy, it asks the host session bus who
+// owns the broker bus name, so a D-Bus activated proxy or a foreign broker
+// shows in the status. Callers must check cfg.BrokerProxy first: this function
+// connects to the session bus.
+func brokerProxyStatus(root string) string {
+	pidPath := filepath.Join(root, "broker-proxy.pid")
+	if pid, running := broker.IsRunningByPIDFile(pidPath); running {
+		return fmt.Sprintf("running (PID %d)", pid)
+	}
+	owner, ok := findNameOwner()
+	if !ok {
+		return "not running"
+	}
+	if owner.IsProxy {
+		return fmt.Sprintf("running (PID %d, D-Bus activated)", owner.PID)
+	}
+	return fmt.Sprintf("not running (bus name owned by %s)", owner)
 }
 
 func init() {

@@ -166,6 +166,17 @@ Common issues and solutions. Click an item to expand it.
     intuneme stop && intuneme start
     ```
 
+??? question "Broker proxy reports \"bus name com.microsoft.identity.broker1 already owned\""
+    Another process already owns the broker name on your host session bus. The error names it, for example `already owned by PID 12345 (microsoft-identity-broker)`. `intuneme status` shows the same owner. It is usually a Microsoft identity broker installed on the host, or another `intuneme broker-proxy` (for example one started for a different `--root`).
+
+    Check the process:
+
+    ```bash
+    ps -fp 12345
+    ```
+
+    Stop or disable that broker, or run `intuneme config broker-proxy disable` if you do not need the proxy. If the owner is an old `intuneme broker-proxy`, run `intuneme config broker-proxy enable` again so the D-Bus activation file includes `--root`.
+
 ??? question "`intuneme` commands fail with a config.toml parse error"
     If `config.toml` contains invalid TOML syntax, intuneme will report the error instead of silently falling back to defaults. This prevents unexpected behavior from a corrupted configuration.
 
