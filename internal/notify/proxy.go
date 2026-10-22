@@ -216,8 +216,9 @@ func (f *forwarder) relay(ch <-chan *dbus.Signal) {
 
 // serve exports the forwarder on the container connection, claims the
 // notifications bus name there, and relays host signals until ctx is
-// cancelled or either connection closes.
-func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) error {
+// cancelled or either connection closes. ready, when not nil, runs once the
+// proxy owns the name.
+func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore, ready func() error) error {
 	fwd := &forwarder{
 		host:      host,
 		container: container,
@@ -255,6 +256,11 @@ func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) er
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		return fmt.Errorf("bus name %s already owned on the container bus", BusName)
 	}
+	if ready != nil {
+		if err := ready(); err != nil {
+			return err
+		}
+	}
 
 	select {
 	case <-ctx.Done():
@@ -268,8 +274,8 @@ func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) er
 
 // Run connects to the container's session bus and the host session bus and
 // forwards notifications from the container to the host until ctx is
-// cancelled.
-func Run(ctx context.Context, root string) error {
+// cancelled. ready runs once the proxy owns the bus name.
+func Run(ctx context.Context, root string, ready func() error) error {
 	socket := broker.SessionBusSocketPath(root)
 	container, pid, err := busproxy.Dial(socket)
 	if err != nil {
@@ -294,7 +300,7 @@ func Run(ctx context.Context, root string) error {
 	defer icons.close()
 
 	log.Printf("Notify proxy running: serving %s on %s, container files via /proc/%d/root", BusName, socket, pid)
-	err = serve(ctx, host, container, icons)
+	err = serve(ctx, host, container, icons, ready)
 	log.Println("Notify proxy shutting down")
 	return err
 }

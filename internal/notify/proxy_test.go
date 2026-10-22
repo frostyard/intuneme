@@ -93,7 +93,7 @@ func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn, *iconStore) 
 	writeFile(t, filepath.Join(root, "tmp/d/icon.png"), "icon")
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
-	go func() { errCh <- serve(ctx, proxyHost, proxyContainer, icons) }()
+	go func() { errCh <- serve(ctx, proxyHost, proxyContainer, icons, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-errCh; err != nil {
