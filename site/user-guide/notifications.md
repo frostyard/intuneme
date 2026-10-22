@@ -17,12 +17,14 @@ intuneme config notify-proxy enable
 intuneme stop && intuneme start
 ```
 
-The restart is required so `intuneme start` can expose the container's session bus and start the proxy.
+If the container is already running, the stop and start are required. `intuneme start` exposes the container's session bus at boot and then starts the proxy.
 
 !!! important
     Edge looks for a notification server only once, when it starts. Start Edge after `intuneme start` has finished. If Edge was already running when the proxy started, close and reopen Edge.
 
 After enabling, `intuneme status` includes a line showing whether the proxy is running.
+
+The proxy stops when your host session ends, for example at logout. Notifications then stop until the next `intuneme start`.
 
 ## Outlook on the web
 
@@ -45,4 +47,4 @@ intuneme stop && intuneme start
 - A notification server on the host session bus (standard on any desktop)
 
 !!! note
-    Any app in the container can show notifications on the host while the proxy runs. Notification images are read from the container's `/tmp` through `/proc`, so they show with the right icon.
+    Any app in the container can show notifications on the host while the proxy runs. The proxy limits what they can do: it passes only a fixed set of hints, copies notification images from the container's `/tmp` after safety checks, cannot replace or close the notifications of host apps, and allows about one notification per second after a burst of 10.

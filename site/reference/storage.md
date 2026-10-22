@@ -27,6 +27,7 @@ The data root can be overridden with `--root <path>` on any command.
 | `/run/intuneme/devices/` | Udev forwarded device state (tmpfs, only while running) |
 | `/opt/intuneme-mcp/` | Host directory of an MCP server binary, bind-mounted read-only by `intuneme mcp` (runtime-only; re-established on demand, never enters the rootfs) |
 | `/run/host-nvidia/0/`, `/run/host-nvidia/1/`, ... | Nvidia host library directories bind-mounted read-only into the container (only on Nvidia systems) |
+| `$XDG_RUNTIME_DIR/intuneme-notify/` (host) | Private copies of notification images, made by the notify proxy. Emptied when the proxy starts and removed when it exits. |
 
 ## Container home directory
 

@@ -13,6 +13,7 @@ cmd/                  CLI command definitions (cobra commands)
 ├── extension/        Embedded GNOME Shell extension files
 internal/
 ├── broker/           D-Bus broker proxy (container→host SSO forwarding)
+├── busproxy/         Shared code for proxies on the container bus (dial, PID file)
 ├── notify/           Desktop notification proxy (container→host notifications)
 ├── config/           Config struct + TOML load/save (~/.local/share/intuneme/config.toml)
 ├── nspawn/           systemd-nspawn wrapper (boot, stop, exec, shell, bind mounts)

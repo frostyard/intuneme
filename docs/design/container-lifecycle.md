@@ -196,7 +196,7 @@ Toggle the D-Bus broker proxy for host-side SSO. See [Broker Proxy](broker-proxy
 
 Toggle forwarding of container desktop notifications to the host. See [Notify Proxy](notify-proxy.md) for details.
 
-**`enable`:** Sets `notify_proxy = true` in config. The proxy starts on the next `start`. There is no D-Bus activation file: the proxy owns its name on the container bus, which a host service file cannot activate.
+**`enable`:** Sets `notify_proxy = true` in config. The proxy starts on the next `start`. For a running container, the output tells the user to run `stop` and then `start`, because the runtime bind mount is set up at boot. There is no D-Bus activation file: the proxy owns its name on the container bus, which a host service file cannot activate. `containerBusProxyConfigCmd()` in `cmd/config.go` builds both subcommands.
 
 **`disable`:** Clears the flag, stops the proxy if running.
 
@@ -223,7 +223,7 @@ See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
 
 Runs the notification proxy in the foreground. It owns `org.freedesktop.Notifications` on the container session bus and forwards calls to the host notification server.
 
-Normally launched automatically by `start` as a background process. Can be run manually for debugging.
+Normally launched automatically by `start` as a background process. Can be run manually for debugging, after `intuneme config notify-proxy disable` or `stop` of the background one: a second instance refuses to start while the PID file names a live proxy. `runContainerBusProxy()` in `cmd/proxy_run.go` writes the PID file only after the proxy owns its bus name.
 
 See [Notify Proxy](notify-proxy.md) for the full proxy architecture.
 
