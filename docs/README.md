@@ -31,9 +31,12 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
   entry-point doc)
 - [Container Lifecycle](design/container-lifecycle.md) — how each command
   works: init, start, stop, destroy, recreate, status, shell, open, udev,
-  extension, broker-proxy
+  extension, broker-proxy, notify-proxy
 - [Broker Proxy](design/broker-proxy.md) — D-Bus forwarding of
   `com.microsoft.identity.broker1` from container to host for host-side SSO
+- [Notify Proxy](design/notify-proxy.md) — forwarding of
+  `org.freedesktop.Notifications` from container to host, so web
+  notifications from the container's Edge show on the host desktop
 
 ### Specs
 

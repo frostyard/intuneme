@@ -16,7 +16,7 @@ intuneme uses two directories on the host: a data directory for container state,
 |------|-------------|
 | `config.toml` | Configuration file. See [Configuration Reference](configuration.md). |
 | `rootfs/` | The container root filesystem. Extracted from the OCI image by `intuneme init`. This directory is the nspawn container root. Removed and recreated by `intuneme recreate` or `intuneme destroy`. |
-| `runtime/` | Bind-mounted into the container as `/run/user/<uid>` when the broker proxy is enabled. This makes the container's session D-Bus socket visible on the host at `runtime/bus`. Not used when `broker_proxy = false`. |
+| `runtime/` | Bind-mounted into the container as `/run/user/<uid>` when the broker proxy or the notify proxy is enabled. This makes the container's session D-Bus socket visible on the host at `runtime/bus`. Not used when both `broker_proxy` and `notify_proxy` are `false`. |
 
 The data root can be overridden with `--root <path>` on any command.
 
@@ -27,6 +27,7 @@ The data root can be overridden with `--root <path>` on any command.
 | `/run/intuneme/devices/` | Udev forwarded device state (tmpfs, only while running) |
 | `/opt/intuneme-mcp/` | Host directory of an MCP server binary, bind-mounted read-only by `intuneme mcp` (runtime-only; re-established on demand, never enters the rootfs) |
 | `/run/host-nvidia/0/`, `/run/host-nvidia/1/`, ... | Nvidia host library directories bind-mounted read-only into the container (only on Nvidia systems) |
+| `$XDG_RUNTIME_DIR/intuneme-notify/` (host) | Private copies of notification images, made by the notify proxy. Emptied when the proxy starts and removed when it exits. |
 
 ## Container home directory
 

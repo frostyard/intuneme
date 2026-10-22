@@ -103,3 +103,37 @@ func mockLaunchInstall(t *testing.T) {
 	}
 	t.Cleanup(func() { installLaunchHelpers = old })
 }
+
+func TestStartProxyPassesAbsoluteRoot(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.Mkdir("root", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A live PID in the PID file makes startProxy return at once.
+	if err := os.WriteFile(filepath.Join("root", "notify-proxy.pid"), []byte(fmt.Sprint(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &startSecurityRunner{}
+	if err := startProxy(r, "root", "notify-proxy"); err != nil {
+		t.Fatalf("startProxy: %v", err)
+	}
+	if len(r.commands) != 1 {
+		t.Fatalf("commands = %v, want one launch", r.commands)
+	}
+	want := " notify-proxy --root " + filepath.Join(dir, "root")
+	if got := r.commands[0]; !strings.HasPrefix(got, "setsid ") || !strings.HasSuffix(got, want) {
+		t.Errorf("launch = %q, want setsid ...%s", got, want)
+	}
+}
+
+func TestStartProxyFailsWithoutPIDFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits 5 seconds")
+	}
+	r := &startSecurityRunner{}
+	if err := startProxy(r, t.TempDir(), "notify-proxy"); err == nil {
+		t.Fatal("startProxy succeeded without a PID file")
+	}
+}

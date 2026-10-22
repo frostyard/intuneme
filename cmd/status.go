@@ -54,6 +54,16 @@ var statusCmd = &cobra.Command{
 			brokerStatus = brokerProxyStatus(root)
 		}
 
+		notifyStatus := ""
+		if cfg.NotifyProxy {
+			pidPath := filepath.Join(root, "notify-proxy.pid")
+			if pid, running := broker.IsRunningByPIDFile(pidPath); running {
+				notifyStatus = fmt.Sprintf("running (PID %d)", pid)
+			} else {
+				notifyStatus = "not running"
+			}
+		}
+
 		channel := "stable"
 		if cfg.Insiders {
 			channel = "insiders"
@@ -67,6 +77,7 @@ var statusCmd = &cobra.Command{
 			"container":    containerStatus,
 			"channel":      channel,
 			"broker_proxy": brokerStatus,
+			"notify_proxy": notifyStatus,
 		}); printed {
 			return err
 		}
@@ -79,6 +90,9 @@ var statusCmd = &cobra.Command{
 
 		if cfg.BrokerProxy {
 			rep.MessagePlain("Broker proxy: %s", brokerStatus)
+		}
+		if cfg.NotifyProxy {
+			rep.MessagePlain("Notify proxy: %s", notifyStatus)
 		}
 
 		return nil
