@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/intuneme/internal/config"
+	"github.com/spf13/cobra"
 )
 
 func TestDBusServiceContentMakesRootAbsolute(t *testing.T) {
@@ -29,5 +32,49 @@ func TestDBusServiceContentKeepsAbsoluteRoot(t *testing.T) {
 	}
 	if !strings.Contains(got, "broker-proxy --root /srv/in\n") {
 		t.Errorf("unexpected content %q", got)
+	}
+}
+
+// runSubcommand runs "config <parent> <name>" against a temp root and returns
+// the root and the reported messages.
+func runSubcommand(t *testing.T, root string, parent *cobra.Command, name string) []string {
+	t.Helper()
+	rec := &messageRecorder{}
+	origRep, origRoot := rep, rootDir
+	rep, rootDir = rec, root
+	t.Cleanup(func() { rep, rootDir = origRep, origRoot })
+
+	sub, _, err := parent.Find([]string{name})
+	if err != nil || sub == parent {
+		t.Fatalf("no %s subcommand: %v", name, err)
+	}
+	if err := sub.RunE(sub, nil); err != nil {
+		t.Fatalf("%s %s: %v", parent.Use, name, err)
+	}
+	return rec.messages
+}
+
+func TestNotifyProxyEnableDisable(t *testing.T) {
+	root := t.TempDir()
+
+	msgs := runSubcommand(t, root, notifyProxyConfigCmd, "enable")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.NotifyProxy {
+		t.Error("enable did not set notify_proxy")
+	}
+	if joined := strings.Join(msgs, "\n"); !strings.Contains(joined, "'intuneme stop' and then 'intuneme start'") {
+		t.Errorf("enable output does not explain the restart:\n%s", joined)
+	}
+
+	runSubcommand(t, root, notifyProxyConfigCmd, "disable")
+	cfg, err = config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.NotifyProxy {
+		t.Error("disable did not clear notify_proxy")
 	}
 }
