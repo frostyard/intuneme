@@ -6,6 +6,7 @@ The screencast proxy lets apps in the container share host screens and windows. 
 
 - Edge runs as a native Wayland client with the WebRTC PipeWire capturer (`ubuntu-intune/system_files/usr/local/bin/microsoft-edge`). On Wayland, it can capture screens and windows only through `org.freedesktop.portal.ScreenCast` on its session bus.
 - The container session bus has its own xdg-desktop-portal with only the `gtk` backend. That backend has no ScreenCast, so Edge can share only tabs.
+- WebRTC uses the portal only when `XDG_SESSION_TYPE` starts with `wayland` and `WAYLAND_DISPLAY` is set (`IsRunningUnderWayland()` in `desktop_capturer.cc`). Otherwise it uses X11 capture, which finds nothing because the Edge wrapper unsets `DISPLAY`. `intuneme-session-setup` exports `XDG_SESSION_TYPE=wayland` together with `WAYLAND_DISPLAY`, for every app launch.
 - The host portal has a ScreenCast backend (for example GNOME, KDE, wlroots or Hyprland). The host PipeWire socket is already bind-mounted into the container, and the container has `libpipewire-0.3`.
 
 ## How It Works
@@ -145,6 +146,7 @@ A change takes effect on the next `intuneme start`. For a running container, tha
 
 ## Operational Notes
 
+- If Edge offers only tabs and the proxy sees no calls, check that Edge has `XDG_SESSION_TYPE=wayland`. An Edge started before the session script exported it must be restarted.
 - Start Edge after `intuneme start`. Chromium checks the portal at startup. An Edge that started while the container portal was running can try its FileChooser, which is now missing, until Edge restarts.
 - The host portal needs a ScreenCast backend. Check with:
 
@@ -175,5 +177,6 @@ A change takes effect on the next `intuneme start`. For a running container, tha
 ## References
 
 - [ScreenCast portal](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html), [Request](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Request.html) and [Session](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Session.html) interfaces
+- WebRTC Wayland detection: [`desktop_capturer.cc`](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/desktop_capture/desktop_capturer.cc)
 - WebRTC client: [`screencast_portal.cc`](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/desktop_capture/linux/wayland/screencast_portal.cc) and [`xdg_desktop_portal_utils.cc`](https://webrtc.googlesource.com/src/+/refs/heads/main/modules/portal/xdg_desktop_portal_utils.cc)
 - Container portal name handling: [`xdg-desktop-portal.c` 1.18.4](https://github.com/flatpak/xdg-desktop-portal/blob/1.18.4/src/xdg-desktop-portal.c) and [GLib `gdbusnameowning.c`](https://gitlab.gnome.org/GNOME/glib/-/blob/2.80.0/gio/gdbusnameowning.c)

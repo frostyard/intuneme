@@ -239,7 +239,7 @@ The script (safe to source or execute; idempotent) does:
 1. Sets `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` if unset, so it works from any caller
 2. Reads `DISPLAY` from `/etc/intuneme-host-display` (written by `start`), defaults to `:0`
 3. Extends `PATH`; sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
-4. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
+4. Detects Wayland (`WAYLAND_DISPLAY`, and with it `XDG_SESSION_TYPE=wayland`: WebRTC in Edge captures screens through the ScreenCast portal only under that session type, otherwise it falls back to X11 capture and can share only tabs), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
 5. Propagates the env with **both** `systemctl --user import-environment` **and `dbus-update-activation-environment --systemd`**. The latter is essential: the identity broker is a **GTK app that the session D-Bus daemon activates on demand**, and it inherits `DISPLAY`/`XAUTHORITY` only from the D-Bus activation environment. Without it the broker dies on startup with `cannot open display` and Edge cannot authenticate.
 6. Sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1` — see below
 7. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:

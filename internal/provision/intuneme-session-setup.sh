@@ -42,6 +42,11 @@ fi
 # Wayland / PipeWire / PulseAudio sockets (bind-mounted from host)
 if [ -S /run/host-wayland ]; then
     export WAYLAND_DISPLAY=/run/host-wayland
+    # WebRTC (Edge screen sharing) uses the ScreenCast portal only when
+    # XDG_SESSION_TYPE is "wayland". Without it, it falls back to X11
+    # capture, which finds nothing because the Edge wrapper unsets DISPLAY,
+    # and only browser tabs can be shared.
+    export XDG_SESSION_TYPE=wayland
 fi
 if [ -S /run/host-pipewire ]; then
     export PIPEWIRE_REMOTE=/run/host-pipewire

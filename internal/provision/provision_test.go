@@ -168,7 +168,8 @@ func TestSessionSetupScriptContent(t *testing.T) {
 		"dbus-update-activation-environment", // broker inherits DISPLAY/XAUTHORITY
 		"import-environment",
 		`echo "" | gnome-keyring-daemon --unlock`, // empty pw via newline, not EOF
-		"pkill -u", // reliable single-daemon unlock
+		"pkill -u",                        // reliable single-daemon unlock
+		"export XDG_SESSION_TYPE=wayland", // WebRTC screen capture through the portal
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("session-setup script missing required snippet %q", want)
