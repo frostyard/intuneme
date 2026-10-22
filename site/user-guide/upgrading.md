@@ -30,7 +30,7 @@ No re-enrollment is needed after `recreate`. Your existing enrollment, browser p
 | Container rootfs (system packages, config) | No — rebuilt from image |
 
 !!! tip
-    Use `--insiders` to switch to (or stay on) the insiders channel image: `intuneme recreate --insiders`
+    `recreate` keeps the channel saved in `config.toml`. Use `intuneme recreate --insiders` to switch to the insiders channel image, and `intuneme recreate --insiders=false` to switch back to stable.
 
 !!! tip "Fedora / tmpfs systems"
     If `recreate` fails with "disk quota exceeded", use `--tmp-dir` to write temporary files to a disk-backed directory:
