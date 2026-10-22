@@ -2,7 +2,10 @@ package notify
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -51,7 +54,7 @@ func connect(t *testing.T, sock string) *dbus.Conn {
 // startProxy runs serve between a fresh host bus with a fake server and a
 // fresh container bus. It returns the fake server, its connection, and a
 // client connection on the container bus.
-func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn) {
+func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn, *iconStore) {
 	t.Helper()
 	hostSock, _ := busproxytest.StartBus(t)
 	containerSock, _ := busproxytest.StartBus(t)
@@ -69,10 +72,12 @@ func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn) {
 	// first out, so serve stops before its connections close.
 	proxyHost := connect(t, hostSock)
 	proxyContainer := connect(t, containerSock)
-	paths := testRewriter("/proc/42/root/tmp/d/logo.png", "/proc/42/root/tmp/d/icon.png")
+	icons, root := testStore(t)
+	writeFile(t, filepath.Join(root, "tmp/d/logo.png"), "logo")
+	writeFile(t, filepath.Join(root, "tmp/d/icon.png"), "icon")
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
-	go func() { errCh <- serve(ctx, proxyHost, proxyContainer, paths) }()
+	go func() { errCh <- serve(ctx, proxyHost, proxyContainer, icons) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-errCh; err != nil {
@@ -85,16 +90,16 @@ func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn) {
 		var owned bool
 		_ = client.BusObject().Call("org.freedesktop.DBus.NameHasOwner", 0, BusName).Store(&owned)
 		if owned {
-			return fake, fakeConn, client
+			return fake, fakeConn, client, icons
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("proxy did not claim the bus name on the container bus")
-	return nil, nil, nil
+	return nil, nil, nil, nil
 }
 
 func TestGetCapabilitiesDropsBodyImages(t *testing.T) {
-	_, _, client := startProxy(t)
+	_, _, client, _ := startProxy(t)
 
 	var caps []string
 	if err := client.Object(BusName, ObjectPath).Call(InterfaceName+".GetCapabilities", 0).Store(&caps); err != nil {
@@ -107,7 +112,7 @@ func TestGetCapabilitiesDropsBodyImages(t *testing.T) {
 }
 
 func TestGetServerInformation(t *testing.T) {
-	_, _, client := startProxy(t)
+	_, _, client, _ := startProxy(t)
 
 	var name, vendor, version, spec string
 	err := client.Object(BusName, ObjectPath).Call(InterfaceName+".GetServerInformation", 0).
@@ -120,8 +125,8 @@ func TestGetServerInformation(t *testing.T) {
 	}
 }
 
-func TestNotifyRewritesPaths(t *testing.T) {
-	fake, _, client := startProxy(t)
+func TestNotifyCopiesIcons(t *testing.T) {
+	fake, fakeConn, client, icons := startProxy(t)
 
 	var id uint32
 	err := client.Object(BusName, ObjectPath).Call(InterfaceName+".Notify", 0,
@@ -138,17 +143,39 @@ func TestNotifyRewritesPaths(t *testing.T) {
 	}
 
 	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	if fake.icon != "file:///proc/42/root/tmp/d/logo.png" {
-		t.Errorf("host got app_icon %q", fake.icon)
+	logo, ok := strings.CutPrefix(fake.icon, "file://")
+	image, _ := fake.hints["image-path"].Value().(string)
+	fake.mu.Unlock()
+	if !ok {
+		t.Fatalf("host got app_icon %q, want a file:// URL", fake.icon)
 	}
-	if v := fake.hints["image-path"].Value(); v != "/proc/42/root/tmp/d/icon.png" {
-		t.Errorf("host got image-path %v", v)
+	assertCopy(t, icons, logo, "logo")
+	assertCopy(t, icons, image, "icon")
+
+	// The close signal removes the copies. Wait for the client to see the
+	// relayed signal, so the proxy has handled it.
+	if err := client.AddMatchSignal(dbus.WithMatchInterface(InterfaceName)); err != nil {
+		t.Fatalf("AddMatchSignal: %v", err)
+	}
+	got := make(chan *dbus.Signal, 1)
+	client.Signal(got)
+	if err := fakeConn.Emit(ObjectPath, InterfaceName+".NotificationClosed", id, uint32(2)); err != nil {
+		t.Fatalf("emit: %v", err)
+	}
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for NotificationClosed")
+	}
+	for _, p := range []string{logo, image} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("copy %s not removed after close: %v", p, err)
+		}
 	}
 }
 
 func TestSignalsRelayOnlyOwnNotifications(t *testing.T) {
-	_, fakeConn, client := startProxy(t)
+	_, fakeConn, client, _ := startProxy(t)
 
 	if err := client.AddMatchSignal(dbus.WithMatchInterface(InterfaceName)); err != nil {
 		t.Fatalf("AddMatchSignal: %v", err)

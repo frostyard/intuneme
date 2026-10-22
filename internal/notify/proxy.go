@@ -78,12 +78,13 @@ const introspectXML = `<node>
 // Notification IDs are the host server's IDs, passed through unchanged, so
 // replaces_id and CloseNotification need no mapping. ids holds the IDs this
 // proxy created, so signals for host apps' notifications stay on the host.
+// Each ID maps to the icon copies made for it.
 type forwarder struct {
 	host  *dbus.Conn
-	paths *pathRewriter
+	icons *iconStore
 
 	mu  sync.Mutex
-	ids map[uint32]bool
+	ids map[uint32][]string
 }
 
 func (f *forwarder) server() dbus.BusObject {
@@ -108,17 +109,24 @@ func (f *forwarder) GetServerInformation() (string, string, string, string, *dbu
 
 func (f *forwarder) Notify(appName string, replacesID uint32, appIcon, summary, body string,
 	actions []string, hints map[string]dbus.Variant, expireTimeout int32) (uint32, *dbus.Error) {
+	copies := f.icons.begin()
+	icon := copies.appIcon(appIcon)
+	hints = copies.hints(hints)
+
 	var id uint32
 	err := f.server().Call(InterfaceName+".Notify", 0,
-		appName, replacesID, f.paths.appIcon(appIcon), summary, body,
-		actions, f.paths.hints(hints), expireTimeout,
+		appName, replacesID, icon, summary, body,
+		actions, hints, expireTimeout,
 	).Store(&id)
 	if err != nil {
+		f.icons.remove(copies.files)
 		return 0, dbus.MakeFailedError(err)
 	}
 	f.mu.Lock()
-	f.ids[id] = true
+	old := f.ids[id]
+	f.ids[id] = copies.files
 	f.mu.Unlock()
+	f.icons.remove(old)
 	return id, nil
 }
 
@@ -133,14 +141,15 @@ func (f *forwarder) CloseNotification(id uint32) *dbus.Error {
 // NotificationClosed signal also forgets the ID.
 func (f *forwarder) owns(id uint32, member string) bool {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if !f.ids[id] {
-		return false
-	}
-	if member == "NotificationClosed" {
+	files, ok := f.ids[id]
+	if ok && member == "NotificationClosed" {
 		delete(f.ids, id)
 	}
-	return true
+	f.mu.Unlock()
+	if ok && member == "NotificationClosed" {
+		f.icons.remove(files)
+	}
+	return ok
 }
 
 // relay re-emits the host server's signals for this proxy's notifications on
@@ -167,8 +176,8 @@ func (f *forwarder) relay(ch <-chan *dbus.Signal, container *dbus.Conn) {
 // serve exports the forwarder on the container connection, claims the
 // notifications bus name there, and relays host signals until ctx is
 // cancelled or either connection closes.
-func serve(ctx context.Context, host, container *dbus.Conn, paths *pathRewriter) error {
-	fwd := &forwarder{host: host, paths: paths, ids: map[uint32]bool{}}
+func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) error {
+	fwd := &forwarder{host: host, icons: icons, ids: map[uint32][]string{}}
 
 	if err := container.Export(fwd, ObjectPath, InterfaceName); err != nil {
 		return fmt.Errorf("export forwarder: %w", err)
@@ -226,8 +235,18 @@ func Run(ctx context.Context, root string) error {
 	}
 	defer func() { _ = host.Close() }()
 
+	dir, err := iconDir()
+	if err != nil {
+		return err
+	}
+	icons, err := newIconStore(pid, dir)
+	if err != nil {
+		return err
+	}
+	defer icons.close()
+
 	log.Printf("Notify proxy running: serving %s on %s, container files via /proc/%d/root", BusName, socket, pid)
-	err = serve(ctx, host, container, newPathRewriter(pid))
+	err = serve(ctx, host, container, icons)
 	log.Println("Notify proxy shutting down")
 	return err
 }
