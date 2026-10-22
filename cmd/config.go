@@ -22,6 +22,17 @@ var brokerProxyConfigCmd = &cobra.Command{
 	Short: "Manage broker proxy configuration",
 }
 
+// dbusServiceContent builds the D-Bus service file content. The root is made
+// absolute first: dbus-daemon resolves a relative path against its own working
+// directory, not the one of the user who ran "config broker-proxy enable".
+func dbusServiceContent(execPath, root string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve root path: %w", err)
+	}
+	return broker.DBusServiceFileContent(execPath, absRoot)
+}
+
 var brokerProxyEnableCmd = &cobra.Command{
 	Use:   "enable",
 	Short: "Enable the host-side broker proxy",
@@ -54,7 +65,10 @@ var brokerProxyEnableCmd = &cobra.Command{
 		if err := os.MkdirAll(filepath.Dir(svcPath), 0755); err != nil {
 			return fmt.Errorf("create dbus services dir: %w", err)
 		}
-		content := broker.DBusServiceFileContent(execPath)
+		content, err := dbusServiceContent(execPath, root)
+		if err != nil {
+			return err
+		}
 		if err := os.WriteFile(svcPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write dbus service file: %w", err)
 		}

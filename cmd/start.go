@@ -259,9 +259,16 @@ func runStart(r runner.Runner, root string) error {
 		if err != nil {
 			return fmt.Errorf("failed to determine executable path: %w", err)
 		}
+		// Pass an absolute root: "intuneme status" reads it back from the
+		// proxy's command line, and a relative root would depend on the
+		// proxy's working directory.
+		proxyRoot, err := filepath.Abs(root)
+		if err != nil {
+			return fmt.Errorf("resolve root path: %w", err)
+		}
 		// Use setsid so the broker proxy gets its own session and survives
 		// terminal closure (e.g. when started from the GNOME extension).
-		if err := r.RunBackground("setsid", execPath, "broker-proxy", "--root", root); err != nil {
+		if err := r.RunBackground("setsid", execPath, "broker-proxy", "--root", proxyRoot); err != nil {
 			return fmt.Errorf("failed to start broker proxy: %w", err)
 		}
 		pidPath := filepath.Join(root, "broker-proxy.pid")
