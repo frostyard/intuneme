@@ -20,6 +20,7 @@ The location can be overridden with the `--root` flag on any command. If you use
 | `host_user` | string | `$USER` | Username of the host user. Set automatically by `intuneme init`. |
 | `broker_proxy` | bool | `false` | Enable the host-side D-Bus broker proxy. When `true`, `intuneme start` sets up the identity broker forwarding so host applications (Edge, VS Code) can use the container's Intune enrollment for SSO. See [Broker Proxy](../user-guide/broker-proxy.md). |
 | `notify_proxy` | bool | `false` | Forward desktop notifications from the container to the host. When `true`, `intuneme start` runs a proxy so web notifications from the container's Edge, such as Outlook mail and calendar reminders, show on the host desktop. See [Desktop Notifications](../user-guide/notifications.md). |
+| `screencast_proxy` | bool | `false` | Let apps in the container share host screens and windows. When `true`, `intuneme start` runs a proxy that forwards screen sharing requests from the container's Edge to the host's portal. See [Screen Sharing](../user-guide/screen-sharing.md). |
 | `insiders` | bool | `false` | Use the insiders channel container image (`ghcr.io/frostyard/ubuntu-intune:insiders`) instead of the stable release. Can be set at init time with `--insiders` and affects `intuneme recreate`. |
 | `mcp_binary` | string | _(unset)_ | Host path to a self-contained MCP server binary that `intuneme mcp` runs inside the container. Any MCP server works; there is no built-in default. The binary's directory is bind-mounted into the container at runtime, so it stays out of the rootfs and survives `recreate`. Override per-invocation with `intuneme mcp --binary`. See [MCP Servers](../user-guide/mcp-servers.md). |
 | `mcp_args` | array of strings | _(empty)_ | Default arguments passed to the MCP server binary by `intuneme mcp`. For a server whose stdio mode is a subcommand, set e.g. `mcp_args = ["mcp"]` so the VS Code config can be just `["mcp"]`. Trailing `intuneme mcp -- args...` override these. |
@@ -35,18 +36,21 @@ host_uid = 1000
 host_user = "alice"
 broker_proxy = false
 notify_proxy = false
+screencast_proxy = false
 insiders = false
 mcp_binary = ""
 mcp_args = []
 ```
 
-Most fields are set once by `intuneme init` and rarely need changing. The `broker_proxy` and `notify_proxy` fields are managed by:
+Most fields are set once by `intuneme init` and rarely need changing. The `broker_proxy`, `notify_proxy` and `screencast_proxy` fields are managed by:
 
 ```bash
 intuneme config broker-proxy enable
 intuneme config broker-proxy disable
 intuneme config notify-proxy enable
 intuneme config notify-proxy disable
+intuneme config screencast-proxy enable
+intuneme config screencast-proxy disable
 ```
 
 For other fields, edit `config.toml` directly. Changes to `machine_name` or `rootfs_path` require stopping the container first.
