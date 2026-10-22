@@ -54,6 +54,28 @@ func runSubcommand(t *testing.T, root string, parent *cobra.Command, name string
 	return rec.messages
 }
 
+func TestScreencastProxyEnableDisable(t *testing.T) {
+	root := t.TempDir()
+
+	runSubcommand(t, root, screencastProxyConfigCmd, "enable")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ScreencastProxy || cfg.NotifyProxy {
+		t.Errorf("enable set screencast_proxy=%v notify_proxy=%v, want true false", cfg.ScreencastProxy, cfg.NotifyProxy)
+	}
+
+	runSubcommand(t, root, screencastProxyConfigCmd, "disable")
+	cfg, err = config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ScreencastProxy {
+		t.Error("disable did not clear screencast_proxy")
+	}
+}
+
 func TestNotifyProxyEnableDisable(t *testing.T) {
 	root := t.TempDir()
 

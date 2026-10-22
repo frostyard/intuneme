@@ -180,7 +180,14 @@ var notifyProxyConfigCmd = containerBusProxyConfigCmd("notify-proxy", "Notify pr
 	"Stop forwarding container desktop notifications",
 	func(cfg *config.Config, enabled bool) { cfg.NotifyProxy = enabled })
 
+var screencastProxyConfigCmd = containerBusProxyConfigCmd("screencast-proxy", "Screencast proxy",
+	"Manage screen sharing proxy configuration",
+	"Let apps in the container share host screens and windows",
+	"Stop forwarding screen sharing to the host",
+	func(cfg *config.Config, enabled bool) { cfg.ScreencastProxy = enabled })
+
 func init() {
+	configCmd.AddCommand(screencastProxyConfigCmd)
 	configCmd.AddCommand(notifyProxyConfigCmd)
 	brokerProxyConfigCmd.AddCommand(brokerProxyEnableCmd)
 	brokerProxyConfigCmd.AddCommand(brokerProxyDisableCmd)

@@ -15,7 +15,10 @@ type Config struct {
 	HostUser    string `toml:"host_user"`
 	BrokerProxy bool   `toml:"broker_proxy"`
 	NotifyProxy bool   `toml:"notify_proxy"`
-	Insiders    bool   `toml:"insiders"`
+	// ScreencastProxy forwards the ScreenCast portal from the container's
+	// session bus to the host portal, for screen sharing from Edge.
+	ScreencastProxy bool `toml:"screencast_proxy"`
+	Insiders        bool `toml:"insiders"`
 	// MCPBinary is the host path to a self-contained MCP server binary that
 	// `intuneme mcp` runs inside the container. Empty means none is configured
 	// (must be supplied via --binary). The directory holding it is bind-mounted

@@ -72,7 +72,7 @@ func runStart(r runner.Runner, root string) error {
 	// The proxies need the container's session bus from the host. When
 	// one is enabled, bind-mount a host directory to /run/user/<uid>
 	// inside the container so the session bus socket is accessible.
-	sessionBus := cfg.BrokerProxy || cfg.NotifyProxy
+	sessionBus := cfg.BrokerProxy || cfg.NotifyProxy || cfg.ScreencastProxy
 	if sessionBus {
 		runtimeDir := broker.RuntimeDir(root)
 		if err := os.MkdirAll(runtimeDir, 0700); err != nil {
