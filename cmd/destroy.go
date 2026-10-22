@@ -53,6 +53,9 @@ intuneme artifacts.`,
 			if cfg.NotifyProxy {
 				rep.Message("[dry-run] Would stop notify proxy")
 			}
+			if cfg.ScreencastProxy {
+				rep.Message("[dry-run] Would stop screencast proxy")
+			}
 			if nspawn.IsRunning(r, cfg.MachineName) {
 				rep.Message("[dry-run] Would stop container %s", cfg.MachineName)
 			}
@@ -78,6 +81,10 @@ intuneme artifacts.`,
 		}
 		if cfg.NotifyProxy {
 			pidPath := filepath.Join(root, "notify-proxy.pid")
+			broker.StopByPIDFile(pidPath)
+		}
+		if cfg.ScreencastProxy {
+			pidPath := filepath.Join(root, "screencast-proxy.pid")
 			broker.StopByPIDFile(pidPath)
 		}
 

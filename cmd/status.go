@@ -56,12 +56,11 @@ var statusCmd = &cobra.Command{
 
 		notifyStatus := ""
 		if cfg.NotifyProxy {
-			pidPath := filepath.Join(root, "notify-proxy.pid")
-			if pid, running := broker.IsRunningByPIDFile(pidPath); running {
-				notifyStatus = fmt.Sprintf("running (PID %d)", pid)
-			} else {
-				notifyStatus = "not running"
-			}
+			notifyStatus = pidProxyStatus(root, "notify-proxy")
+		}
+		screencastStatus := ""
+		if cfg.ScreencastProxy {
+			screencastStatus = pidProxyStatus(root, "screencast-proxy")
 		}
 
 		channel := "stable"
@@ -70,14 +69,15 @@ var statusCmd = &cobra.Command{
 		}
 
 		if printed, err := clix.OutputJSON(map[string]any{
-			"initialized":  true,
-			"root":         root,
-			"rootfs":       cfg.RootfsPath,
-			"machine":      cfg.MachineName,
-			"container":    containerStatus,
-			"channel":      channel,
-			"broker_proxy": brokerStatus,
-			"notify_proxy": notifyStatus,
+			"initialized":      true,
+			"root":             root,
+			"rootfs":           cfg.RootfsPath,
+			"machine":          cfg.MachineName,
+			"container":        containerStatus,
+			"channel":          channel,
+			"broker_proxy":     brokerStatus,
+			"notify_proxy":     notifyStatus,
+			"screencast_proxy": screencastStatus,
 		}); printed {
 			return err
 		}
@@ -94,6 +94,9 @@ var statusCmd = &cobra.Command{
 		if cfg.NotifyProxy {
 			rep.MessagePlain("Notify proxy: %s", notifyStatus)
 		}
+		if cfg.ScreencastProxy {
+			rep.MessagePlain("Screencast proxy: %s", screencastStatus)
+		}
 
 		return nil
 	},
@@ -109,6 +112,15 @@ var findNameOwner = broker.FindNameOwner
 // instance, not this root's proxy, so it does not count as running.
 // Callers must check cfg.BrokerProxy first: this function connects to the
 // session bus.
+// pidProxyStatus reports a proxy that "intuneme start" launches, from its
+// PID file.
+func pidProxyStatus(root, subcommand string) string {
+	if pid, running := broker.IsRunningByPIDFile(filepath.Join(root, subcommand+".pid")); running {
+		return fmt.Sprintf("running (PID %d)", pid)
+	}
+	return "not running"
+}
+
 func brokerProxyStatus(root string) string {
 	pidPath := filepath.Join(root, "broker-proxy.pid")
 	if pid, running := broker.IsRunningByPIDFile(pidPath); running {

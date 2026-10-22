@@ -72,7 +72,7 @@ func runStart(r runner.Runner, root string) error {
 	// The proxies need the container's session bus from the host. When
 	// one is enabled, bind-mount a host directory to /run/user/<uid>
 	// inside the container so the session bus socket is accessible.
-	sessionBus := cfg.BrokerProxy || cfg.NotifyProxy
+	sessionBus := cfg.BrokerProxy || cfg.NotifyProxy || cfg.ScreencastProxy
 	if sessionBus {
 		runtimeDir := broker.RuntimeDir(root)
 		if err := os.MkdirAll(runtimeDir, 0700); err != nil {
@@ -117,6 +117,9 @@ func runStart(r runner.Runner, root string) error {
 		}
 		if cfg.NotifyProxy {
 			rep.Message("[dry-run] Would start notify proxy")
+		}
+		if cfg.ScreencastProxy {
+			rep.Message("[dry-run] Would start screencast proxy")
 		}
 		return nil
 	}
@@ -276,6 +279,13 @@ func runStart(r runner.Runner, root string) error {
 		}
 		rep.Message("Notify proxy running.")
 		rep.Message("Container desktop notifications now show on the host.")
+	}
+	if cfg.ScreencastProxy {
+		if err := startProxy(r, root, "screencast-proxy"); err != nil {
+			return err
+		}
+		rep.Message("Screencast proxy running.")
+		rep.Message("Apps in the container can now share host screens and windows.")
 	}
 	rep.Message("Container is running. Use 'intuneme shell' to connect.")
 

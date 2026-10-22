@@ -105,6 +105,31 @@ func TestLoadNotifyProxyDefault(t *testing.T) {
 	}
 }
 
+func TestLoadScreencastProxy(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte("screencast_proxy = true\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if !cfg.ScreencastProxy {
+		t.Error("ScreencastProxy should be true")
+	}
+}
+
+func TestLoadScreencastProxyDefault(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.ScreencastProxy {
+		t.Error("ScreencastProxy should default to false")
+	}
+}
+
 func TestLoadInsiders(t *testing.T) {
 	tmp := t.TempDir()
 	toml := "insiders = true\n"
@@ -156,6 +181,7 @@ func FuzzLoad(f *testing.F) {
 	f.Add(`machine_name = "intuneme"` + "\n")
 	f.Add("broker_proxy = true\n")
 	f.Add("notify_proxy = true\n")
+	f.Add("screencast_proxy = true\n")
 	f.Add("insiders = true\n")
 	f.Add(`machine_name = "test"` + "\n" + `rootfs_path = "/tmp/rootfs"` + "\n")
 	f.Add("")

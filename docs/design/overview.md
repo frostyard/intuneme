@@ -15,6 +15,7 @@ internal/
 ├── broker/           D-Bus broker proxy (container→host SSO forwarding)
 ├── busproxy/         Shared code for proxies on the container bus (dial, PID file)
 ├── notify/           Desktop notification proxy (container→host notifications)
+├── screencast/       ScreenCast portal proxy (screen sharing from the container)
 ├── config/           Config struct + TOML load/save (~/.local/share/intuneme/config.toml)
 ├── nspawn/           systemd-nspawn wrapper (boot, stop, exec, shell, bind mounts)
 ├── prereq/           Prerequisite checks (systemd-nspawn, machinectl)
@@ -83,7 +84,7 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 | GPU (Nvidia) | `/dev/nvidia*` | Same | When Nvidia detected; explicit `DeviceAllow` |
 | Nvidia libs | Host lib dirs (from `ldconfig`) | `/run/host-nvidia/<index>/` | Read-only; when Nvidia detected |
 | Nvidia ICD | `/usr/share/vulkan/icd.d/nvidia_icd.json` etc. | Same | Read-only; when Nvidia detected |
-| Proxy runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When broker proxy or notify proxy enabled |
+| Proxy runtime | `~/.local/share/intuneme/runtime` | `/run/user/<uid>` | When any of the broker, notify or screencast proxies is enabled |
 | MCP binary dir | dir of `mcp_binary` (or `--binary`) | `/opt/intuneme-mcp` (read-only) | Runtime-only; bound on demand by `intuneme mcp`, survives recreate |
 
 ### Device Hotplug Forwarding
@@ -238,7 +239,7 @@ The script (safe to source or execute; idempotent) does:
 1. Sets `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` if unset, so it works from any caller
 2. Reads `DISPLAY` from `/etc/intuneme-host-display` (written by `start`), defaults to `:0`
 3. Extends `PATH`; sets `XAUTHORITY=/run/host-xauthority` if bind-mounted
-4. Detects Wayland (`WAYLAND_DISPLAY`), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
+4. Detects Wayland (`WAYLAND_DISPLAY`, and with it `XDG_SESSION_TYPE=wayland`: WebRTC in Edge captures screens through the ScreenCast portal only under that session type, otherwise it falls back to X11 capture and can share only tabs), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
 5. Propagates the env with **both** `systemctl --user import-environment` **and `dbus-update-activation-environment --systemd`**. The latter is essential: the identity broker is a **GTK app that the session D-Bus daemon activates on demand**, and it inherits `DISPLAY`/`XAUTHORITY` only from the D-Bus activation environment. Without it the broker dies on startup with `cannot open display` and Edge cannot authenticate.
 6. Sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1` — see below
 7. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:
@@ -349,6 +350,7 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `host_user` | string | Host username |
 | `broker_proxy` | bool | Enable D-Bus broker proxy for host-side SSO |
 | `notify_proxy` | bool | Forward container desktop notifications to the host |
+| `screencast_proxy` | bool | Forward the container's ScreenCast portal to the host |
 | `insiders` | bool | Use insiders channel image |
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
@@ -359,7 +361,7 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 |--------|---------|---------|
 | `frostyard/clix` | v0.2.0 | CLI helpers (reporter, dry-run, verbose, JSON output) |
 | `frostyard/std` | v0.1.0 | Standard library (reporter interface) |
-| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for broker proxy and notify proxy |
+| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for the broker, notify and screencast proxies |
 | `spf13/cobra` | v1.10.2 | CLI command framework |
 | `BurntSushi/toml` | v1.6.0 | TOML config parsing |
 | `charmbracelet/x/term` | v0.2.2 | Terminal password input |
@@ -376,7 +378,8 @@ Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.In
 ├── rootfs/              Extracted container filesystem
 ├── runtime/             Proxy runtime dir (bind-mounted as /run/user/<uid>)
 ├── broker-proxy.pid     PID file for broker proxy process
-└── notify-proxy.pid     PID file for notify proxy process
+├── notify-proxy.pid     PID file for notify proxy process
+└── screencast-proxy.pid PID file for screencast proxy process
 
 /run/intuneme/devices/   Udev forwarded device state (tmpfs, only while running)
 
@@ -446,6 +449,7 @@ The container workflow uses `actions/attest` for attestation (matching ublue-os/
 - [Container Lifecycle](container-lifecycle.md) — init, start, stop, destroy, recreate flows
 - [Broker Proxy](broker-proxy.md) — D-Bus forwarding for host-side SSO
 - [Notify Proxy](notify-proxy.md) — container desktop notifications on the host
+- [Screencast Proxy](screencast-proxy.md) — screen sharing from the container's Edge
 - [Container Image](../specs/container-image.md) — Build process, packages, and system configuration
 
 ### Scoped machine operations and migration

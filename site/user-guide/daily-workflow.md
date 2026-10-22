@@ -47,7 +47,7 @@ Opens an interactive login shell inside the container as the container user. Thi
 intuneme status
 ```
 
-Shows whether the container is initialized, whether it is running, and the state of the [broker proxy](broker-proxy.md) and the [notify proxy](notifications.md) when they are enabled.
+Shows whether the container is initialized, whether it is running, and the state of the [broker proxy](broker-proxy.md), the [notify proxy](notifications.md) and the [screencast proxy](screen-sharing.md) when they are enabled.
 
 ## Stop the container
 

@@ -343,6 +343,12 @@ export PIPEWIRE_REMOTE=/run/host-pipewire
 export PULSE_SERVER=unix:/run/host-pulse
 export XDG_RUNTIME_DIR=/run/user/%s
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus
+# WebRTC (Edge screen sharing) uses the ScreenCast portal only when
+# XDG_SESSION_TYPE is "wayland". intuneme-session-setup below runs as a child
+# process, so its exports do not reach the app: set it here.
+if [ -S /run/host-wayland ]; then
+    export XDG_SESSION_TYPE=wayland
+fi
 if [ -d /run/host-nvidia ]; then
     export __NV_PRIME_RENDER_OFFLOAD=1
     export __GLX_VENDOR_LIBRARY_NAME=nvidia

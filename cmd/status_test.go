@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/frostyard/clix"
@@ -156,5 +157,19 @@ func TestBrokerProxyStatusUnresolvedOwnerRoot(t *testing.T) {
 	want := `not running (bus name owned by intuneme broker-proxy with unresolved root "enrolled", PID 78)`
 	if got := brokerProxyStatus("enrolled"); got != want {
 		t.Errorf("brokerProxyStatus() = %q, want %q", got, want)
+	}
+}
+
+func TestPIDProxyStatus(t *testing.T) {
+	root := t.TempDir()
+	if got := pidProxyStatus(root, "screencast-proxy"); got != "not running" {
+		t.Errorf("without PID file = %q", got)
+	}
+	pid := os.Getpid()
+	if err := os.WriteFile(filepath.Join(root, "screencast-proxy.pid"), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := pidProxyStatus(root, "screencast-proxy"), fmt.Sprintf("running (PID %d)", pid); got != want {
+		t.Errorf("with live PID = %q, want %q", got, want)
 	}
 }

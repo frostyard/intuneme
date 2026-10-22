@@ -63,6 +63,7 @@ nav:
       - Daily Workflow: user-guide/daily-workflow.md
       - Broker Proxy (SSO): user-guide/broker-proxy.md
       - Desktop Notifications: user-guide/notifications.md
+      - Screen Sharing: user-guide/screen-sharing.md
       - MCP Servers: user-guide/mcp-servers.md
       - Device Hotplug: user-guide/device-hotplug.md
       - GNOME Extension: user-guide/gnome-extension.md
