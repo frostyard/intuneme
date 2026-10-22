@@ -2,11 +2,13 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/busproxy"
@@ -24,6 +26,8 @@ const (
 // Chromium embeds <img src="file:///tmp/..."> in the body, and those container
 // paths are not rewritten.
 const capabilityBodyImages = "body-images"
+
+var errRateLimited = errors.New("too many notifications, try again later")
 
 // relayedSignals are the host server signals forwarded into the container.
 // ActionInvoked carries clicks, ActivationToken lets the clicked app take
@@ -80,8 +84,9 @@ const introspectXML = `<node>
 // closed, so the container cannot see or touch host apps' notifications.
 // Each ID maps to the icon copies made for it.
 type forwarder struct {
-	host  *dbus.Conn
-	icons *iconStore
+	host    *dbus.Conn
+	icons   *iconStore
+	limiter *rateLimiter
 
 	mu  sync.Mutex
 	ids map[uint32][]string
@@ -109,13 +114,16 @@ func (f *forwarder) GetServerInformation() (string, string, string, string, *dbu
 
 func (f *forwarder) Notify(appName string, replacesID uint32, appIcon, summary, body string,
 	actions []string, hints map[string]dbus.Variant, expireTimeout int32) (uint32, *dbus.Error) {
+	if !f.limiter.allow() {
+		return 0, dbus.MakeFailedError(errRateLimited)
+	}
 	if !f.isOwned(replacesID) {
 		replacesID = 0
 	}
 
 	copies := f.icons.begin()
 	icon := copies.appIcon(appIcon)
-	hints = copies.hints(hints)
+	hints = copies.hints(filterHints(hints))
 
 	var id uint32
 	err := f.server().Call(InterfaceName+".Notify", 0,
@@ -192,7 +200,12 @@ func (f *forwarder) relay(ch <-chan *dbus.Signal, container *dbus.Conn) {
 // notifications bus name there, and relays host signals until ctx is
 // cancelled or either connection closes.
 func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) error {
-	fwd := &forwarder{host: host, icons: icons, ids: map[uint32][]string{}}
+	fwd := &forwarder{
+		host:    host,
+		icons:   icons,
+		limiter: newRateLimiter(notifyBurst, notifyRefill, time.Now),
+		ids:     map[uint32][]string{},
+	}
 
 	if err := container.Export(fwd, ObjectPath, InterfaceName); err != nil {
 		return fmt.Errorf("export forwarder: %w", err)

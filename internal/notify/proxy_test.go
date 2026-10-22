@@ -280,3 +280,21 @@ func TestCloseNotificationIgnoresUnownedID(t *testing.T) {
 		t.Errorf("host closed %v, want only own ID %d", fake.closed, id)
 	}
 }
+
+func TestNotifyRateLimited(t *testing.T) {
+	_, _, client, _ := startProxy(t)
+	obj := client.Object(BusName, ObjectPath)
+
+	var refused bool
+	for range notifyBurst + 1 {
+		err := obj.Call(InterfaceName+".Notify", 0,
+			"app", uint32(0), "", "s", "b", []string{}, map[string]dbus.Variant{}, int32(-1),
+		).Err
+		if err != nil {
+			refused = true
+		}
+	}
+	if !refused {
+		t.Errorf("%d calls in a row all passed, want the last refused", notifyBurst+1)
+	}
+}
