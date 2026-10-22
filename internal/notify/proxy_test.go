@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/frostyard/intuneme/internal/busproxy"
+	"github.com/frostyard/intuneme/internal/busproxy/busproxytest"
 	"github.com/godbus/dbus/v5"
 )
 
@@ -38,9 +40,9 @@ func (s *fakeServer) CloseNotification(id uint32) *dbus.Error { return nil }
 
 func connect(t *testing.T, sock string) *dbus.Conn {
 	t.Helper()
-	conn, _, err := dialBus(sock)
+	conn, _, err := busproxy.Dial(sock)
 	if err != nil {
-		t.Fatalf("dialBus: %v", err)
+		t.Fatalf("Dial: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -51,8 +53,8 @@ func connect(t *testing.T, sock string) *dbus.Conn {
 // client connection on the container bus.
 func startProxy(t *testing.T) (*fakeServer, *dbus.Conn, *dbus.Conn) {
 	t.Helper()
-	hostSock, _ := startBus(t)
-	containerSock, _ := startBus(t)
+	hostSock, _ := busproxytest.StartBus(t)
+	containerSock, _ := busproxytest.StartBus(t)
 
 	fake := &fakeServer{}
 	fakeConn := connect(t, hostSock)

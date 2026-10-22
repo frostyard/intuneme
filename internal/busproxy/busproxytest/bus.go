@@ -1,4 +1,5 @@
-package notify
+// Package busproxytest runs private dbus-daemons for proxy tests.
+package busproxytest
 
 import (
 	"bufio"
@@ -9,10 +10,10 @@ import (
 	"testing"
 )
 
-// startBus runs a private dbus-daemon listening on a socket in a temp dir and
+// StartBus runs a private dbus-daemon listening on a socket in a temp dir and
 // returns the socket path and the daemon's PID. The test is skipped when
 // dbus-daemon is not installed.
-func startBus(t *testing.T) (string, int) {
+func StartBus(t *testing.T) (string, int) {
 	t.Helper()
 	if _, err := exec.LookPath("dbus-daemon"); err != nil {
 		t.Skip("dbus-daemon not installed")

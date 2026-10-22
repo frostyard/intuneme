@@ -1,13 +1,17 @@
-package notify
+package busproxy
 
-import "testing"
+import (
+	"testing"
 
-func TestDialBusReportsListenerPID(t *testing.T) {
-	sock, daemonPID := startBus(t)
+	"github.com/frostyard/intuneme/internal/busproxy/busproxytest"
+)
 
-	conn, pid, err := dialBus(sock)
+func TestDialReportsListenerPID(t *testing.T) {
+	sock, daemonPID := busproxytest.StartBus(t)
+
+	conn, pid, err := Dial(sock)
 	if err != nil {
-		t.Fatalf("dialBus: %v", err)
+		t.Fatalf("Dial: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
 

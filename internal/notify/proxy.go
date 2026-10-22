@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/frostyard/intuneme/internal/broker"
+	"github.com/frostyard/intuneme/internal/busproxy"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 )
@@ -213,7 +214,7 @@ func serve(ctx context.Context, host, container *dbus.Conn, paths *pathRewriter)
 // cancelled.
 func Run(ctx context.Context, root string) error {
 	socket := broker.SessionBusSocketPath(root)
-	container, pid, err := dialBus(socket)
+	container, pid, err := busproxy.Dial(socket)
 	if err != nil {
 		return err
 	}

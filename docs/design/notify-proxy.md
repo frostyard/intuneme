@@ -102,7 +102,7 @@ A change takes effect on the next `intuneme start`.
 |------|---------|
 | `internal/notify/proxy.go` | Forwarder, signal relay, D-Bus constants, introspection XML, `Run` |
 | `internal/notify/paths.go` | Icon path rewrite into `/proc/<pid>/root` |
-| `internal/notify/peer.go` | Container bus dial and `SO_PEERCRED` lookup |
+| `internal/busproxy/dial.go` | Container bus dial and `SO_PEERCRED` lookup, shared by the proxies |
 | `cmd/notify_proxy.go` | CLI command (`intuneme notify-proxy`) that runs the proxy in the foreground |
 | `cmd/config.go` | Enable/disable subcommands |
 | `cmd/start.go` | `startProxy()`, shared with the broker proxy |
