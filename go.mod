@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/frostyard/clix v0.4.0
-	github.com/frostyard/std v0.2.2
+	github.com/frostyard/std v0.3.0
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.4
