@@ -75,9 +75,9 @@ const introspectXML = `<node>
 // forwarder serves org.freedesktop.Notifications on the container bus and
 // passes each call to the notification server on the host bus.
 //
-// Notification IDs are the host server's IDs, passed through unchanged, so
-// replaces_id and CloseNotification need no mapping. ids holds the IDs this
-// proxy created, so signals for host apps' notifications stay on the host.
+// Notification IDs are the host server's IDs, passed through unchanged. ids
+// holds the IDs this proxy created. Only those IDs are relayed, replaced or
+// closed, so the container cannot see or touch host apps' notifications.
 // Each ID maps to the icon copies made for it.
 type forwarder struct {
 	host  *dbus.Conn
@@ -109,6 +109,10 @@ func (f *forwarder) GetServerInformation() (string, string, string, string, *dbu
 
 func (f *forwarder) Notify(appName string, replacesID uint32, appIcon, summary, body string,
 	actions []string, hints map[string]dbus.Variant, expireTimeout int32) (uint32, *dbus.Error) {
+	if !f.isOwned(replacesID) {
+		replacesID = 0
+	}
+
 	copies := f.icons.begin()
 	icon := copies.appIcon(appIcon)
 	hints = copies.hints(hints)
@@ -130,11 +134,22 @@ func (f *forwarder) Notify(appName string, replacesID uint32, appIcon, summary, 
 	return id, nil
 }
 
+// CloseNotification ignores an ID the proxy did not create.
 func (f *forwarder) CloseNotification(id uint32) *dbus.Error {
+	if !f.isOwned(id) {
+		return nil
+	}
 	if err := f.server().Call(InterfaceName+".CloseNotification", 0, id).Err; err != nil {
 		return dbus.MakeFailedError(err)
 	}
 	return nil
+}
+
+func (f *forwarder) isOwned(id uint32) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.ids[id]
+	return ok
 }
 
 // owns reports whether id belongs to a notification this proxy created. A

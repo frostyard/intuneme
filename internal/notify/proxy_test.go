@@ -17,9 +17,11 @@ import (
 
 // fakeServer stands in for the host notification server.
 type fakeServer struct {
-	mu    sync.Mutex
-	icon  string
-	hints map[string]dbus.Variant
+	mu         sync.Mutex
+	icon       string
+	hints      map[string]dbus.Variant
+	replacesID uint32
+	closed     []uint32
 }
 
 func (s *fakeServer) GetCapabilities() ([]string, *dbus.Error) {
@@ -36,10 +38,16 @@ func (s *fakeServer) Notify(appName string, replacesID uint32, appIcon, summary,
 	defer s.mu.Unlock()
 	s.icon = appIcon
 	s.hints = hints
+	s.replacesID = replacesID
 	return 7, nil
 }
 
-func (s *fakeServer) CloseNotification(id uint32) *dbus.Error { return nil }
+func (s *fakeServer) CloseNotification(id uint32) *dbus.Error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = append(s.closed, id)
+	return nil
+}
 
 func connect(t *testing.T, sock string) *dbus.Conn {
 	t.Helper()
@@ -219,5 +227,56 @@ func TestSignalsRelayOnlyOwnNotifications(t *testing.T) {
 	case sig := <-got:
 		t.Errorf("unexpected signal %s %v", sig.Name, sig.Body)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func notify(t *testing.T, client *dbus.Conn, replacesID uint32) uint32 {
+	t.Helper()
+	var id uint32
+	if err := client.Object(BusName, ObjectPath).Call(InterfaceName+".Notify", 0,
+		"app", replacesID, "", "s", "b", []string{}, map[string]dbus.Variant{}, int32(-1),
+	).Store(&id); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	return id
+}
+
+func TestNotifyClearsUnownedReplacesID(t *testing.T) {
+	fake, _, client, _ := startProxy(t)
+
+	notify(t, client, 99) // a host app's notification
+	fake.mu.Lock()
+	got := fake.replacesID
+	fake.mu.Unlock()
+	if got != 0 {
+		t.Errorf("host got replaces_id %d for an unowned ID, want 0", got)
+	}
+
+	id := notify(t, client, 0)
+	notify(t, client, id)
+	fake.mu.Lock()
+	got = fake.replacesID
+	fake.mu.Unlock()
+	if got != id {
+		t.Errorf("host got replaces_id %d, want own ID %d", got, id)
+	}
+}
+
+func TestCloseNotificationIgnoresUnownedID(t *testing.T) {
+	fake, _, client, _ := startProxy(t)
+	obj := client.Object(BusName, ObjectPath)
+
+	if err := obj.Call(InterfaceName+".CloseNotification", 0, uint32(99)).Err; err != nil {
+		t.Fatalf("CloseNotification(99): %v", err)
+	}
+	id := notify(t, client, 0)
+	if err := obj.Call(InterfaceName+".CloseNotification", 0, id).Err; err != nil {
+		t.Fatalf("CloseNotification(%d): %v", id, err)
+	}
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if !slices.Equal(fake.closed, []uint32{id}) {
+		t.Errorf("host closed %v, want only own ID %d", fake.closed, id)
 	}
 }
