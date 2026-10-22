@@ -82,14 +82,18 @@ const introspectXML = `<node>
 // Notification IDs are the host server's IDs, passed through unchanged. ids
 // holds the IDs this proxy created. Only those IDs are relayed, replaced or
 // closed, so the container cannot see or touch host apps' notifications.
-// Each ID maps to the icon copies made for it.
 type forwarder struct {
-	host    *dbus.Conn
-	icons   *iconStore
-	limiter *rateLimiter
+	host      *dbus.Conn
+	container *dbus.Conn
+	icons     *iconStore
+	limiter   *rateLimiter
+	now       func() time.Time
 
-	mu  sync.Mutex
-	ids map[uint32][]string
+	// mu guards ids and early, and is held while signals are emitted on the
+	// container bus, so signals for one ID keep their order.
+	mu    sync.Mutex
+	ids   *ownedIDs
+	early earlySignals
 }
 
 func (f *forwarder) server() dbus.BusObject {
@@ -134,11 +138,14 @@ func (f *forwarder) Notify(appName string, replacesID uint32, appIcon, summary, 
 		f.icons.remove(copies.files)
 		return 0, dbus.MakeFailedError(err)
 	}
+
 	f.mu.Lock()
-	old := f.ids[id]
-	f.ids[id] = copies.files
+	stale := f.ids.add(id, copies.files)
+	for _, sig := range f.early.take(id, f.now()) {
+		stale = append(stale, f.emit(id, sig)...)
+	}
 	f.mu.Unlock()
-	f.icons.remove(old)
+	f.icons.remove(stale)
 	return id, nil
 }
 
@@ -156,28 +163,41 @@ func (f *forwarder) CloseNotification(id uint32) *dbus.Error {
 func (f *forwarder) isOwned(id uint32) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	_, ok := f.ids[id]
-	return ok
+	return f.ids.has(id)
 }
 
-// owns reports whether id belongs to a notification this proxy created. A
-// NotificationClosed signal also forgets the ID.
-func (f *forwarder) owns(id uint32, member string) bool {
+// emit re-emits sig for an owned id on the container bus. A
+// NotificationClosed signal also forgets the ID, and emit returns its icon
+// copies for removal. f.mu must be held.
+func (f *forwarder) emit(id uint32, sig *dbus.Signal) []string {
+	if err := f.container.Emit(ObjectPath, sig.Name, sig.Body...); err != nil {
+		log.Printf("emit %s for notification %d: %v", sig.Name, id, err)
+	}
+	if sig.Name == InterfaceName+".NotificationClosed" {
+		return f.ids.remove(id)
+	}
+	return nil
+}
+
+// handle relays one host signal. A signal for an ID the proxy does not own
+// is buffered for a short time, in case a Notify call for that ID has not
+// returned yet. Signals for host apps' notifications expire from the buffer
+// and are never relayed.
+func (f *forwarder) handle(id uint32, sig *dbus.Signal) {
 	f.mu.Lock()
-	files, ok := f.ids[id]
-	if ok && member == "NotificationClosed" {
-		delete(f.ids, id)
+	var stale []string
+	if f.ids.has(id) {
+		stale = f.emit(id, sig)
+	} else {
+		f.early.add(id, sig, f.now())
 	}
 	f.mu.Unlock()
-	if ok && member == "NotificationClosed" {
-		f.icons.remove(files)
-	}
-	return ok
+	f.icons.remove(stale)
 }
 
 // relay re-emits the host server's signals for this proxy's notifications on
 // the container bus. It returns when ch closes.
-func (f *forwarder) relay(ch <-chan *dbus.Signal, container *dbus.Conn) {
+func (f *forwarder) relay(ch <-chan *dbus.Signal) {
 	for sig := range ch {
 		if sig.Path != ObjectPath || len(sig.Body) == 0 {
 			continue
@@ -187,12 +207,10 @@ func (f *forwarder) relay(ch <-chan *dbus.Signal, container *dbus.Conn) {
 			continue
 		}
 		id, ok := sig.Body[0].(uint32)
-		if !ok || !f.owns(id, member) {
+		if !ok {
 			continue
 		}
-		if err := container.Emit(ObjectPath, sig.Name, sig.Body...); err != nil {
-			log.Printf("emit %s for notification %d: %v", member, id, err)
-		}
+		f.handle(id, sig)
 	}
 }
 
@@ -201,10 +219,12 @@ func (f *forwarder) relay(ch <-chan *dbus.Signal, container *dbus.Conn) {
 // cancelled or either connection closes.
 func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) error {
 	fwd := &forwarder{
-		host:    host,
-		icons:   icons,
-		limiter: newRateLimiter(notifyBurst, notifyRefill, time.Now),
-		ids:     map[uint32][]string{},
+		host:      host,
+		container: container,
+		icons:     icons,
+		limiter:   newRateLimiter(notifyBurst, notifyRefill, time.Now),
+		now:       time.Now,
+		ids:       newOwnedIDs(),
 	}
 
 	if err := container.Export(fwd, ObjectPath, InterfaceName); err != nil {
@@ -226,7 +246,7 @@ func serve(ctx context.Context, host, container *dbus.Conn, icons *iconStore) er
 	signals := make(chan *dbus.Signal, 16)
 	host.Signal(signals)
 	defer host.RemoveSignal(signals)
-	go fwd.relay(signals, container)
+	go fwd.relay(signals)
 
 	reply, err := container.RequestName(BusName, dbus.NameFlagDoNotQueue)
 	if err != nil {

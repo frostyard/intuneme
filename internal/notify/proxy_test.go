@@ -22,6 +22,9 @@ type fakeServer struct {
 	hints      map[string]dbus.Variant
 	replacesID uint32
 	closed     []uint32
+	// conn, when set, emits ActionInvoked for the new ID before Notify
+	// returns, like a host server that is quick to report a click.
+	conn *dbus.Conn
 }
 
 func (s *fakeServer) GetCapabilities() ([]string, *dbus.Error) {
@@ -39,6 +42,11 @@ func (s *fakeServer) Notify(appName string, replacesID uint32, appIcon, summary,
 	s.icon = appIcon
 	s.hints = hints
 	s.replacesID = replacesID
+	if s.conn != nil {
+		_ = s.conn.Emit(ObjectPath, InterfaceName+".ActionInvoked", uint32(7), "early")
+		// Give the proxy time to receive the signal before the reply.
+		time.Sleep(100 * time.Millisecond)
+	}
 	return 7, nil
 }
 
@@ -296,5 +304,28 @@ func TestNotifyRateLimited(t *testing.T) {
 	}
 	if !refused {
 		t.Errorf("%d calls in a row all passed, want the last refused", notifyBurst+1)
+	}
+}
+
+func TestSignalBeforeNotifyReturns(t *testing.T) {
+	fake, fakeConn, client, _ := startProxy(t)
+	fake.mu.Lock()
+	fake.conn = fakeConn
+	fake.mu.Unlock()
+
+	if err := client.AddMatchSignal(dbus.WithMatchInterface(InterfaceName)); err != nil {
+		t.Fatalf("AddMatchSignal: %v", err)
+	}
+	got := make(chan *dbus.Signal, 1)
+	client.Signal(got)
+
+	id := notify(t, client, 0)
+	select {
+	case sig := <-got:
+		if sig.Name != InterfaceName+".ActionInvoked" || sig.Body[0] != id || sig.Body[1] != "early" {
+			t.Errorf("got %s %v, want the early ActionInvoked", sig.Name, sig.Body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("early signal was not relayed")
 	}
 }
