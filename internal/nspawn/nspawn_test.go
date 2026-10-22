@@ -499,3 +499,17 @@ func TestStopDoesNotBypassDeniedAuthorization(t *testing.T) {
 		t.Fatalf("bypassed helper: %v", r.commands)
 	}
 }
+
+// The app launch script must set XDG_SESSION_TYPE itself: it runs
+// intuneme-session-setup as a child process, whose exports are lost.
+// Without it, WebRTC in Edge falls back to X11 capture and shares only tabs.
+func TestSessionEnvScriptSetsWaylandSessionType(t *testing.T) {
+	script := buildSessionEnvScript(1000)
+	want := "if [ -S /run/host-wayland ]; then\n    export XDG_SESSION_TYPE=wayland\nfi"
+	if !strings.Contains(script, want) {
+		t.Errorf("session env script does not set XDG_SESSION_TYPE:\n%s", script)
+	}
+	if strings.Index(script, want) > strings.Index(script, "/usr/local/bin/intuneme-session-setup >&2") {
+		t.Error("XDG_SESSION_TYPE must be set in the launch script, not only by the session-setup child")
+	}
+}

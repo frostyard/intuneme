@@ -6,7 +6,7 @@ The screencast proxy lets apps in the container share host screens and windows. 
 
 - Edge runs as a native Wayland client with the WebRTC PipeWire capturer (`ubuntu-intune/system_files/usr/local/bin/microsoft-edge`). On Wayland, it can capture screens and windows only through `org.freedesktop.portal.ScreenCast` on its session bus.
 - The container session bus has its own xdg-desktop-portal with only the `gtk` backend. That backend has no ScreenCast, so Edge can share only tabs.
-- WebRTC uses the portal only when `XDG_SESSION_TYPE` starts with `wayland` and `WAYLAND_DISPLAY` is set (`IsRunningUnderWayland()` in `desktop_capturer.cc`). Otherwise it uses X11 capture, which finds nothing because the Edge wrapper unsets `DISPLAY`. `intuneme-session-setup` exports `XDG_SESSION_TYPE=wayland` together with `WAYLAND_DISPLAY`, for every app launch.
+- WebRTC uses the portal only when `XDG_SESSION_TYPE` starts with `wayland` and `WAYLAND_DISPLAY` is set (`IsRunningUnderWayland()` in `desktop_capturer.cc`). Otherwise it uses X11 capture, which finds nothing because the Edge wrapper unsets `DISPLAY`. The app launch script (`buildSessionEnvScript()` in `internal/nspawn/nspawn.go`) exports `XDG_SESSION_TYPE=wayland` when the host Wayland socket is bound. `intuneme-session-setup` exports it too, for login shells. The launch script runs `intuneme-session-setup` as a child process, so the launch script must set the variable itself.
 - The host portal has a ScreenCast backend (for example GNOME, KDE, wlroots or Hyprland). The host PipeWire socket is already bind-mounted into the container, and the container has `libpipewire-0.3`.
 
 ## How It Works
