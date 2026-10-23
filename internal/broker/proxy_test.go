@@ -247,13 +247,12 @@ func TestDBusServiceFilePath(t *testing.T) {
 	}
 }
 
-func TestWriteAndReadPIDFile(t *testing.T) {
+func TestIsRunningByPIDFile_Alive(t *testing.T) {
 	tmp := t.TempDir()
 	pidPath := filepath.Join(tmp, "test.pid")
 
-	err := WritePIDFile(pidPath)
-	if err != nil {
-		t.Fatalf("WritePIDFile failed: %v", err)
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	pid, alive := IsRunningByPIDFile(pidPath)

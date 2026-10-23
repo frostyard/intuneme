@@ -9,11 +9,11 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 )
 
-// runContainerBusProxy runs a proxy that serves a name on the container's
-// session bus, in the foreground. It refuses to start when its PID file names
-// a running instance, writes the PID file only once the proxy owns its bus
-// name, and removes the file on exit only if it still holds this PID.
-func runContainerBusProxy(ctx context.Context, subcommand string, enabled func(*config.Config) bool,
+// runBusProxy runs a bus proxy (broker, notify or screencast) in the
+// foreground. It refuses to start when its PID file names a running instance,
+// writes the PID file only once the proxy owns its bus name, and removes the
+// file on exit only if it still holds this PID.
+func runBusProxy(ctx context.Context, subcommand string, enabled func(*config.Config) bool,
 	run func(ctx context.Context, root string, ready func() error) error) error {
 	root := rootDir
 	if root == "" {

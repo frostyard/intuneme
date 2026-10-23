@@ -139,7 +139,7 @@ A change takes effect on the next `intuneme start`. For a running container, tha
 
 - PID file: `~/.local/share/intuneme/screencast-proxy.pid`
 - Started by `start` with `setsid`, after the container session bus socket appears
-- The PID file is written only after the proxy owns the bus name. A second instance refuses to start while the PID file names a live `screencast-proxy` process. Both rules come from `runContainerBusProxy()` in `cmd/proxy_run.go`, shared with the notify proxy
+- The PID file is written only after the proxy owns the bus name. A second instance refuses to start while the PID file names a live `screencast-proxy` process. Both rules come from `runBusProxy()` in `cmd/proxy_run.go`, shared with the notify proxy
 - Stopped by `stop` and `destroy` before container poweroff
 - `status` reports the proxy state
 - Exits when either bus connection closes, or when it loses the portal name
