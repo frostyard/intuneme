@@ -87,6 +87,26 @@ jobs:
           gofmt -l .
           test -z "$(gofmt -l .)"
 
+  vulncheck:
+    name: Vulncheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+
+      # The govulncheck version is pinned, and the Go checksum database verifies the module.
+      - name: Run govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
   build:
     name: Build
     runs-on: ubuntu-latest
