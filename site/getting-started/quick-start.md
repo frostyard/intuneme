@@ -8,7 +8,7 @@ This guide walks you from a fresh install to a running Intune enrollment in six 
 intuneme init
 ```
 
-This pulls the Ubuntu 24.04 container image from GHCR, extracts the rootfs, installs Microsoft Edge and Intune Portal, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can open an interactive shell in the container without repeated password prompts; host shells and broad machine management are not granted.
+This pulls the Ubuntu 24.04 container image, which already contains Microsoft Edge and Intune Portal, from GHCR, extracts the rootfs, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can open an interactive shell in the container without repeated password prompts; host shells and broad machine management are not granted.
 
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
 
@@ -24,7 +24,7 @@ See the [init command reference](../reference/cli/intuneme_init.md) for the full
     ```bash
     intuneme init --insiders
     ```
-    The insiders image may include newer versions of Edge or the Intune agent. Use the same flag with `intuneme recreate` if you ever upgrade.
+    The insiders image may include newer versions of Edge or the Intune agent. The channel is saved in `config.toml`, so `intuneme recreate` keeps it without the flag.
 
 ## 2. Start the container
 

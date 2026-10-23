@@ -23,7 +23,7 @@ Pre-built packages are available on the [GitHub releases page](https://github.co
     ```bash
     # Replace X.Y.Z with the version you want
     curl -LO https://github.com/frostyard/intuneme/releases/latest/download/frostyard-intuneme-X.Y.Z-1.x86_64.rpm
-    sudo rpm -i frostyard-intuneme_X.Y.Z-1_x86_64.rpm
+    sudo rpm -i frostyard-intuneme-X.Y.Z-1.x86_64.rpm
     ```
 
 ## go install

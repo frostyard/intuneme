@@ -196,7 +196,7 @@ Common issues and solutions. Click an item to expand it.
     cat ~/.local/share/intuneme/config.toml
     ```
 
-    Common causes include unquoted strings, missing closing quotes, or stray characters from a manual edit. Fix the syntax or delete the file and re-run `intuneme init` to regenerate it.
+    Common causes include unquoted strings, missing closing quotes, or stray characters from a manual edit. Fix the syntax. Do not delete the file and run plain `intuneme init`: the root filesystem still exists, so `init` stops with `already initialized ... use --force to reinitialize`. To regenerate the file, run `intuneme init --force`. It pulls the image and provisions the container again. `~/Intune` stays, but settings such as `broker_proxy` return to their defaults.
 
 ??? question "YubiKey not detected inside the container"
     Check that udev rules are installed:
