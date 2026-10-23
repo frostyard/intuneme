@@ -223,7 +223,7 @@ The extension provides a Quick Settings toggle (start/stop), status display, and
 
 Runs the D-Bus broker proxy in the foreground. This is the daemon process that forwards `com.microsoft.identity.broker1` method calls from the host session bus to the container session bus.
 
-Normally launched automatically by `start` (as a background process) or by D-Bus service activation. Can be run manually for debugging.
+Normally launched automatically by `start` (as a background process) or by D-Bus service activation. Can be run manually for debugging, with the same PID file rules as `intuneme notify-proxy`.
 
 See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
 
@@ -231,7 +231,7 @@ See [Broker Proxy](broker-proxy.md) for the full proxy architecture.
 
 Runs the notification proxy in the foreground. It owns `org.freedesktop.Notifications` on the container session bus and forwards calls to the host notification server.
 
-Normally launched automatically by `start` as a background process. Can be run manually for debugging, after `intuneme config notify-proxy disable` or `stop` of the background one: a second instance refuses to start while the PID file names a live proxy. `runContainerBusProxy()` in `cmd/proxy_run.go` writes the PID file only after the proxy owns its bus name.
+Normally launched automatically by `start` as a background process. Can be run manually for debugging, after `intuneme config notify-proxy disable` or `stop` of the background one: a second instance refuses to start while the PID file names a live proxy. `runBusProxy()` in `cmd/proxy_run.go` writes the PID file only after the proxy owns its bus name.
 
 See [Notify Proxy](notify-proxy.md) for the full proxy architecture.
 

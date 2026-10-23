@@ -73,6 +73,8 @@ The `start` command automatically launches the proxy if the flag is set.
 - PID file: `~/.local/share/intuneme/broker-proxy.pid`
 - Started as background process with `setsid` for terminal independence
 - Startup verified by polling PID file (up to 5 seconds, 500ms intervals)
+- The PID file is written only after the proxy owns the bus name, so `start` polling it waits for a working proxy
+- A second instance refuses to start when the PID file names a live `broker-proxy` process. On exit, a proxy removes the PID file only if it holds its own PID. These rules come from `runBusProxy()` in `cmd/proxy_run.go`, shared with the notify and screencast proxies
 - Stopped gracefully by `stop` command before container poweroff
 - `status` command reports proxy running state (see below)
 
