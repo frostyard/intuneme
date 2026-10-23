@@ -47,6 +47,10 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 `release_workflow_contract_test.go` pins this contract; the workflows only run on tags and `main`, so the test is their pull-request gate. See `docs/design/overview.md` → "Release and Package Publication".
 
+## CI workflows
+
+Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. Dependabot updates the SHA and the comment together.
+
 ## Before committing
 
 Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
