@@ -192,6 +192,16 @@ func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
 // SetContainerPassword sets the user's password inside the container via chpasswd.
 // Without a password, the account is locked and machinectl shell/login won't work interactively.
 // The password is passed via a temp file bound read-only into the container to avoid shell injection.
+// containerExec runs cmd inside the container rootfs. The provisioning tools live
+// in /usr/sbin, which the host systemd default PATH nspawn would otherwise inherit
+// lacks (NixOS).
+func containerExec(r runner.Runner, rootfsPath string, args ...string) ([]byte, error) {
+	return r.Run("sudo", append([]string{
+		"systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		"--setenv=PATH=" + nspawn.StandardPATH,
+	}, args...)...)
+}
+
 func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) error {
 	tmp, err := os.CreateTemp("", "intuneme-chpasswd-*")
 	if err != nil {
@@ -207,9 +217,7 @@ func SetContainerPassword(r runner.Runner, rootfsPath, user, password string) er
 		return fmt.Errorf("close chpasswd temp file: %w", err)
 	}
 
-	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe",
-		"--bind-ro="+tmp.Name()+":/run/chpasswd-input",
-		"-D", rootfsPath,
+	out, err := containerExec(r, rootfsPath, "--bind-ro="+tmp.Name()+":/run/chpasswd-input",
 		"bash", "-c", "chpasswd < /run/chpasswd-input",
 	)
 	if err != nil {
@@ -296,20 +304,20 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 	if existingUser != "" && existingUser != user {
 		// Rename the existing user and fix up their home directory
 		rep.Message("Renaming existing user %q to %q...", existingUser, user)
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := containerExec(r, rootfsPath,
 			"usermod", "--login", user, "--home", fmt.Sprintf("/home/%s", user), "--move-home", existingUser,
 		); err != nil {
 			return fmt.Errorf("usermod (rename) failed: %w\n%s", err, out)
 		}
 		// Ensure correct groups
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := containerExec(r, rootfsPath,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
 		}
 	} else if existingUser == "" {
 		// No user with this UID — create one
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := containerExec(r, rootfsPath,
 			"useradd",
 			"--uid", fmt.Sprintf("%d", uid),
 			"--create-home",
@@ -321,7 +329,7 @@ func CreateContainerUser(r runner.Runner, rep reporter.Reporter, rootfsPath, use
 		}
 	} else {
 		// User already exists with the right name — just ensure groups
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := containerExec(r, rootfsPath,
 			"usermod", "--groups", userGroups(rootfsPath), "--append", user,
 		); err != nil {
 			return fmt.Errorf("usermod (groups) failed: %w\n%s", err, out)
@@ -438,7 +446,7 @@ func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string
 			return fmt.Errorf("find free GID for %s: %w", conflicting, err)
 		}
 		rep.Message("Reassigning group %q from GID %d to %d...", conflicting, gid, freeGID)
-		if out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		if out, err := containerExec(r, rootfsPath,
 			"groupmod", "--gid", fmt.Sprintf("%d", freeGID), conflicting); err != nil {
 			return fmt.Errorf("reassign group %s: %w\n%s", conflicting, err, out)
 		}
@@ -446,14 +454,14 @@ func EnsureRenderGroup(r runner.Runner, rep reporter.Reporter, rootfsPath string
 
 	gidStr := fmt.Sprintf("%d", gid)
 	if existingGID >= 0 {
-		out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+		out, err := containerExec(r, rootfsPath,
 			"groupmod", "--gid", gidStr, "render")
 		if err != nil {
 			return fmt.Errorf("groupmod render: %w\n%s", err, out)
 		}
 		return nil
 	}
-	out, err := r.Run("sudo", "systemd-nspawn", "-q", "--console=pipe", "-D", rootfsPath,
+	out, err := containerExec(r, rootfsPath,
 		"groupadd", "--gid", gidStr, "render")
 	if err != nil {
 		return fmt.Errorf("groupadd render: %w\n%s", err, out)
