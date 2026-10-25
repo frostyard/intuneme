@@ -352,11 +352,6 @@ func DBusServiceFilePath() string {
 	return filepath.Join(home, ".local", "share", "dbus-1", "services", BusName+".service")
 }
 
-// WritePIDFile writes the current process PID to the given path.
-func WritePIDFile(pidPath string) error {
-	return os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644)
-}
-
 // IsRunningByPIDFile reads a PID from the file and checks if the process is alive
 // via signal 0. Returns (0, false) if the file cannot be read or parsed.
 func IsRunningByPIDFile(pidPath string) (int, bool) {
@@ -459,7 +454,8 @@ func (f *forwarder) GetLinuxBrokerVersion(protocolVersion, correlationID, reques
 
 // Run connects to the container's D-Bus and the host session bus, exports the
 // forwarder, claims the broker bus name, and blocks until ctx is cancelled.
-func Run(ctx context.Context, root string) error {
+// It calls ready once it owns the bus name; an error from ready stops it.
+func Run(ctx context.Context, root string, ready func() error) error {
 	addr := ContainerBusAddress(root)
 	containerConn, err := dbus.Dial(addr)
 	if err != nil {
@@ -508,6 +504,9 @@ func Run(ctx context.Context, root string) error {
 	}
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		return alreadyOwnedError()
+	}
+	if err := ready(); err != nil {
+		return err
 	}
 
 	log.Printf("Broker proxy running: forwarding %s to %s", BusName, addr)

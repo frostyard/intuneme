@@ -11,6 +11,7 @@ import (
 
 	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
+	"github.com/frostyard/intuneme/internal/busproxy"
 )
 
 func TestStatusJSON(t *testing.T) {
@@ -116,7 +117,7 @@ func TestBrokerProxyStatusPIDFileWins(t *testing.T) {
 		return broker.NameOwner{}, false
 	}
 	dir := t.TempDir()
-	if err := broker.WritePIDFile(filepath.Join(dir, "broker-proxy.pid")); err != nil {
+	if err := busproxy.WritePID(filepath.Join(dir, "broker-proxy.pid")); err != nil {
 		t.Fatal(err)
 	}
 	want := fmt.Sprintf("running (PID %d)", os.Getpid())
