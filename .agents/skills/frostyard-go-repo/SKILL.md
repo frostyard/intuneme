@@ -55,7 +55,9 @@ Rules:
      `help`. `build` injects `-X main.version/commit/date/builtBy` ldflags.
    - `.golangci.yml` — v2 config, `default: standard` linters, gofmt
      formatter, errcheck excluded in `_test.go`.
-   - `.svu.yaml` — svu config (`tag.prefix: "v"`, `v0: true`).
+   - `.svu.yml` — svu config (`tag.prefix: "v"`, `v0: true`). svu reads
+     only `.svu.yml`; a `.svu.yaml` is silently ignored
+     ([core ADR-0053](https://github.com/frostyard/core/blob/main/docs/adr/0053-name-the-svu-config-svu-yml.md)).
    - `.goreleaser.yaml` — `version: 2`, `pro: true`; CGO disabled,
      linux amd64+arm64, `-trimpath`, ldflags as above; before-hooks run
      `scripts/completions.sh` and `scripts/manpages.sh`; nfpm deb/rpm/apk
@@ -69,10 +71,25 @@ Rules:
    - `test.yml` — jobs: golangci-lint, govulncheck, unit tests with Codecov
      OIDC upload, e2e tests, `-race`, verify (`go mod tidy` diff, `go vet`,
      `gofmt -l`), and a linux amd64/arm64 build matrix. Pin actions by SHA.
-   - `release.yml` — on tag push: GoReleaser Pro (`distribution:
-     goreleaser-pro`, needs `secrets.GORELEASER_KEY`) then publish packages
-     to the org apt/rpm repo via `frostyard/repogen`'s `publish-to-r2`
-     action (needs the `R2_*` secrets).
+   - `release.yml` — on tag push, three steps:
+     1. GoReleaser Pro (`distribution: goreleaser-pro`, needs
+        `secrets.GORELEASER_KEY`).
+     2. `actions/attest-build-provenance` over `dist/checksums.txt` and the
+        packages; the job grants `id-token: write` and
+        `attestations: write`.
+     3. A `publish-deb` `repository_dispatch` to `frostyard/apt-publisher`
+        with `repo` and `tag`, using `secrets.APT_PUBLISH_TOKEN`. Don't
+        guard it, and don't mark it `continue-on-error`.
+
+     apt-publisher publishes the `.deb` files to
+     `https://repository.frostyard.org/debian/`, then dispatches `build`
+     to the image repos
+     ([core ADR-0055](https://github.com/frostyard/core/blob/main/docs/adr/0055-publish-debian-packages-through-the-apt-publisher.md),
+     [ADR-0056](https://github.com/frostyard/core/blob/main/docs/adr/0056-rebuild-images-after-apt-publication.md)).
+     So the repo holds no signing or R2 credentials, and doesn't dispatch
+     `build` itself. Before the first release:
+     - register the repo in apt-publisher's `config/producers.tsv`;
+     - share the org `APT_PUBLISH_TOKEN` secret with it.
    - `snapshot.yml` — nightly GoReleaser `release --nightly --clean` under
      the `dev` tag after green `main` tests. Use this exact top-level block:
 
@@ -105,7 +122,7 @@ Rules:
 - GoReleaser config is **Pro** (`pro: true`); running it with the OSS
   distribution fails. CI needs `GORELEASER_KEY`.
 - The nfpm package name is `frostyard-<name>`, not `<name>` — keep that
-  prefix so org packages sort together in the apt/rpm repo.
+  prefix so org packages sort together in the APT repository.
 - `make lint` silently skips if golangci-lint isn't installed — CI is the
   backstop, so don't treat a quiet local `make check` as proof lint ran.
 - Don't disable the snapshot workflow's `cancel-in-progress` — see step 3.
