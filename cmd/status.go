@@ -36,7 +36,7 @@ var statusCmd = &cobra.Command{
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
 			if printed, err := clix.OutputJSON(map[string]any{
 				"initialized": false,
-			}); printed {
+			}); printed || err != nil {
 				return err
 			}
 			rep.Message("Status: not initialized")
@@ -78,7 +78,7 @@ var statusCmd = &cobra.Command{
 			"broker_proxy":     brokerStatus,
 			"notify_proxy":     notifyStatus,
 			"screencast_proxy": screencastStatus,
-		}); printed {
+		}); printed || err != nil {
 			return err
 		}
 

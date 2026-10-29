@@ -3,7 +3,9 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -172,5 +174,64 @@ func TestPIDProxyStatus(t *testing.T) {
 	}
 	if got, want := pidProxyStatus(root, "screencast-proxy"), fmt.Sprintf("running (PID %d)", pid); got != want {
 		t.Errorf("with live PID = %q, want %q", got, want)
+	}
+}
+
+// statusRecorder records every reporter record, plain or not, so tests can
+// prove the status command wrote nothing after a failed JSON write.
+type statusRecorder struct{ records []string }
+
+func (r *statusRecorder) Step(int, int, string) {}
+func (r *statusRecorder) Progress(int, string)  {}
+func (r *statusRecorder) Warning(f string, a ...any) {
+	r.records = append(r.records, fmt.Sprintf(f, a...))
+}
+func (r *statusRecorder) Error(error, string)  {}
+func (r *statusRecorder) Complete(string, any) {}
+func (r *statusRecorder) IsJSON() bool         { return false }
+func (r *statusRecorder) Message(f string, a ...any) {
+	r.records = append(r.records, fmt.Sprintf(f, a...))
+}
+func (r *statusRecorder) MessagePlain(f string, a ...any) {
+	r.records = append(r.records, fmt.Sprintf(f, a...))
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) { return len(p) / 2, nil }
+
+func TestStatusJSONWriteFailure(t *testing.T) {
+	writers := map[string]io.Writer{"failed": failingWriter{}, "short": shortWriter{}}
+	for _, initialized := range []bool{false, true} {
+		for name, w := range writers {
+			t.Run(fmt.Sprintf("%s/initialized=%v", name, initialized), func(t *testing.T) {
+				root := t.TempDir()
+				if initialized {
+					if err := os.MkdirAll(filepath.Join(root, "rootfs"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+				origRoot, origRep := rootDir, rep
+				rec := &statusRecorder{}
+				rootDir, rep = root, rec
+				clix.JSONOutput, clix.Stdout = true, w
+				t.Cleanup(func() {
+					rootDir, rep = origRoot, origRep
+					clix.JSONOutput, clix.Stdout = false, nil
+				})
+
+				err := statusCmd.RunE(statusCmd, nil)
+				if err == nil {
+					t.Fatal("expected an error when the JSON write fails")
+				}
+				if len(rec.records) != 0 {
+					t.Fatalf("expected no reporter records after a failed write, got %q", rec.records)
+				}
+			})
+		}
 	}
 }
