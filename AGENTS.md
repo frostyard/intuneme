@@ -47,6 +47,15 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 `release_workflow_contract_test.go` pins this contract; the workflows only run on tags and `main`, so the test is their pull-request gate. See `docs/design/overview.md` → "Release and Package Publication".
 
+## Releases and dependencies
+
+- **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.21.0`).
+- **Release start:** see "Release automation" above.
+- **Who tags:** Brian only. Agents never tag, push tags, or release. `make bump` pushes a tag, so it is for Brian only.
+- **Version rule:** svu computes the next version (`svu next` in `make bump`), configured in `.svu.yml` (`tag.prefix: "v"`, `v0: true`).
+- **Internal dependencies:** `github.com/frostyard/clix` and `github.com/frostyard/std` in `go.mod`. Other frostyard references: `frostyard/apt-publisher` (`repository_dispatch` in `.github/workflows/release.yml`) and the `ghcr.io/frostyard/ubuntu-intune` image (`ubuntu-intune/`, cosign verify note in `.goreleaser.yaml`). The workflows pin no other frostyard action or image.
+- **Who uses this repository:** not stated.
+
 ## CI workflows
 
 Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. Dependabot updates the SHA and the comment together.
