@@ -27,10 +27,29 @@ type restoreCredentialKeyRunner struct {
 	corruptCredentialKey bool
 }
 
+const testMachineID = "0123456789abcdef0123456789abcdef\n"
+
+func writeTestMachineID(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "etc/machine-id")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(testMachineID), 0444); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (r *restoreCredentialKeyRunner) Run(name string, args ...string) ([]byte, error) {
 	out, err := r.mockRunner.Run(name, args...)
 	if err != nil || name != "sudo" || len(args) == 0 {
 		return out, err
+	}
+	if args[0] == "cp" && len(args) == 4 && filepath.Base(args[2]) == "machine-id" {
+		if err := os.MkdirAll(filepath.Dir(args[3]), 0755); err != nil {
+			return nil, err
+		}
+		return exec.Command("cp", args[1:]...).CombinedOutput()
 	}
 	if args[0] == "cp" && len(args) == 4 && args[1] == "-a" && filepath.Base(args[2]) == "credential.secret" {
 		if !r.copyCredentialKey {
@@ -69,7 +88,231 @@ func (r *backupCopyRunner) Run(name string, args ...string) ([]byte, error) {
 		}
 		return out, err
 	}
+	if name == "sudo" && len(args) > 0 {
+		switch args[0] {
+		case "mkdir", "install", "ln", "cmp":
+			r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+			return exec.Command(args[0], args[1:]...).CombinedOutput()
+		}
+	}
 	return r.mockRunner.Run(name, args...)
+}
+
+func TestHimmelblauRecreatePreservesCredentialIdentityAndPublicLinks(t *testing.T) {
+	for _, private := range []bool{false, true} {
+		t.Run(map[bool]string{false: "legacy public directories", true: "DynamicUser private directories"}[private], func(t *testing.T) {
+			oldRoot := t.TempDir()
+			writeTestMachineID(t, oldRoot)
+			for relPath, contents := range map[string]string{
+				"var/lib/himmelblaud/hsm-pin-nopcr.enc": "encrypted PIN fixture",
+				"var/cache/himmelblaud/cache.db":        "protected PRT fixture",
+				"var/lib/systemd/credential.secret":     "credential key fixture",
+			} {
+				if private && strings.Contains(relPath, "/himmelblaud/") {
+					relPath = strings.Replace(relPath, "/himmelblaud/", "/private/himmelblaud/", 1)
+				}
+				path := filepath.Join(oldRoot, relPath)
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if private {
+				for _, parent := range []string{"var/lib", "var/cache"} {
+					if err := os.Symlink("private/himmelblaud", filepath.Join(oldRoot, parent, "himmelblaud")); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			r := &backupCopyRunner{}
+			backup, err := BackupHimmelblauState(r, oldRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := RemoveHimmelblauStateBackup(r, backup); err != nil {
+					t.Error(err)
+				}
+			})
+			newRoot := t.TempDir()
+			writeTestMachineID(t, newRoot)
+			if err := os.Chmod(filepath.Join(newRoot, "etc/machine-id"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(newRoot, "etc/machine-id"), []byte("fedcba9876543210fedcba9876543210\n"), 0444); err != nil {
+				t.Fatal(err)
+			}
+			if err := RestoreHimmelblauState(r, newRoot, backup); err != nil {
+				t.Fatal(err)
+			}
+			for relPath, want := range map[string]string{
+				"etc/machine-id":                                testMachineID,
+				"var/lib/systemd/credential.secret":             "credential key fixture",
+				"var/lib/private/himmelblaud/hsm-pin-nopcr.enc": "encrypted PIN fixture",
+				"var/cache/private/himmelblaud/cache.db":        "protected PRT fixture",
+				"var/lib/himmelblaud/hsm-pin-nopcr.enc":         "encrypted PIN fixture",
+			} {
+				got, err := os.ReadFile(filepath.Join(newRoot, relPath))
+				if err != nil || string(got) != want {
+					t.Errorf("restored %s differs from original: %v", relPath, err)
+				}
+			}
+			for _, parent := range []string{"var/lib", "var/cache"} {
+				link, err := os.Readlink(filepath.Join(newRoot, parent, "himmelblaud"))
+				if err != nil || link != "private/himmelblaud" {
+					t.Errorf("%s public link = %q, %v; root initializer must reuse private state", parent, link, err)
+				}
+				info, err := os.Stat(filepath.Join(newRoot, parent, "private"))
+				if err != nil || info.Mode().Perm() != 0700 {
+					t.Errorf("%s private parent must be protected: %v", parent, err)
+				}
+			}
+		})
+	}
+}
+
+func TestBackupHimmelblauStateRejectsInvalidMachineID(t *testing.T) {
+	for _, id := range []string{"missing", "", "uninitialized\n", strings.Repeat("0", 32), strings.Repeat("x", 32)} {
+		t.Run(id, func(t *testing.T) {
+			rootfs := t.TempDir()
+			key := filepath.Join(rootfs, systemdCredentialKeyPath)
+			if err := os.MkdirAll(filepath.Dir(key), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(key, []byte("fixture key"), 0400); err != nil {
+				t.Fatal(err)
+			}
+			if id != "missing" {
+				if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(rootfs, machineIDPath), []byte(id), 0444); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := &mockRunner{}
+			if _, err := BackupHimmelblauState(r, rootfs); err == nil || !strings.Contains(err.Error(), "machine ID") {
+				t.Fatalf("want machine-ID preflight error, got %v", err)
+			}
+			if len(r.commands) != 0 {
+				t.Fatalf("invalid identity must fail before copying state: %v", r.commands)
+			}
+		})
+	}
+}
+
+func TestBackupHimmelblauStateRejectsMissingMachineIDCopy(t *testing.T) {
+	rootfs := t.TempDir()
+	writeTestMachineID(t, rootfs)
+	key := filepath.Join(rootfs, systemdCredentialKeyPath)
+	if err := os.MkdirAll(filepath.Dir(key), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(key, []byte("fixture key"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	r := &backupCopyRunner{skipCopyFrom: filepath.Join(rootfs, machineIDPath)}
+	backup, err := BackupHimmelblauState(r, rootfs)
+	if backup != "" {
+		t.Cleanup(func() { _ = os.RemoveAll(backup) })
+	}
+	if err == nil || !strings.Contains(err.Error(), "verify backup machine ID") {
+		t.Fatalf("want missing machine-ID backup error, got %v", err)
+	}
+}
+
+func TestRestoreHimmelblauStateRejectsBackupWithoutMachineID(t *testing.T) {
+	backup := t.TempDir()
+	key := filepath.Join(backup, systemdCredentialKeyPath)
+	if err := os.MkdirAll(filepath.Dir(key), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(key, []byte("fixture key"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{}
+	err := RestoreHimmelblauState(r, t.TempDir(), backup)
+	if err == nil || !strings.Contains(err.Error(), "machine ID") {
+		t.Fatalf("want incomplete credential-identity error, got %v", err)
+	}
+	if len(r.commands) != 0 {
+		t.Fatalf("restore must fail before copying: %v", r.commands)
+	}
+}
+
+func TestRestoreHimmelblauStateRejectsMismatchedMachineIDCopy(t *testing.T) {
+	backup := t.TempDir()
+	writeTestMachineID(t, backup)
+	key := filepath.Join(backup, systemdCredentialKeyPath)
+	if err := os.MkdirAll(filepath.Dir(key), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(key, []byte("fixture key"), 0400); err != nil {
+		t.Fatal(err)
+	}
+	rootfs := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rootfs, machineIDPath), []byte("fedcba9876543210fedcba9876543210\n"), 0444); err != nil {
+		t.Fatal(err)
+	}
+	r := &backupCopyRunner{skipCopyFrom: filepath.Join(backup, machineIDPath)}
+	err := RestoreHimmelblauState(r, rootfs, backup)
+	if err == nil || !strings.Contains(err.Error(), "verify restored machine ID contents") {
+		t.Fatalf("want mismatched restored machine-ID error, got %v", err)
+	}
+}
+
+func TestBackupHimmelblauStateRejectsConflictingLayouts(t *testing.T) {
+	for _, parent := range []string{"var/lib", "var/cache"} {
+		t.Run(parent, func(t *testing.T) {
+			rootfs := t.TempDir()
+			for _, rel := range []string{"himmelblaud", "private/himmelblaud"} {
+				if err := os.MkdirAll(filepath.Join(rootfs, parent, rel), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			r := &mockRunner{}
+			_, err := BackupHimmelblauState(r, rootfs)
+			if err == nil || !strings.Contains(err.Error(), "conflicting public and private") {
+				t.Fatalf("want ambiguous state-layout error, got %v", err)
+			}
+			if len(r.commands) != 0 {
+				t.Fatalf("ambiguous state must fail before backup: %v", r.commands)
+			}
+		})
+	}
+}
+
+func TestRestoreHimmelblauStateRejectsConflictingPublicPath(t *testing.T) {
+	for _, symlink := range []bool{false, true} {
+		t.Run(map[bool]string{false: "directory", true: "unexpected link"}[symlink], func(t *testing.T) {
+			rootfs := t.TempDir()
+			parent := filepath.Join(rootfs, "var/lib")
+			if err := os.MkdirAll(parent, 0755); err != nil {
+				t.Fatal(err)
+			}
+			public := filepath.Join(parent, "himmelblaud")
+			if symlink {
+				if err := os.Symlink("wrong-state", public); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Mkdir(public, 0700); err != nil {
+				t.Fatal(err)
+			}
+			r := &mockRunner{}
+			err := RestoreHimmelblauState(r, rootfs, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), "conflicting Himmelblau public state") {
+				t.Fatalf("want public-path conflict error, got %v", err)
+			}
+			if len(r.commands) != 0 {
+				t.Fatalf("conflicting destination must fail before restore: %v", r.commands)
+			}
+		})
+	}
 }
 
 func (r *backupCleanupRunner) Run(name string, args ...string) ([]byte, error) {
@@ -294,6 +537,7 @@ func TestBackupHimmelblauStateNoState(t *testing.T) {
 
 func TestBackupHimmelblauStateIncludesSystemdCredentialKey(t *testing.T) {
 	rootfs := t.TempDir()
+	writeTestMachineID(t, rootfs)
 	hsmDir := filepath.Join(rootfs, "var", "lib", "himmelblaud")
 	if err := os.MkdirAll(hsmDir, 0700); err != nil {
 		t.Fatal(err)
@@ -318,11 +562,8 @@ func TestBackupHimmelblauStateIncludesSystemdCredentialKey(t *testing.T) {
 	if backupDir == "" {
 		t.Fatal("expected Himmelblau credential state to be backed up")
 	}
-	if len(r.commands) != 2 {
-		t.Fatalf("backup commands = %v, want HSM PIN and systemd credential key", r.commands)
-	}
 	commands := strings.Join(r.commands, "\n")
-	for _, relPath := range []string{"var/lib/himmelblaud", "var/lib/systemd/credential.secret"} {
+	for _, relPath := range []string{"var/lib/himmelblaud", "var/lib/systemd/credential.secret", "etc/machine-id"} {
 		if !strings.Contains(commands, filepath.Join(rootfs, relPath)) || !strings.Contains(commands, filepath.Join(backupDir, relPath)) {
 			t.Fatalf("backup commands do not preserve %s: %v", relPath, r.commands)
 		}
@@ -335,6 +576,7 @@ func TestBackupHimmelblauStateIncludesSystemdCredentialKey(t *testing.T) {
 
 func TestBackupHimmelblauStateRejectsMissingCredentialKeyCopy(t *testing.T) {
 	rootfs := t.TempDir()
+	writeTestMachineID(t, rootfs)
 	key := filepath.Join(rootfs, "var", "lib", "systemd", "credential.secret")
 	if err := os.MkdirAll(filepath.Dir(key), 0755); err != nil {
 		t.Fatal(err)
@@ -348,7 +590,7 @@ func TestBackupHimmelblauStateRejectsMissingCredentialKeyCopy(t *testing.T) {
 	if backupDir != "" {
 		_ = os.RemoveAll(backupDir)
 	}
-	if err == nil || !strings.Contains(err.Error(), "credential key backup") {
+	if err == nil || !strings.Contains(err.Error(), "verify backup systemd credential key") {
 		t.Fatalf("BackupHimmelblauState() error = %v, want missing credential key backup error", err)
 	}
 }
@@ -444,6 +686,7 @@ func TestBackupHimmelblauStateWithProtectedDynamicUserState(t *testing.T) {
 	}
 
 	rootfs := t.TempDir()
+	writeTestMachineID(t, rootfs)
 	privateDir := filepath.Join(rootfs, "var", "lib", "private", "himmelblaud")
 	if err := os.MkdirAll(privateDir, 0700); err != nil {
 		t.Fatal(err)
@@ -569,6 +812,7 @@ func TestBackupHimmelblauStateRejectsPrivateEncryptedPINWithoutCredentialKey(t *
 func TestRestoreHimmelblauState(t *testing.T) {
 	rootfs := t.TempDir()
 	backupDir := t.TempDir()
+	writeTestMachineID(t, backupDir)
 	for _, relPath := range []string{"var/lib/himmelblaud", "var/cache/himmelblaud"} {
 		if err := os.MkdirAll(filepath.Join(backupDir, relPath), 0700); err != nil {
 			t.Fatal(err)
@@ -585,9 +829,6 @@ func TestRestoreHimmelblauState(t *testing.T) {
 	r := &restoreCredentialKeyRunner{copyCredentialKey: true}
 	if err := RestoreHimmelblauState(r, rootfs, backupDir); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(r.commands) != 7 {
-		t.Fatalf("expected mkdir and copy per state path plus credential key restore and verification, got %d: %v", len(r.commands), r.commands)
 	}
 	commands := strings.Join(r.commands, "\n")
 	for _, paths := range []struct {
@@ -621,6 +862,7 @@ func TestRestoreHimmelblauState(t *testing.T) {
 func TestRestoreHimmelblauStateRejectsMissingRestoredCredentialKey(t *testing.T) {
 	rootfs := t.TempDir()
 	backupDir := t.TempDir()
+	writeTestMachineID(t, backupDir)
 	credentialKey := filepath.Join(backupDir, systemdCredentialKeyPath)
 	if err := os.MkdirAll(filepath.Dir(credentialKey), 0700); err != nil {
 		t.Fatal(err)
@@ -638,6 +880,7 @@ func TestRestoreHimmelblauStateRejectsMissingRestoredCredentialKey(t *testing.T)
 func TestRestoreHimmelblauStateRejectsMismatchedRestoredCredentialKey(t *testing.T) {
 	rootfs := t.TempDir()
 	backupDir := t.TempDir()
+	writeTestMachineID(t, backupDir)
 	credentialKey := filepath.Join(backupDir, systemdCredentialKeyPath)
 	if err := os.MkdirAll(filepath.Dir(credentialKey), 0700); err != nil {
 		t.Fatal(err)

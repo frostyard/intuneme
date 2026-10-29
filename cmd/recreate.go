@@ -142,12 +142,12 @@ var recreateCmd = &cobra.Command{
 		}
 		// The backup is the only copy of the enrollment once the rootfs is
 		// deleted below, so it is kept — and its location reported — on every
-		// failure path. Only a successful restore may discard it.
+		// failure path. Himmelblau keeps it through the first boot as well.
 		brokerRestored := false
-		backupCleaned := false
+		backupHandled := false
 		if brokerBackupDir != "" {
 			defer func() {
-				if backupCleaned {
+				if backupHandled {
 					return
 				}
 				if brokerRestored {
@@ -282,13 +282,11 @@ var recreateCmd = &cobra.Command{
 
 		if brokerBackupDir != "" && brokerRestored {
 			if cfg.Himmelblau {
-				if err := provision.RemoveHimmelblauStateBackup(r, brokerBackupDir); err != nil {
-					return fmt.Errorf("remove restored Himmelblau backup: %w", err)
-				}
+				rep.Message("Himmelblau recovery backup kept at %s. Keep it until normal PIN login works after boot; it contains sensitive credentials.", brokerBackupDir)
 			} else {
 				_ = os.RemoveAll(brokerBackupDir)
 			}
-			backupCleaned = true
+			backupHandled = true
 		}
 
 		rep.Message("Container recreated. Run 'intuneme start' to boot.")
