@@ -57,9 +57,12 @@ UID and save the UPN.
 
 Container roots using Himmelblau `DynamicUser` store daemon state under
 `/var/lib/private/himmelblaud` and `/var/cache/private/himmelblaud`; recreate
-must restore to these private backing paths, not create conflicting public
-directories. It must also preserve `/var/lib/systemd/credential.secret` for
-the encrypted HSM PIN. If that key is missing while the encrypted PIN exists,
+must restore to these private backing paths and create the public relative
+`private/himmelblaud` symlinks before boot: the root HSM initializer runs before
+the DynamicUser daemon. Reject conflicting public/private directories.
+Preserve `/var/lib/systemd/credential.secret` together with `/etc/machine-id`;
+systemd deletes a credential key belonging to a different machine ID.
+If that key is missing while the encrypted PIN exists,
 recreate must fail before deleting the rootfs; follow the recovery guidance in
 `site/troubleshooting.md`. The mapping preserves the local account's UID, GID,
 groups, and home, so do not describe or provision a second Unix identity for
@@ -91,7 +94,7 @@ still apply.
 
 The terminal-passkey local-image helper builds the unchunked `builder` target and supports Docker Buildx with `--load`, Podman, or Buildah. Its Containerfile's chunkah/OCI-archive stages are not used by this helper; the terminal-passkey image is not published.
 
-`recreate` backs up Himmelblau's protected `DynamicUser` state before deleting the rootfs. When host-side inspection of the encrypted HSM PIN returns permission denied, retry the existence check through `sudo`; never treat inaccessible PIN state as absent. If `credential.secret` exists, verify the staged backup contains a regular copy before allowing rootfs deletion; also reject any staged encrypted-PIN/key mismatch. After restore, verify the destination key is a regular file and byte-for-byte matches the backup before removing the backup.
+`recreate` backs up Himmelblau's protected `DynamicUser` state before deleting the rootfs. When host-side inspection of the encrypted HSM PIN returns permission denied, retry through `sudo`. With `credential.secret`, require a valid regular `/etc/machine-id`; verify both files are regular and byte-for-byte equal at backup and restore. Retain the sensitive recovery backup after successful restore and report its path, so a first-boot failure cannot discard the only usable credentials. The user removes it only after confirming normal PIN login.
 
 During initial Himmelblau provisioning, set `apply_policy` and `enable_passwordless_qr_bluetooth` to `true`; when installing a saved config, default each to `true` if missing or commented, but preserve an explicit `false` opt-out. The terminal QR flow still requires the terminal-passkey image and host BlueZ proxy prerequisites.
 

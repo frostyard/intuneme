@@ -416,10 +416,15 @@ commented defaults, can be edited any time with `intuneme edit --himmelblau`,
 and is reapplied before each container boot and after `recreate`. Intuneme
 validates its required global settings using Himmelblau's INI semantics and
 leaves unrelated options to Himmelblau. DynamicUser state is backed up from
-public paths and restored under systemd's private backing paths. Recreate also
-preserves `/var/lib/systemd/credential.secret` with the encrypted HSM PIN and
-refuses to replace the rootfs if their backup pair is incomplete, and verifies
-the restored credential key byte-for-byte before deleting the staged backup. Stopped
+public paths and restored under systemd's private backing paths, with public
+relative links installed before the root HSM initializer runs. Recreate
+preserves `/var/lib/systemd/credential.secret` and `/etc/machine-id` together:
+systemd deletes a credential key bound to a different machine ID. Incomplete
+identity backups or conflicting state directories fail before rootfs deletion.
+Both identity copies are verified byte-for-byte, and the sensitive backup is
+retained at the reported path until the user confirms normal PIN login after
+boot. See [Container Lifecycle](container-lifecycle.md#intuneme-recreate).
+Stopped
 container enrollment writes the map before boot; enrollment on a running
 container reboots so the daemon reloads it. The terminal-passkey variant uses
 a PAM-time filtered BlueZ proxy and is local-build-only.

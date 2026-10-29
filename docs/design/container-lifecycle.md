@@ -234,14 +234,15 @@ Updates the selected container image while preserving its enrollment state. The 
 2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
 3. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
-   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` for Microsoft mode, or Himmelblau daemon, policy, and NSS state under `/var/lib` and `/var/cache` for Himmelblau mode. The daemon's `DynamicUser` state restores under `/var/lib/private/himmelblaud` and `/var/cache/private/himmelblaud`; restoring ordinary public directories collides with systemd's symlink setup. Protected HSM PIN inspection retries through `sudo` when the host user cannot traverse the private state directory. If the source has `/var/lib/systemd/credential.secret`, backup verifies a regular copy exists in the staged directory; it also rejects a staged encrypted PIN without its key before the old rootfs is deleted.
+   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` for Microsoft mode, or Himmelblau daemon, policy, and NSS state under `/var/lib` and `/var/cache` for Himmelblau mode. The daemon's `DynamicUser` state restores under `/var/lib/private/himmelblaud` and `/var/cache/private/himmelblaud`, with root-owned `0700` private parents and relative public links to `private/himmelblaud`. The root HSM initializer has `StateDirectory=himmelblaud` too: without the public link it creates a second state directory and new PIN before DynamicUser runs. Backup rejects simultaneous real public/private directories rather than choosing one and losing the other. Protected HSM PIN inspection retries through `sudo` when the host user cannot traverse private state.
+   - If `/var/lib/systemd/credential.secret` exists, preserve `/etc/machine-id` with it. Require a regular, initialized, nonzero 32-digit hexadecimal machine ID and verify both staged copies byte-for-byte. An encrypted PIN without its key, or a key without its machine ID, fails before rootfs deletion. systemd embeds the machine identity in its host credential key and deletes a restored key if the fresh image has a different machine ID.
 4. **Delete old rootfs** — `sudo rm -rf`
 5. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag)
 6. **Re-provision** — GPU render group, user creation, hostname (`<host>LXC`), fixups, polkit rule
 7. **Restore state:**
    - Write backed-up password hash into new `rootfs/etc/shadow`
    - Copy backed-up device broker state back into `rootfs/var/lib/microsoft-identity-device-broker`
-   - For Himmelblau, restore daemon/policy/NSS state and `credential.secret`; verify the restored key is a regular file byte-for-byte equal to the staged copy before deleting the backup
+   - For Himmelblau, restore daemon/policy/NSS state, public links, `credential.secret`, and `machine-id`; verify both identity files are regular and byte-for-byte equal to the staged copies. Reject conflicting destination public paths instead of overwriting them.
 8. **Update config** — Save the selected channel while retaining the initialized image family
 
 Note: `recreate` reinstalls the host polkit rule but does NOT reinstall the host sudoers rule — `start` handles that idempotently.
@@ -252,7 +253,20 @@ cannot be copied to the fresh image in a usable state; see [the recovery
 procedure](../../site/troubleshooting.md#himmelblau-fails-with-failed-to-determine-local-credential-key).
 If an incomplete staged backup or failed destination-key verification is
 detected during restore, `recreate` returns an error and retains the backup
-instead of reporting success.
+instead of reporting success. Even successful Himmelblau restores retain the
+sensitive `/tmp/intuneme-himmelblau-backup-*` directory and report its path:
+recreate does not boot the container, so preboot verification alone cannot
+prove the credential survives startup. Keep that backup until normal online
+PIN authentication succeeds, then remove that exact reported directory with
+appropriate privilege. `/tmp` may be cleared on host reboot; move the backup
+to protected persistent storage first if recovery is still pending.
+
+`TestHimmelblauRecreatePreservesCredentialIdentityAndPublicLinks` exercises the
+real filesystem copy boundary for both legacy public directories and
+DynamicUser private state, including replacement of a fresh image's machine
+ID and access to the restored PIN through the initializer's public path.
+Additional backup/restore tests cover missing or invalid IDs, failed/mismatched
+copies, conflicting layouts, and protected state inspection.
 
 `machinectl poweroff` only signals the container's init and returns
 immediately, so `systemd-nspawn` is still unwinding the rootfs (its `/sys`,

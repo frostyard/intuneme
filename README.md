@@ -84,10 +84,12 @@ Intuneme also defaults `enable_passwordless_qr_bluetooth = true`; set it to
 requires the separate terminal-passkey image and its host BlueZ prerequisites.
 `recreate` preserves Himmelblau's protected `DynamicUser` state and encrypted
 HSM PIN credential; permission-restricted PIN inspection is retried through
-`sudo`. It verifies the staged `credential.secret` copy and rejects an
-incomplete PIN/key backup before removing the old rootfs. After restore, it
-verifies the destination key matches the staged copy before deleting that
-backup.
+`sudo`. It preserves `credential.secret` together with `/etc/machine-id`
+(systemd discards a key belonging to another machine ID), verifies both copies,
+and rejects incomplete backups or conflicting state directories before removing
+the old rootfs. Public state-directory links are restored before boot so the
+HSM initializer reuses the saved PIN. The sensitive recovery backup is retained
+at the reported path; remove it only after confirming normal PIN login works.
 Himmelblau starts also pass the host udev database read-only for filesystem
 type detection; both Himmelblau images include `strings` for Secure Boot
 database compliance scripts.

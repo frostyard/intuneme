@@ -179,26 +179,47 @@ Common issues and solutions. Click an item to expand it.
 
 ??? question "Himmelblau fails with `Failed to determine local credential key`"
     Himmelblau's HSM PIN is stored as a systemd encrypted credential. `recreate`
-    must preserve both that encrypted file and `/var/lib/systemd/credential.secret`,
-    which decrypts it. Current intuneme refuses to recreate when the encrypted
-    PIN exists but the key is missing, rather than restoring a credential that
-    cannot be opened. It validates the staged backup before deleting the old
-    rootfs, then verifies the restored key matches the staged copy before
-    deleting the backup.
+    must preserve that encrypted file, `/var/lib/systemd/credential.secret`,
+    and `/etc/machine-id` together. If the machine ID changes, systemd can log
+    that `credential.secret` "comes from a different machine ID, deleting"
+    and replace the key, making the original PIN unusable. Current intuneme
+    validates the staged identity before deleting the old rootfs, verifies both
+    restored files match, and keeps the sensitive backup at the reported path
+    until you have confirmed normal PIN login after boot.
 
     If recreate reports a state-restore failure, do not delete its retained
     `/tmp/intuneme-himmelblau-backup-*` directory; it may contain the only
     remaining copy of enrollment state. The encrypted PIN cannot be recovered
-    without its matching `credential.secret`. Restore that key from a backup
-    of the same container state before starting Himmelblau again.
+    without its matching `credential.secret`. Restore that key and its original
+    `/etc/machine-id` from a backup of the same container state before starting
+    Himmelblau again. A newly generated key cannot decrypt an old PIN.
+    `/tmp` backups may disappear on host reboot; move a needed backup to
+    private persistent storage. Once login works, remove only the exact
+    reported backup directory; it contains sensitive credentials.
 
     If this happened after an older recreate and Himmelblau enrollment never
     completed, back up any custom `himmelblau.conf` outside the intuneme data
     root, then run `intuneme destroy` and initialize again. Restore the saved
     config before starting the new container. If the device was already
     enrolled, do not delete the encrypted credential; restore its matching
-    `/var/lib/systemd/credential.secret` from a backup or contact your
-    administrator about re-enrollment.
+    key and machine ID from a backup or contact your administrator about
+    re-enrollment. If no matching key survives, preserve the remaining state
+    before resetting local enrollment; deleting only the PIN does not repair
+    the existing HSM-protected database.
+
+??? question "Himmelblau fails with `STATE_DIRECTORY` or `File exists` after recreate"
+    The daemon uses private DynamicUser state, while its root HSM initializer
+    accesses `/var/lib/himmelblaud`. That public path must link to
+    `private/himmelblaud` before boot, as must `/var/cache/himmelblaud`. Current
+    intuneme restores those links and protects their private parent directories.
+
+    An older recreate can leave both a real public directory containing a
+    newly generated PIN and a private directory containing the old PIN.
+    Do not merge them or replace one PIN with the other: preserve both first
+    and check the matching credential key and machine ID. A new recreate
+    rejects this ambiguous layout instead of discarding either copy. If the
+    original key was already replaced, repairing links alone is insufficient;
+    follow the credential recovery guidance above or arrange fresh enrollment.
 
 ??? question "Himmelblau compliance check cannot resolve the mapped user's UID"
     If the daemon logs `compliance check: could not resolve uid ... to an
