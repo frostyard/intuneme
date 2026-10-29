@@ -324,7 +324,7 @@ All shell commands go through the `runner.Runner` interface (`internal/runner/`)
 - Default Microsoft image, clean semver (e.g., v1.2.3) → `ghcr.io/frostyard/ubuntu-intune:v1.2.3`
 - Default Microsoft image, dev builds → `ghcr.io/frostyard/ubuntu-intune:latest`
 - Experimental Himmelblau image → matching tags under `ghcr.io/frostyard/ubuntu-himmelblau`; it tracks the upstream community-nightly package repository and rejects `--insiders`.
-- Terminal-passkey Himmelblau variant → local-build-only image supplied with `--himmelblau-local-image`; it builds the daemon and PAM module from pinned commit `dae50ca7cb84e959fa76b4e3a4ee682431a48b57`, which includes the cached-PRT fallback.
+- Terminal-passkey Himmelblau variant → local-build-only image supplied with `--himmelblau-local-image`; it builds the daemon and PAM module from pinned commit `dae5bf49889a4f5d4d6735b9006da14f50dc7a9d`, rebased onto official upstream and including the cached-PRT fallback and durable decoupled-Hello PRT renewal.
 
 The terminal-passkey `build-local-image` helper targets the unchunked builder
 stage and can load it with Docker Buildx (`--load`), Podman, or Buildah. The
@@ -337,6 +337,15 @@ enrollment succeeded through the default client. The retry remains an online
 authorization check; consent and network handling are unchanged, and failed
 retries reach the existing denial/reauthentication paths. See the
 [image contract](../specs/container-image.md#terminal-passkey-variant-ubuntu-himmelblau-terminal-passkey).
+
+Online PAM PIN authentication and broker PIN unlock renew decoupled-Hello PRTs
+after four hours, or when their renewal age is unknown after a cold start.
+The replacement must be resealed with the unlocked Hello key and persisted
+before use; storage failures fail the operation. Unlock also saves newer
+in-memory PRTs without resetting their renewal age. Background-only renewals
+remain in memory until a PIN unlock, because neither the PIN nor the unlocked
+key is retained. Entra revocation and authentication-freshness policies remain
+authoritative; this change does not guarantee prompt-free access indefinitely.
 
 The image family and Himmelblau variant are selected only during `init` and
 stored as `himmelblau` and `himmelblau_terminal_passkey` in `config.toml`.

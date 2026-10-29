@@ -117,9 +117,12 @@ APT repository and is experimental.
 The terminal-passkey variant is local-build-only. It uses the same image recipe
 and signed nightly package set, but replaces `himmelblau` and `pam-himmelblau`
 with Debian packages built from the commit in
-`internal/version/himmelblau_terminal_passkey_source.txt` (`dae50ca7cb84e959fa76b4e3a4ee682431a48b57`).
-That upstream commit includes the cached-PRT client fallback; intuneme applies
-no local source patches. Local image builds can
+`internal/version/himmelblau_terminal_passkey_source.txt` (`dae5bf49889a4f5d4d6735b9006da14f50dc7a9d`).
+That fork commit is rebased onto official upstream and includes the cached-PRT
+client fallback and durable decoupled-Hello PRT renewal during online PIN
+unlock. Renewed credentials are PIN-protected on disk; neither the PIN nor the
+unlocked key is retained for background renewal. Intuneme applies no local
+source patches. Local image builds can
 choose another HTTPS repository and Git ref through
 `build-local-image --source-repo ... --source-ref ...`. The package build
 resolves that ref to a commit; then the image build installs it and writes

@@ -10,8 +10,9 @@ matching Ubuntu 26.04 packaging target. The build compiles both the daemon and
 PAM module from the pinned fork.
 Like the standard Himmelblau image, this variant does not install Microsoft
 Edge or Intune Portal.
-The pinned commit `dae50ca7cb84e959fa76b4e3a4ee682431a48b57` from
-`feat/terminal-passkey-auth-test` includes the cached-PRT client fallback.
+The pinned commit `dae5bf49889a4f5d4d6735b9006da14f50dc7a9d` from
+`feat/terminal-passkey-auth-test` is rebased onto official upstream and includes
+the cached-PRT client fallback and durable decoupled-Hello PRT renewal.
 Intuneme builds that source directly and applies no local patches.
 After PIN creation, a decoupled local Hello key validates the cached PRT
 online. If that exchange fails with an Edge-client token-acquisition error
@@ -21,6 +22,13 @@ This avoids a redundant second QR/Bluetooth authentication when the retry
 succeeds. Consent errors retain their existing scope fallback; network errors
 and failures of the default-client retry are not treated as successful
 authentication. The same retry helper serves the registered Hello-key path.
+Online PIN authentication, including broker PIN unlock, renews PRTs at the
+four-hour threshold or when their renewal age is unknown after a cold start.
+The daemon persists the replacement under the unlocked Hello key before use;
+storage failures fail the operation. A PIN unlock also saves newer in-memory
+PRTs without resetting their renewal age. Background-only renewals remain in
+memory until a PIN unlock: no PIN or unlocked key is retained. Entra revocation
+and reauthentication policies can still require interactive sign-in.
 Intuneme defaults `apply_policy = true` for both variants to enable Intune
 enrollment and policy application; set it to `false` in `[global]` to opt out.
 Intuneme also defaults `enable_passwordless_qr_bluetooth = true`; set it to
@@ -85,7 +93,7 @@ to opt out. Init detects the image marker, stores the selected source commit,
 and makes `recreate` require a matching local image.
 
 This is an unmerged, experimental fork with terminal PAM QR support and the
-cached-PRT fallback. It has not been validated upstream on Ubuntu or with
+cached-PRT fallback and durable PIN-time PRT renewal. It has not been validated upstream on Ubuntu or with
 physical FIDO devices. The default local build uses the commit in
 `internal/version/himmelblau_terminal_passkey_source.txt`; custom local builds
 resolve the requested Git ref to a commit and embed that commit in the image.
@@ -93,5 +101,7 @@ Review the source before selecting a different branch or updating the pin.
 
 The pinned fork includes Rust regression tests. In a checkout of that commit, run
 `cargo test -p himmelblau_unix_common retry_edge_prt_exchange`.
+The durable-renewal regressions are
+`cargo test -p himmelblau_unix_common pin_renewal_`.
 They cover `530003` and structured token errors, successful retries,
 non-Edge clients, consent/network handling, and default-client rejection.

@@ -117,8 +117,10 @@ intuneme init --himmelblau \
 Intuneme detects the image marker and persists its source commit for
 `recreate`. The regular Himmelblau image remains on signed upstream nightly
 packages. The terminal-passkey image pins a Himmelblau fork commit that
-includes the cached-PRT client fallback, avoiding a redundant post-PIN QR
-when the default-client retry succeeds. Rebuild the local image and run
+includes the cached-PRT client fallback and persists PRT renewals during
+online PIN unlock, including after a cold start. This avoids restoring an old
+disk credential after reboot; Entra reauthentication policies still apply.
+Rebuild the local image and run
 `recreate` to install daemon updates.
 The optional `--himmelblau-terminal-passkey` switch
 asserts that terminal-passkey mode is intended and rejects a local image

@@ -77,12 +77,17 @@ Himmelblau `start` binds the host's `/run/udev/data` read-only when present so i
 The Microsoft image remains based on Ubuntu 24.04. Both Himmelblau image variants use the pinned Ubuntu 26.04 base and matching Community Nightly packages; the terminal-passkey daemon and PAM packages are built for that release.
 
 The terminal-passkey image builds the daemon and PAM module from pinned commit
-`dae50ca7cb84e959fa76b4e3a4ee682431a48b57`, which includes the cached-PRT
-client fallback. Intuneme applies no local source patches. The standard
+`dae5bf49889a4f5d4d6735b9006da14f50dc7a9d`, rebased onto official upstream
+and including the cached-PRT client fallback and durable decoupled-Hello PRT
+renewal during online PAM/broker PIN unlock. Intuneme applies no local source
+patches. The standard
 Himmelblau image continues to use signed upstream packages. The fallback
 retries Edge-client acquisition errors with the default client while
 preserving consent/network handling and never turning retry failures into
 authentication success; see `ubuntu-himmelblau-terminal-passkey/README.md`.
+Renewed PRTs are resealed while the PIN has unlocked the Hello key; background
+renewal does not retain the PIN or unlocked key. Entra reauthentication policies
+still apply.
 
 The terminal-passkey local-image helper builds the unchunked `builder` target and supports Docker Buildx with `--load`, Podman, or Buildah. Its Containerfile's chunkah/OCI-archive stages are not used by this helper; the terminal-passkey image is not published.
 
