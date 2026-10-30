@@ -236,11 +236,15 @@ Common issues and solutions. Click an item to expand it.
 ??? question "Edge or the Company Portal asks you to sign in again after a reboot"
     Your credentials live in the container's gnome-keyring, and the keyring has to be unlocked once per boot. Older versions could skip that unlock for the whole boot: if the first launch after `intuneme start` came from the GNOME extension, the container user's session was not running yet, the unlock failed, and the keyring stayed locked. The broker then found no saved account.
 
-    Current versions enable the container user's session on every `intuneme start` and retry the unlock until it succeeds. To recover a container that is already in this state, run `intuneme start` again (it is safe while the container is running), then in `intuneme shell`:
+    Current versions enable the container user's session on every `intuneme start` and retry the unlock on every session entry, up to 3 attempts per boot. Each failed attempt is logged, and when the limit is reached the script stops retrying for that boot and logs that it did (inside the container: `journalctl -t intuneme-session-setup`).
+
+    To recover a container that is already in this state, run `intuneme start` again (it is safe while the container is running), then in `intuneme shell`:
 
     ```bash
-    rm /tmp/.intuneme-keyring-init-done
+    rm -f /tmp/.intuneme-keyring-init-done /tmp/.intuneme-keyring-unlock-attempts
     /usr/local/bin/intuneme-session-setup
     ```
+
+    Quit Edge and the Company Portal completely before the relaunch. Close every window, then check in `intuneme shell` that `pgrep -a 'msedge|intune-portal'` prints nothing; if it prints processes, run `pkill 'msedge|intune-portal'`. Edge keeps background processes alive after its last window closes, and a running Edge keeps the old sign-in state.
 
     Then relaunch Edge or the Company Portal.
