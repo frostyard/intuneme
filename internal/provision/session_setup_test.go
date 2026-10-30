@@ -1,11 +1,14 @@
 package provision
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -24,6 +27,7 @@ type sessionSetupEnv struct {
 	log      string
 	stick    string
 	unlocked string
+	lock     string
 }
 
 func newSessionSetupEnv(t *testing.T, withBus, unlockSticks bool) *sessionSetupEnv {
@@ -47,6 +51,7 @@ func newSessionSetupEnv(t *testing.T, withBus, unlockSticks bool) *sessionSetupE
 		log:      filepath.Join(dir, "calls.log"),
 		stick:    filepath.Join(dir, "unlock-sticks"),
 		unlocked: filepath.Join(dir, "unlocked"),
+		lock:     filepath.Join(runtime, "intuneme-keyring.lock"),
 	}
 	if withBus {
 		l, err := net.Listen("unix", filepath.Join(runtime, "bus"))
@@ -93,18 +98,37 @@ func (e *sessionSetupEnv) stickUnlock(t *testing.T) {
 
 func (e *sessionSetupEnv) run(t *testing.T) string {
 	t.Helper()
+	calls, err := e.runScript()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return calls
+}
+
+// busySleep replaces the sleep stub with a short real sleep, so concurrent runs
+// of the script show an overlap big enough for a race to happen.
+func (e *sessionSetupEnv) busySleep(t *testing.T) {
+	t.Helper()
+	body := "#!/bin/sh\nexec /bin/sleep 0.05\n"
+	if err := os.WriteFile(filepath.Join(e.dir, "bin", "sleep"), []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// runScript is run without a *testing.T so helper goroutines can call it.
+func (e *sessionSetupEnv) runScript() (string, error) {
 	original := string(intuneSessionSetupScript)
 	script := strings.Replace(original,
 		`_keyring_marker="/tmp/.intuneme-keyring-init-done"`,
 		`_keyring_marker="`+e.marker+`"`, 1)
 	if script == original {
-		t.Fatal("marker path not found in session-setup script")
+		return "", errors.New("marker path not found in session-setup script")
 	}
 	replaced := strings.Replace(script,
 		`_keyring_attempts_file="/tmp/.intuneme-keyring-unlock-attempts"`,
 		`_keyring_attempts_file="`+e.attempts+`"`, 1)
 	if replaced == script {
-		t.Fatal("attempts file path not found in session-setup script")
+		return "", errors.New("attempts file path not found in session-setup script")
 	}
 	script = replaced
 	cmd := exec.Command("bash", "-c", script)
@@ -115,10 +139,10 @@ func (e *sessionSetupEnv) run(t *testing.T) string {
 		"STUB_LOG=" + e.log,
 	}
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("session-setup failed: %v\n%s", err, out)
+		return "", fmt.Errorf("session-setup failed: %w\n%s", err, out)
 	}
 	calls, _ := os.ReadFile(e.log)
-	return string(calls)
+	return string(calls), nil
 }
 
 func (e *sessionSetupEnv) readLog(t *testing.T) string {
@@ -242,6 +266,39 @@ func TestSessionSetupRecoversAfterOneFailedAttempt(t *testing.T) {
 	}
 	if e.attemptsFileExists() {
 		t.Error("attempt counter not removed after a verified unlock")
+	}
+}
+
+// Session entries overlap in real use: an app launch, an MCP session, and a
+// login shell can all enter the script at once. Without the flock, two of them
+// could read the same counter and both attempt the unlock, so the cap of 3 would
+// not hold. The sleep stub really sleeps here, so the runs do overlap.
+func TestSessionSetupSerializesConcurrentRuns(t *testing.T) {
+	e := newSessionSetupEnv(t, true, false)
+	e.busySleep(t)
+	const runs = 6
+	var wg sync.WaitGroup
+	errs := make([]error, runs)
+	for i := 0; i < runs; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := e.runScript()
+			errs[i] = err
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent run %d failed: %v", i, err)
+		}
+	}
+	calls := e.readLog(t)
+	if got := strings.Count(calls, "gnome-keyring-daemon --unlock"); got != 3 {
+		t.Errorf("unlock attempts = %d, want 3 (the cap, under a lock):\n%s", got, calls)
+	}
+	if e.markerWritten() {
+		t.Error("marker written although the login collection is still locked")
 	}
 }
 

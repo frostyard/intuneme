@@ -122,6 +122,15 @@ fi
 # attempts the script stops trying until the attempts file is removed (see
 # site/troubleshooting.md). Each attempt and the give-up are logged to stderr
 # and to the journal (`journalctl -t intuneme-session-setup`).
+#
+# The whole block runs in a subshell that holds an flock on
+# $XDG_RUNTIME_DIR/intuneme-keyring.lock (the runtime dir is private to the
+# user, /tmp is not). Session entries can overlap — an app launch, an MCP
+# session and a login shell at once — and without the lock both could read the
+# same counter and both attempt the unlock, so the cap would not hold. The
+# subshell is required because this script is SOURCED by a login shell: a bare
+# `exit` would close the user's shell, but inside `( ... )` it only ends the
+# subshell. Variables set inside do not leak into the login shell.
 _keyring_dir="$HOME/.local/share/keyrings"
 _keyring_marker="/tmp/.intuneme-keyring-init-done"
 _keyring_attempts_file="/tmp/.intuneme-keyring-unlock-attempts"
@@ -136,72 +145,90 @@ _keyring_locked() {
 }
 
 if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
-    mkdir -p "$_keyring_dir"
-    [ -f "$_keyring_dir/default" ] || echo "login" > "$_keyring_dir/default"
-
-    # Is the login collection already unlocked? If so, leave the running daemon
-    # alone — don't disrupt an in-use keyring.
-    _locked=$(_keyring_locked)
-
-    # Failed attempts so far this boot, from the attempts file.
-    _keyring_read_attempts() {
-        _attempts=0
-        if [ -f "$_keyring_attempts_file" ]; then
-            read -r _attempts_saved < "$_keyring_attempts_file" 2>/dev/null
-            case "$_attempts_saved" in
-                ''|*[!0-9]*) _attempts=0 ;;
-                *) _attempts=$_attempts_saved ;;
-            esac
+    (
+        # Serialize concurrent session entries. Where flock is missing the block
+        # still runs, unserialized: the worst case is the old behaviour, a few
+        # attempts too many.
+        if command -v flock >/dev/null 2>&1; then
+            flock -w 30 9 || exit 0
         fi
-        echo "$_attempts"
-    }
-    _attempts=$(_keyring_read_attempts)
-    _keyring_attempted=0
 
-    if [ "$_locked" != "b false" ] && [ "$_attempts" -lt "$_keyring_max_attempts" ]; then
-        _attempts=$((_attempts + 1))
-        echo "$_attempts" > "$_keyring_attempts_file" 2>/dev/null
-        _keyring_attempted=1
-        # Reliable unlock: the well-known org.freedesktop.secrets name is held by
-        # whichever gnome-keyring daemon claimed it first (often the systemd
-        # socket-activated one). A `--replace --unlock` daemon does NOT take that
-        # name, so its unlock never reaches the daemon the broker talks to.
-        # Kill ALL keyring daemons (matched by truncated comm to avoid a pkill -f
-        # self-match) and start exactly one that owns the service and is unlocked.
-        pkill -u "$(id -u)" -x gnome-keyring-d 2>/dev/null
-        sleep 1
-        # `echo ""` sends a newline = real empty-string password (creates/unlocks
-        # the login keyring). `printf ""` would send EOF = "no password" and do
-        # nothing. The container's login keyring uses an empty password.
-        echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d 2>/dev/null
-        sleep 1
-    fi
+        # Re-check under the lock: a run that held it before us may have
+        # unlocked the keyring or used up the attempts.
+        [ -f "$_keyring_marker" ] && exit 0
 
-    # Force-create the default collection so ReadAlias("default") resolves and the
-    # broker can store credentials. A no-op if it already exists. Skipped when
-    # the attempt limit is reached: the daemon is not ours then, so this write
-    # would fail anyway.
-    if [ "$_locked" = "b false" ] || [ "$_keyring_attempted" = 1 ]; then
-        if ! secret-tool lookup _keyring_init _keyring_init >/dev/null 2>&1; then
-            echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
+        mkdir -p "$_keyring_dir"
+        [ -f "$_keyring_dir/default" ] || echo "login" > "$_keyring_dir/default"
+
+        # Is the login collection already unlocked? If so, leave the running daemon
+        # alone — don't disrupt an in-use keyring.
+        _locked=$(_keyring_locked)
+
+        # Failed attempts so far this boot, from the attempts file.
+        _keyring_read_attempts() {
+            _attempts=0
+            if [ -f "$_keyring_attempts_file" ]; then
+                read -r _attempts_saved < "$_keyring_attempts_file" 2>/dev/null
+                case "$_attempts_saved" in
+                    ''|*[!0-9]*) _attempts=0 ;;
+                    *) _attempts=$_attempts_saved ;;
+                esac
+            fi
+            echo "$_attempts"
+        }
+        _attempts=$(_keyring_read_attempts)
+        _keyring_attempted=0
+
+        if [ "$_locked" != "b false" ] && [ "$_attempts" -lt "$_keyring_max_attempts" ]; then
+            _attempts=$((_attempts + 1))
+            # Write to a temp file and move it into place, so a concurrent reader
+            # never sees a half-written counter.
+            echo "$_attempts" > "$_keyring_attempts_file.tmp.$$" 2>/dev/null
+            mv -f "$_keyring_attempts_file.tmp.$$" "$_keyring_attempts_file" 2>/dev/null
+            _keyring_attempted=1
+            # Reliable unlock: the well-known org.freedesktop.secrets name is held by
+            # whichever gnome-keyring daemon claimed it first (often the systemd
+            # socket-activated one). A `--replace --unlock` daemon does NOT take that
+            # name, so its unlock never reaches the daemon the broker talks to.
+            # Kill ALL keyring daemons (matched by truncated comm to avoid a pkill -f
+            # self-match) and start exactly one that owns the service and is unlocked.
+            pkill -u "$(id -u)" -x gnome-keyring-d 2>/dev/null
+            sleep 1
+            # `echo ""` sends a newline = real empty-string password (creates/unlocks
+            # the login keyring). `printf ""` would send EOF = "no password" and do
+            # nothing. The container's login keyring uses an empty password.
+            # `9>&-` closes the lock descriptor for the daemon: `-d` daemonizes, and a
+            # daemon that inherited fd 9 would hold the lock after this subshell exits.
+            echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d 9>&- 2>/dev/null
+            sleep 1
         fi
-    fi
 
-    if [ "$(_keyring_locked)" = "b false" ]; then
-        touch "$_keyring_marker"
-        rm -f "$_keyring_attempts_file" 2>/dev/null
-
-        # Restart the system device broker so it re-reads the now-initialized
-        # keyring. The user-session identity broker is D-Bus-activated (not a
-        # systemd unit), so it is NOT restarted here — it re-activates with a
-        # fresh process, and now working environment, on the next call from Edge.
-        systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
-    elif [ "$_keyring_attempted" = 1 ]; then
-        _intuneme_log "keyring unlock attempt $_attempts of $_keyring_max_attempts failed"
-        if [ "$_attempts" -ge "$_keyring_max_attempts" ]; then
-            _intuneme_log "keyring still locked after $_keyring_max_attempts attempts: no more retries this boot. To recover, run: rm -f /tmp/.intuneme-keyring-init-done /tmp/.intuneme-keyring-unlock-attempts; /usr/local/bin/intuneme-session-setup"
+        # Force-create the default collection so ReadAlias("default") resolves and the
+        # broker can store credentials. A no-op if it already exists. Skipped when
+        # the attempt limit is reached: the daemon is not ours then, so this write
+        # would fail anyway.
+        if [ "$_locked" = "b false" ] || [ "$_keyring_attempted" = 1 ]; then
+            if ! secret-tool lookup _keyring_init _keyring_init >/dev/null 2>&1; then
+                echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
+            fi
         fi
-    fi
+
+        if [ "$(_keyring_locked)" = "b false" ]; then
+            touch "$_keyring_marker"
+            rm -f "$_keyring_attempts_file" 2>/dev/null
+
+            # Restart the system device broker so it re-reads the now-initialized
+            # keyring. The user-session identity broker is D-Bus-activated (not a
+            # systemd unit), so it is NOT restarted here — it re-activates with a
+            # fresh process, and now working environment, on the next call from Edge.
+            systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+        elif [ "$_keyring_attempted" = 1 ]; then
+            _intuneme_log "keyring unlock attempt $_attempts of $_keyring_max_attempts failed"
+            if [ "$_attempts" -ge "$_keyring_max_attempts" ]; then
+                _intuneme_log "keyring still locked after $_keyring_max_attempts attempts: no more retries this boot. To recover, run: rm -f /tmp/.intuneme-keyring-init-done /tmp/.intuneme-keyring-unlock-attempts; /usr/local/bin/intuneme-session-setup"
+            fi
+        fi
+    ) 9>"$XDG_RUNTIME_DIR/intuneme-keyring.lock"
 fi
 
 # Start the intune agent timer if it isn't already running.

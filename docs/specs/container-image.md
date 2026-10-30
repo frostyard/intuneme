@@ -92,7 +92,7 @@ Registry pushes retry transient upload failures so a temporary GHCR error does n
 
 ## Profile Script
 
-The container image works in concert with `internal/provision/intuneme-profile.sh` (embedded in the Go binary, written to rootfs during init). This script runs on every login shell session and:
+The container image works in concert with `internal/provision/intuneme-session-setup.sh` (embedded in the Go binary as `/usr/local/bin/intuneme-session-setup`, written to the rootfs by `provision.InstallSessionScripts`, and reinstalled by every `intuneme start`). `/etc/profile.d/intuneme.sh` sources it on a login shell, and `nspawn.Exec()` runs it on the nsenter launch path, so both session entries behave the same. It runs these steps on every session entry:
 
 1. Reads host DISPLAY from `/etc/intuneme-host-display`, extends PATH with Intune and Azure VPN bins
 2. Sets accessibility env vars (`NO_AT_BRIDGE=1`, `GTK_A11Y=none`) — also present in `/etc/environment` for non-login contexts
@@ -100,12 +100,14 @@ The container image works in concert with `internal/provision/intuneme-profile.s
 4. Imports display/audio vars into systemd user session so services (broker) see them
 5. Detects Wayland, PipeWire, PulseAudio from `/run/host-*` sockets
 6. Sets Nvidia PRIME offload vars when `/run/host-nvidia` exists
-7. On first login per boot (marker at `/tmp/.intuneme-keyring-init-done`):
+7. Initializes the keyring once per boot (marker at `/tmp/.intuneme-keyring-init-done`; `/tmp` is tmpfs, so it resets at boot). It waits until the user session bus socket `$XDG_RUNTIME_DIR/bus` exists, because without it every step fails and a marker written then would suppress the unlock for the rest of the boot. It then:
    - Ensures default keyring points to `login`
-   - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
-   - Stores a test secret via `secret-tool` to force default collection creation
-   - Restarts both identity brokers to pick up the initialized keyring
+   - Kills all keyring daemons (`pkill -x gnome-keyring-d`) and starts exactly 1 with `echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d`. There is no `--replace`: a `--replace --unlock` daemon does not take the well-known `org.freedesktop.secrets` name, so Edge's broker never sees its unlock. `echo ""` sends a real empty password; `printf ""` would send EOF and do nothing
+   - Stores a test secret via `secret-tool` to force default collection creation, so `ReadAlias("default")` resolves and the broker can store credentials
+   - Re-reads the `Locked` property and writes the marker only when it reads `b false`
+   - Restarts only `microsoft-identity-device-broker.service` (system, through the polkit rule). The user-session broker is D-Bus-activated and not a unit, so it re-activates with the new environment
    - Caps the unlock at 3 attempts per boot (counter in `/tmp/.intuneme-keyring-unlock-attempts` — `/tmp` is tmpfs, so it resets at boot). A failed attempt logs `keyring unlock attempt N of 3 failed` to stderr and to the journal (`logger -t intuneme-session-setup`); at the limit the script stops retrying for that boot and logs the recovery command. Before the limit, every app launch and shell login would otherwise pay a `pkill` plus about 2 s of sleep. A verified unlock removes the counter
+   - Holds an `flock` on `$XDG_RUNTIME_DIR/intuneme-keyring.lock` for the whole block, so concurrent session entries cannot both read the counter and both attempt the unlock. The block runs in a subshell, so the `exit` calls cannot close a login shell that sourced the script. The counter is written to a temp file and moved into place, so a concurrent reader never sees a partial file
 8. Touches `$XDG_RUNTIME_DIR/intuneme-session-env` once `dbus-update-activation-environment` has succeeded and the session bus exists, then starts the `intune-agent` timer for compliance checks if not already active. The timer's condition (see above) is why the agent cannot run before this point
 
 ## Broker restart authorization
