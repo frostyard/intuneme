@@ -273,12 +273,16 @@ an inner failure would look like success. The error text carries the command
 output.
 
 The launch prologue in `buildSessionEnvScript` also waits, bounded, for the user
-session bus: it polls `$XDG_RUNTIME_DIR/bus` for up to 15 seconds before it runs
-`intuneme-session-setup`, and writes one note to stderr if the bus never
-appears. The GNOME extension can launch an app while `start` is still enabling
-linger, or while `user@<uid>` is still starting after boot. Nothing in that
-prologue writes to stdout, because a foreground stdio server (MCP) uses stdout
-for JSON-RPC.
+session bus: `userBusWaitScript` polls `$XDG_RUNTIME_DIR/bus` for up to 30
+seconds before it runs `intuneme-session-setup`. The GNOME extension can launch
+an app while `start` is still enabling linger, or while `user@<uid>` is still
+starting after boot, so the wait outlasts the linger retry window in
+`cmd/start.go`. If the bus never appears the launch **fails**: the prologue
+writes one line to stderr and exits 1, rather than start an app or an MCP server
+without a session bus, where the broker cannot authenticate and the keyring
+stays locked. `Exec` returns that line in its error, so `intuneme open` shows it.
+Nothing in the prologue writes to stdout, because a foreground stdio server
+(MCP) uses stdout for JSON-RPC.
 
 `start` reinstalls the script via `provision.InstallSessionScripts` on **every**
 boot, unconditionally, so the copy in the rootfs always matches the embedded

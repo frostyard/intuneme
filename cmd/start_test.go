@@ -147,7 +147,9 @@ func TestStartMigrationFailsClosed(t *testing.T) {
 // systemd-nspawn has run. It answers machinectl like a live container.
 type coldBootRunner struct {
 	startSecurityRunner
-	booted bool
+	booted     bool
+	failLinger bool
+	failOutput string
 }
 
 func (r *coldBootRunner) Run(name string, args ...string) ([]byte, error) {
@@ -156,6 +158,9 @@ func (r *coldBootRunner) Run(name string, args ...string) ([]byte, error) {
 	if strings.Contains(command, "systemd-nspawn") {
 		r.booted = true
 		return nil, nil
+	}
+	if r.failLinger && strings.Contains(command, "enable-linger") {
+		return []byte(r.failOutput), fmt.Errorf("injected failure")
 	}
 	if strings.HasPrefix(command, "machinectl show") {
 		if !r.booted {
@@ -227,6 +232,31 @@ func TestStartColdBootWithoutProxyEnablesLingerFirst(t *testing.T) {
 	for _, c := range r.commands {
 		if strings.Contains(c, "@intuneme") {
 			t.Errorf("no proxy is enabled, but a login session was created: %s", c)
+		}
+	}
+}
+
+// Linger comes before the udev, group, YubiKey and video steps, so a linger
+// failure stops the boot there: nothing after it runs, and the error says why.
+func TestStartColdBootLingerFailureIsFatal(t *testing.T) {
+	shortLingerRetries(t)
+	mockLaunchInstall(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "rootfs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	const message = "Could not enable linger: Access denied"
+	r := &coldBootRunner{failLinger: true, failOutput: message}
+	err := runStart(r, root)
+	if err == nil {
+		t.Fatal("linger failure reported as success")
+	}
+	if !strings.Contains(err.Error(), message) {
+		t.Fatalf("error lost the command output: %v", err)
+	}
+	for _, c := range r.commands {
+		if strings.Contains(c, "udevadm control --reload-rules") {
+			t.Fatalf("boot went on after a linger failure: %v", r.commands)
 		}
 	}
 }
