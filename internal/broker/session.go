@@ -25,10 +25,18 @@ func RuntimeBindMount(root string, uid int) (host, container string) {
 	return RuntimeDir(root), fmt.Sprintf("/run/user/%d", uid)
 }
 
-// EnableLingerArgs returns machinectl args to enable lingering for a user inside the container.
+// EnableLingerArgs returns systemd-run args to enable lingering for a user
+// inside the container.
+//
+// `systemd-run --machine=<machine> --wait` runs the command in the container's
+// system manager and returns the exit status of that command, so an inner
+// loginctl failure fails the call. `machinectl shell` does not report the exit
+// status of the command it runs, so it cannot detect that failure (see
+// machinectl(1)).
 func EnableLingerArgs(machine, user string) []string {
 	return []string{
-		"shell", fmt.Sprintf("root@%s", machine),
+		"systemd-run", "--machine=" + machine,
+		"--wait", "--pipe", "--quiet", "--collect",
 		"/bin/loginctl", "enable-linger", user,
 	}
 }

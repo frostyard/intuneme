@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/frostyard/clix"
@@ -56,6 +57,12 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	if nspawn.IsRunning(r, cfg.MachineName) {
+		if !clix.DryRun {
+			// Heals containers booted before linger was unconditional.
+			if err := enableUserLinger(r, cfg); err != nil {
+				return err
+			}
+		}
 		rep.Message("Container %s is already running.", cfg.MachineName)
 		rep.Message("Use 'intuneme shell' to connect.")
 		return nil
@@ -109,8 +116,9 @@ func runStart(r runner.Runner, root string) error {
 		if nvidiaEnabled {
 			rep.Message("[dry-run] Would configure Nvidia GPU with %d libraries", len(nvidiaLibs))
 		}
+		rep.Message("[dry-run] Would enable linger for the container user")
 		if sessionBus {
-			rep.Message("[dry-run] Would enable linger and open a container login session")
+			rep.Message("[dry-run] Would open a container login session")
 		}
 		if cfg.BrokerProxy {
 			rep.Message("[dry-run] Would start broker proxy")
@@ -153,6 +161,14 @@ func runStart(r runner.Runner, root string) error {
 
 	if !nspawn.IsRunning(r, cfg.MachineName) {
 		return fmt.Errorf("container failed to start within 30 seconds")
+	}
+
+	// Enable linger as soon as the machine registers, before any other boot
+	// step: the GNOME extension launches apps as soon as the machine appears,
+	// and that nsenter path needs the user manager and session bus.
+	rep.Message("Enabling linger for container user...")
+	if err := enableUserLinger(r, cfg); err != nil {
+		return err
 	}
 
 	// Clean stale Nvidia symlinks from previous boots (rootfs persists).
@@ -240,11 +256,6 @@ func runStart(r runner.Runner, root string) error {
 		return nil
 	}
 
-	rep.Message("Enabling linger for container user...")
-	if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
-		return fmt.Errorf("failed to enable linger: %w", err)
-	}
-
 	if clix.Verbose {
 		rep.Message("Creating login session...")
 	}
@@ -290,6 +301,45 @@ func runStart(r runner.Runner, root string) error {
 	rep.Message("Container is running. Use 'intuneme shell' to connect.")
 
 	return nil
+}
+
+// Linger runs right after registration, when the container's system bus and
+// logind may not answer yet, so enableUserLinger retries. Tests shorten the
+// wait.
+var (
+	lingerAttempts   = 30
+	lingerRetryDelay = time.Second
+)
+
+// enableUserLinger makes the container start the user's systemd manager (and
+// so /run/user/<uid> and the session bus) without a login. The nsenter launch
+// path used by `intuneme open` and the GNOME extension never creates a logind
+// session, so without linger an app launched first after boot finds no session
+// bus: the D-Bus activation environment can't be set and the keyring can't be
+// unlocked. Idempotent; linger persists in the rootfs.
+//
+// It retries lingerAttempts times, lingerRetryDelay apart (30 attempts over
+// about 30 s by default), because it runs as soon as the machine registers and
+// the container's system bus and logind may not answer yet. The exit status is
+// the exit status of the inner loginctl (`systemd-run --wait`), so an inner
+// failure is reported with the command output, not lost.
+func enableUserLinger(r runner.Runner, cfg *config.Config) error {
+	var err error
+	var out []byte
+	args := broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)
+	for attempt := range lingerAttempts {
+		if attempt > 0 {
+			time.Sleep(lingerRetryDelay)
+		}
+		out, err = r.Run("sudo", args...)
+		if err == nil {
+			return nil
+		}
+	}
+	if msg := strings.TrimSpace(string(out)); msg != "" {
+		return fmt.Errorf("failed to enable linger for %s in %s: %w: %s", cfg.HostUser, cfg.MachineName, err, msg)
+	}
+	return fmt.Errorf("failed to enable linger for %s in %s: %w", cfg.HostUser, cfg.MachineName, err)
 }
 
 // startProxy launches the proxy subcommand in the background and waits for

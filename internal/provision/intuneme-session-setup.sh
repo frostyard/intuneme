@@ -100,18 +100,30 @@ fi
 # Initialize gnome-keyring once per boot. The keyring must be unlocked for the
 # identity broker to store/read credentials. Marker lives in /tmp (tmpfs) so it
 # resets every boot; the keyring dir is on the persistent bind-mounted home.
+#
+# The marker is written ONLY after the login collection reads back unlocked.
+# The nsenter launch path (`intuneme open`, the GNOME extension) can run before
+# the container user's systemd manager exists; then there is no session bus and
+# no usable /run/user/<uid>, every step below fails silently, and a marker
+# written anyway would suppress the unlock for the rest of the boot while
+# activated keyring daemons come up locked. Skip until the bus exists and retry
+# on the next session entry instead.
 _keyring_dir="$HOME/.local/share/keyrings"
 _keyring_marker="/tmp/.intuneme-keyring-init-done"
 
-if [ ! -f "$_keyring_marker" ]; then
+_keyring_locked() {
+    busctl --user get-property org.freedesktop.secrets \
+        /org/freedesktop/secrets/collection/login \
+        org.freedesktop.Secret.Collection Locked 2>/dev/null
+}
+
+if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
     mkdir -p "$_keyring_dir"
     [ -f "$_keyring_dir/default" ] || echo "login" > "$_keyring_dir/default"
 
     # Is the login collection already unlocked? If so, leave the running daemon
     # alone — don't disrupt an in-use keyring.
-    _locked=$(busctl --user get-property org.freedesktop.secrets \
-        /org/freedesktop/secrets/collection/login \
-        org.freedesktop.Secret.Collection Locked 2>/dev/null)
+    _locked=$(_keyring_locked)
 
     if [ "$_locked" != "b false" ]; then
         # Reliable unlock: the well-known org.freedesktop.secrets name is held by
@@ -135,13 +147,15 @@ if [ ! -f "$_keyring_marker" ]; then
         echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
     fi
 
-    touch "$_keyring_marker"
+    if [ "$(_keyring_locked)" = "b false" ]; then
+        touch "$_keyring_marker"
 
-    # Restart the system device broker so it re-reads the now-initialized keyring.
-    # The user-session identity broker is D-Bus-activated (not a systemd unit), so
-    # it is NOT restarted here — it re-activates with a fresh process, and now
-    # working environment, on the next call from Edge.
-    systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+        # Restart the system device broker so it re-reads the now-initialized
+        # keyring. The user-session identity broker is D-Bus-activated (not a
+        # systemd unit), so it is NOT restarted here — it re-activates with a
+        # fresh process, and now working environment, on the next call from Edge.
+        systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+    fi
 fi
 
 # Start the intune agent timer if it isn't already running.

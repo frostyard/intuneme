@@ -232,3 +232,15 @@ Common issues and solutions. Click an item to expand it.
     ```
 
     The output should list `/dev/hidraw*` and `/dev/bus/usb/...` entries. If it doesn't, the node exists but every `open()` fails with `Operation not permitted`. Run `intuneme stop && intuneme start` to re-forward the key on the correct scope unit (older intuneme releases guessed the unit name, which changed to `<machine>.scope` on systemd 256+).
+
+??? question "Edge or the Company Portal asks you to sign in again after a reboot"
+    Your credentials live in the container's gnome-keyring, and the keyring has to be unlocked once per boot. Older versions could skip that unlock for the whole boot: if the first launch after `intuneme start` came from the GNOME extension, the container user's session was not running yet, the unlock failed, and the keyring stayed locked. The broker then found no saved account.
+
+    Current versions enable the container user's session on every `intuneme start` and retry the unlock until it succeeds. To recover a container that is already in this state, run `intuneme start` again (it is safe while the container is running), then in `intuneme shell`:
+
+    ```bash
+    rm /tmp/.intuneme-keyring-init-done
+    /usr/local/bin/intuneme-session-setup
+    ```
+
+    Then relaunch Edge or the Company Portal.

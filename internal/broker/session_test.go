@@ -33,15 +33,21 @@ func TestRuntimeBindMount(t *testing.T) {
 
 func TestEnableLingerArgs(t *testing.T) {
 	args := EnableLingerArgs("intuneme", "testuser")
+	if len(args) == 0 || args[0] != "systemd-run" {
+		t.Fatalf("args do not start with systemd-run: %v", args)
+	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "root@intuneme") {
-		t.Errorf("missing root@machine in: %s", joined)
+	// `machinectl shell` hides the exit status of the command it runs, so it
+	// cannot report a loginctl failure. `systemd-run --wait` does.
+	for _, want := range []string{"--machine=intuneme", "--wait", "--pipe", "enable-linger", "testuser"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing %s in: %s", want, joined)
+		}
 	}
-	if !strings.Contains(joined, "enable-linger") {
-		t.Errorf("missing enable-linger in: %s", joined)
-	}
-	if !strings.Contains(joined, "testuser") {
-		t.Errorf("missing username in: %s", joined)
+	for _, unwanted := range []string{"shell", "root@"} {
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("unexpected %s in: %s", unwanted, joined)
+		}
 	}
 }
 

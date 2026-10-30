@@ -1,8 +1,11 @@
 package nspawn
 
 import (
+	"bytes"
 	"errors"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -497,6 +500,162 @@ func TestStopDoesNotBypassDeniedAuthorization(t *testing.T) {
 	}
 	if len(r.commands) != 1 || r.commands[0] != "sudo "+nshelper.MachineHelperPath+" stop" {
 		t.Fatalf("bypassed helper: %v", r.commands)
+	}
+}
+
+// The launch prologue must wait for the container user's session bus, bounded:
+// an extension launch can arrive while start is still enabling linger, or while
+// user@<uid> is still starting. Session setup needs the bus for the D-Bus
+// activation environment and the keyring unlock.
+func TestSessionEnvScriptWaitsForUserBus(t *testing.T) {
+	script := buildSessionEnvScript(1000)
+	wait := userBusWaitScript(sessionBusWaitAttempts)
+	if !strings.Contains(script, wait) {
+		t.Fatalf("session env script does not wait for the user bus:\n%s", script)
+	}
+	// 30 s of retries must match the linger retry window in cmd/start.go.
+	if sessionBusWaitAttempts != 150 {
+		t.Errorf("sessionBusWaitAttempts = %d, want 150 (30 s)", sessionBusWaitAttempts)
+	}
+	if !strings.Contains(wait, "not ready after 30 s") {
+		t.Errorf("bus wait message does not state 30 s:\n%s", wait)
+	}
+	idxWait := strings.Index(script, wait)
+	idxRuntimeDir := strings.Index(script, "export XDG_RUNTIME_DIR=")
+	if idxRuntimeDir < 0 {
+		t.Fatalf("XDG_RUNTIME_DIR is not exported:\n%s", script)
+	}
+	idxSetup := strings.Index(script, "/usr/local/bin/intuneme-session-setup >&2")
+	if idxSetup < 0 {
+		t.Fatalf("session setup call missing:\n%s", script)
+	}
+	if idxWait < idxRuntimeDir {
+		t.Error("bus wait must come after XDG_RUNTIME_DIR is exported")
+	}
+	if idxWait > idxSetup {
+		t.Error("bus wait must come before session setup runs")
+	}
+	// ExecForeground shares this prologue and needs stdout for JSON-RPC.
+	echo := "echo \"intuneme: the container user session bus"
+	if !strings.Contains(wait, echo) {
+		t.Errorf("bus wait message missing:\n%s", wait)
+	}
+	for _, line := range strings.Split(wait, "\n") {
+		if strings.Contains(line, "echo") && !strings.Contains(line, ">&2") {
+			t.Errorf("bus wait writes to stdout: %s", line)
+		}
+	}
+	if !strings.Contains(wait, "exit 1") {
+		t.Errorf("bus wait must fail the launch, not continue without the bus:\n%s", wait)
+	}
+}
+
+// runShell runs a shell snippet with bash and returns stdout, stderr and the
+// exit error. XDG_RUNTIME_DIR points at a short temp dir: a unix socket path is
+// limited to about 108 bytes.
+func runShell(t *testing.T, script string, dir string, during func()) (string, string, error) {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not available")
+	}
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+dir)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start bash: %v", err)
+	}
+	if during != nil {
+		during()
+	}
+	err := cmd.Wait()
+	return stdout.String(), stderr.String(), err
+}
+
+// A launch with no session bus must fail, and only on stderr: a foreground
+// stdio server uses stdout for JSON-RPC.
+func TestUserBusWaitTimesOut(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ibw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	stdout, stderr, err := runShell(t, userBusWaitScript(3)+"\necho launched", dir, nil)
+	if err == nil {
+		t.Fatal("bus wait timed out but the launch went on")
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "session bus") {
+		t.Errorf("stderr does not explain the failure: %q", stderr)
+	}
+}
+
+// Linger setup or user@<uid> can finish while the launch is waiting: a bus that
+// appears during the wait must let the launch continue.
+func TestUserBusWaitSeesLateBus(t *testing.T) {
+	dir, err := os.MkdirTemp("", "ibw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	stdout, stderr, err := runShell(t, userBusWaitScript(50)+"\necho launched", dir, func() {
+		time.Sleep(300 * time.Millisecond)
+		l, lerr := net.Listen("unix", filepath.Join(dir, "bus"))
+		if lerr != nil {
+			t.Errorf("listen: %v", lerr)
+			return
+		}
+		t.Cleanup(func() { _ = l.Close() })
+	})
+	if err != nil {
+		t.Fatalf("late bus did not unblock the launch: %v, stderr %q", err, stderr)
+	}
+	if strings.TrimSpace(stdout) != "launched" {
+		t.Errorf("stdout = %q, want launched", stdout)
+	}
+}
+
+// failingExecRunner models the helper exiting non-zero after the prologue wrote
+// its reason to stderr, which the runner hands back as output.
+type failingExecRunner struct {
+	mockRunner
+	output string
+}
+
+func (r *failingExecRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return []byte(r.output), errors.New("exit status 1")
+}
+
+// A failed launch must tell the user why: the prologue writes the reason to
+// stderr, which comes back as the runner's output.
+func TestExecReportsPrologueOutput(t *testing.T) {
+	const message = "intuneme: the container user session bus ($XDG_RUNTIME_DIR/bus) is not ready after 30 s; run 'intuneme start' and try again"
+	r := &failingExecRunner{output: message}
+	err := Exec(r, 1000, "microsoft-edge")
+	if err == nil {
+		t.Fatal("failed launch reported as success")
+	}
+	if !strings.Contains(err.Error(), message) {
+		t.Fatalf("error lost the prologue output: %v", err)
+	}
+	if !strings.Contains(err.Error(), "exec in container failed") {
+		t.Fatalf("error lost its context: %v", err)
+	}
+}
+
+// Without output the error stays short.
+func TestExecErrorWithoutOutput(t *testing.T) {
+	r := &failingExecRunner{}
+	if err := Exec(r, 1000, "microsoft-edge"); err == nil {
+		t.Fatal("failed launch reported as success")
+	} else if strings.HasSuffix(err.Error(), ": ") {
+		t.Fatalf("error has an empty output tail: %v", err)
 	}
 }
 

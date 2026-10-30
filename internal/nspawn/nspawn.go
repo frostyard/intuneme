@@ -282,7 +282,12 @@ func MachineUnit(r runner.Runner, machine string) (string, error) {
 func Exec(r runner.Runner, uid int, command string) error {
 	script := buildSessionEnvScript(uid) +
 		fmt.Sprintf("\nnohup %s >/dev/null 2>&1 &", command)
-	if _, err := r.Run("sudo", buildNsenterArgs(script)...); err != nil {
+	if out, err := r.Run("sudo", buildNsenterArgs(script)...); err != nil {
+		// The prologue's stderr reaches the runner as output: it carries the
+		// reason the launch failed, such as a session bus that never appeared.
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("exec in container failed: %w: %s", err, msg)
+		}
 		return fmt.Errorf("exec in container failed: %w", err)
 	}
 	return nil
@@ -326,11 +331,42 @@ func EnsureBind(r runner.Runner, hostDir, probePath string) error {
 	return nil
 }
 
+// sessionBusWaitAttempts bounds how long a launch waits for the container user's
+// session bus: 150 attempts of 0.2s is 30 seconds, which matches the linger
+// retry window in cmd/start.go, so a launch that races `intuneme start`
+// outlasts linger setup instead of failing on it.
+const sessionBusWaitAttempts = 150
+
+// userBusWaitScript returns a shell snippet that waits, bounded, for the
+// container user's session bus at $XDG_RUNTIME_DIR/bus: attempts tries, 0.2s
+// apart. The GNOME extension can launch an app while `intuneme start` is still
+// enabling linger, or while user@<uid> is still starting after boot.
+//
+// When the bus does not appear the snippet writes 1 line to stderr and exits
+// non-zero, so the app or MCP server is never started without a session bus: the
+// identity broker then cannot authenticate and the keyring stays locked, which
+// is worse than a launch that fails and says why. Nothing here writes to
+// stdout, because a foreground stdio server uses stdout for JSON-RPC.
+func userBusWaitScript(attempts int) string {
+	return fmt.Sprintf(
+		`# Wait for the container user's session bus: session setup below needs it for
+# the D-Bus activation environment and the keyring unlock.
+_bus_wait=0
+while [ ! -S "$XDG_RUNTIME_DIR/bus" ] && [ "$_bus_wait" -lt %d ]; do
+    sleep 0.2
+    _bus_wait=$((_bus_wait + 1))
+done
+if [ ! -S "$XDG_RUNTIME_DIR/bus" ]; then
+    echo "intuneme: the container user session bus ($XDG_RUNTIME_DIR/bus) is not ready after %d s; run 'intuneme start' and try again" >&2
+    exit 1
+fi`, attempts, attempts/5)
+}
+
 // buildSessionEnvScript returns the shell prologue that initializes a container
 // session the same way an interactive login would: display/audio/D-Bus/keyring.
 // Shared by Exec (background GUI apps) and ExecForeground (stdio servers).
-// Session-setup output is redirected to stderr so it never pollutes stdout: for
-// foreground stdio servers stdout must carry only JSON-RPC.
+// Session prologue output is redirected to stderr so it never pollutes stdout:
+// for foreground stdio servers stdout must carry only JSON-RPC.
 func buildSessionEnvScript(uid int) string {
 	uidStr := fmt.Sprintf("%d", uid)
 	display := HostDisplay()
@@ -353,6 +389,7 @@ if [ -d /run/host-nvidia ]; then
     export __NV_PRIME_RENDER_OFFLOAD=1
     export __GLX_VENDOR_LIBRARY_NAME=nvidia
 fi
+%s
 # Initialize the session the same way an interactive login would. This is a
 # non-login shell, so /etc/profile.d is never sourced; without this the D-Bus
 # activation environment lacks DISPLAY/XAUTHORITY and the GTK identity broker
@@ -360,7 +397,7 @@ fi
 if [ -x /usr/local/bin/intuneme-session-setup ]; then
     /usr/local/bin/intuneme-session-setup >&2
 fi`,
-		StandardPATH, display, uidStr, uidStr,
+		StandardPATH, display, uidStr, uidStr, userBusWaitScript(sessionBusWaitAttempts),
 	)
 }
 

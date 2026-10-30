@@ -28,7 +28,7 @@ helper is absent, never when an existing helper rejects an operation.
 ## Consequences
 
 Requires Linux mount_setattr support (5.12+); unsupported kernels fail closed. Normal
-host path aliases are resolved by the unprivileged CLI first. Broker enable-linger
+host path aliases are resolved by the unprivileged CLI first. Linger setup (`systemd-run --machine`)
 needs authenticated sudo, while ordinary user shells remain passwordless.
 Kernel tests exercise the actual native mount implementation in disposable
 namespaces, checking source replacement, target-root mismatch, destination

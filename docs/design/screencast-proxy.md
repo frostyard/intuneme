@@ -122,7 +122,7 @@ godbus does not close a sent fd. The proxy keeps its copy with the session and c
 
 ## Setup Requirements
 
-The proxy uses the same container session infrastructure as the [broker proxy](broker-proxy.md) and the [notify proxy](notify-proxy.md): the runtime directory bind-mounted as `/run/user/<uid>`, linger for the container user, and a login session. `start` sets these up when any of the three proxies is enabled.
+The proxy uses the same container session infrastructure as the [broker proxy](broker-proxy.md) and the [notify proxy](notify-proxy.md): the runtime directory bind-mounted as `/run/user/<uid>` and a login session. `start` always enables linger for the container user, with or without proxies; it sets up the runtime directory bind mount and the login session when a proxy is enabled.
 
 There is no D-Bus activation file. The name lives on the container bus, and a host service file cannot activate a process for it.
 

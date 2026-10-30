@@ -98,7 +98,7 @@ The copies are removed on `NotificationClosed`, when a new notification replaces
 
 ## Setup Requirements
 
-The proxy uses the same container session infrastructure as the [broker proxy](broker-proxy.md): the runtime directory bind-mounted as `/run/user/<uid>`, linger for the container user, and a login session. `start` sets these up when either proxy is enabled.
+The proxy uses the same container session infrastructure as the [broker proxy](broker-proxy.md): the runtime directory bind-mounted as `/run/user/<uid>` and a login session. `start` always enables linger for the container user, with or without proxies; it sets up the runtime directory bind mount and the login session when a proxy is enabled.
 
 There is no D-Bus activation file. The name lives on the container bus, and a host service file cannot activate a process for it.
 
