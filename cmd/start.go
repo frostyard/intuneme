@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/frostyard/clix"
@@ -162,6 +163,14 @@ func runStart(r runner.Runner, root string) error {
 		return fmt.Errorf("container failed to start within 30 seconds")
 	}
 
+	// Enable linger as soon as the machine registers, before any other boot
+	// step: the GNOME extension launches apps as soon as the machine appears,
+	// and that nsenter path needs the user manager and session bus.
+	rep.Message("Enabling linger for container user...")
+	if err := enableUserLinger(r, cfg); err != nil {
+		return err
+	}
+
 	// Clean stale Nvidia symlinks from previous boots (rootfs persists).
 	if err := nvidia.CleanStaleLinks(r, cfg.MachineName); err != nil {
 		rep.Message("Warning: failed to clean stale Nvidia links: %v", err)
@@ -242,11 +251,6 @@ func runStart(r runner.Runner, root string) error {
 		rep.Message("No video devices detected.")
 	}
 
-	rep.Message("Enabling linger for container user...")
-	if err := enableUserLinger(r, cfg); err != nil {
-		return err
-	}
-
 	if !sessionBus {
 		rep.Message("Container is running. Use 'intuneme shell' to connect.")
 		return nil
@@ -299,21 +303,47 @@ func runStart(r runner.Runner, root string) error {
 	return nil
 }
 
-// startProxy launches the proxy subcommand in the background and waits for
-// its PID file. The PID file is <root>/<subcommand>.pid.
+// Linger runs right after registration, when the container's system bus and
+// logind may not answer yet, so enableUserLinger retries. Tests shorten the
+// wait.
+var (
+	lingerAttempts   = 30
+	lingerRetryDelay = time.Second
+)
+
 // enableUserLinger makes the container start the user's systemd manager (and
 // so /run/user/<uid> and the session bus) without a login. The nsenter launch
 // path used by `intuneme open` and the GNOME extension never creates a logind
 // session, so without linger an app launched first after boot finds no session
 // bus: the D-Bus activation environment can't be set and the keyring can't be
 // unlocked. Idempotent; linger persists in the rootfs.
+//
+// It retries lingerAttempts times, lingerRetryDelay apart (30 attempts over
+// about 30 s by default), because it runs as soon as the machine registers and
+// the container's system bus and logind may not answer yet. The exit status is
+// the exit status of the inner loginctl (`systemd-run --wait`), so an inner
+// failure is reported with the command output, not lost.
 func enableUserLinger(r runner.Runner, cfg *config.Config) error {
-	if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
-		return fmt.Errorf("failed to enable linger: %w", err)
+	var err error
+	var out []byte
+	args := broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)
+	for attempt := range lingerAttempts {
+		if attempt > 0 {
+			time.Sleep(lingerRetryDelay)
+		}
+		out, err = r.Run("sudo", args...)
+		if err == nil {
+			return nil
+		}
 	}
-	return nil
+	if msg := strings.TrimSpace(string(out)); msg != "" {
+		return fmt.Errorf("failed to enable linger for %s in %s: %w: %s", cfg.HostUser, cfg.MachineName, err, msg)
+	}
+	return fmt.Errorf("failed to enable linger for %s in %s: %w", cfg.HostUser, cfg.MachineName, err)
 }
 
+// startProxy launches the proxy subcommand in the background and waits for
+// its PID file. The PID file is <root>/<subcommand>.pid.
 func startProxy(r runner.Runner, root, subcommand string) error {
 	if clix.Verbose {
 		rep.Message("Starting %s...", subcommand)

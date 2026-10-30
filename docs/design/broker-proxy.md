@@ -38,7 +38,7 @@ A host-side directory (`~/.local/share/intuneme/runtime/`) is bind-mounted as `/
 
 ### Systemd Linger
 
-Linger must be enabled for the container user so that the user session (and session bus) persists even without an active login.
+Linger must be enabled for the container user so that the user session (and session bus) persists even without an active login. `start` enables linger on every run, with or without proxies.
 
 ### Login Session
 

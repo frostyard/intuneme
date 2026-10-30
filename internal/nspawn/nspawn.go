@@ -353,6 +353,19 @@ if [ -d /run/host-nvidia ]; then
     export __NV_PRIME_RENDER_OFFLOAD=1
     export __GLX_VENDOR_LIBRARY_NAME=nvidia
 fi
+# Wait for the container user's session bus, bounded. The GNOME extension can
+# launch an app while start is still enabling linger, or while user@<uid> is
+# still starting after boot. Session setup below needs the bus to set the D-Bus
+# activation environment and to unlock the keyring. Nothing here writes to
+# stdout: a foreground stdio server (MCP) uses stdout for JSON-RPC.
+_bus_wait=0
+while [ ! -S "$XDG_RUNTIME_DIR/bus" ] && [ "$_bus_wait" -lt 75 ]; do
+    sleep 0.2
+    _bus_wait=$((_bus_wait + 1))
+done
+if [ ! -S "$XDG_RUNTIME_DIR/bus" ]; then
+    echo "intuneme: container user session bus not ready after 15s; continuing without it" >&2
+fi
 # Initialize the session the same way an interactive login would. This is a
 # non-login shell, so /etc/profile.d is never sourced; without this the D-Bus
 # activation environment lacks DISPLAY/XAUTHORITY and the GTK identity broker

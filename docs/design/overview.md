@@ -257,12 +257,28 @@ the container user's `user@<uid>.service`, `/run/user/<uid>`, or the session
 bus. Without them, `systemctl --user`, `dbus-update-activation-environment`,
 and the keyring unlock all fail silently. `start` therefore enables **linger**
 for the container user on every run (`enableUserLinger` in `cmd/start.go`,
-`sudo machinectl shell root@<machine> /bin/loginctl enable-linger <user>`
-under start's authenticated sudo session), both after boot and on the
-already-running return. Linger used to be enabled only when a proxy was
-configured, and that gap is what left an extension-first launch with no
-session. The proxies still additionally open the `sleep infinity` login
-session (`broker.LoginSessionArgs`).
+`sudo systemd-run --machine=<machine> --wait --pipe --quiet --collect
+/bin/loginctl enable-linger <user>` under start's authenticated sudo session),
+both after boot and on the already-running return. Linger used to be enabled
+only when a proxy was configured, and that gap is what left an extension-first
+launch with no session. The proxies still additionally open the `sleep infinity`
+login session (`broker.LoginSessionArgs`).
+
+Linger runs right after the machine registers, before the Nvidia, udev, group,
+YubiKey and video steps. At that moment the container's system bus and logind
+may not answer yet, so `enableUserLinger` retries for up to 30 seconds and a
+final failure is fatal. It uses `systemd-run --wait` because that returns the
+exit status of the inner `loginctl`; `machinectl shell` does not report it, so
+an inner failure would look like success. The error text carries the command
+output.
+
+The launch prologue in `buildSessionEnvScript` also waits, bounded, for the user
+session bus: it polls `$XDG_RUNTIME_DIR/bus` for up to 15 seconds before it runs
+`intuneme-session-setup`, and writes one note to stderr if the bus never
+appears. The GNOME extension can launch an app while `start` is still enabling
+linger, or while `user@<uid>` is still starting after boot. Nothing in that
+prologue writes to stdout, because a foreground stdio server (MCP) uses stdout
+for JSON-RPC.
 
 `start` reinstalls the script via `provision.InstallSessionScripts` on **every**
 boot, unconditionally, so the copy in the rootfs always matches the embedded

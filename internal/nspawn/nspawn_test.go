@@ -500,6 +500,40 @@ func TestStopDoesNotBypassDeniedAuthorization(t *testing.T) {
 	}
 }
 
+// The launch prologue must wait for the container user's session bus, bounded:
+// an extension launch can arrive while start is still enabling linger, or while
+// user@<uid> is still starting. Session setup needs the bus for the D-Bus
+// activation environment and the keyring unlock.
+func TestSessionEnvScriptWaitsForUserBus(t *testing.T) {
+	script := buildSessionEnvScript(1000)
+	wait := `while [ ! -S "$XDG_RUNTIME_DIR/bus" ]`
+	if !strings.Contains(script, wait) {
+		t.Fatalf("session env script does not wait for the user bus:\n%s", script)
+	}
+	idxWait := strings.Index(script, wait)
+	idxRuntimeDir := strings.Index(script, "export XDG_RUNTIME_DIR=")
+	if idxRuntimeDir < 0 {
+		t.Fatalf("XDG_RUNTIME_DIR is not exported:\n%s", script)
+	}
+	idxSetup := strings.Index(script, "/usr/local/bin/intuneme-session-setup >&2")
+	if idxSetup < 0 {
+		t.Fatalf("session setup call missing:\n%s", script)
+	}
+	if idxWait < idxRuntimeDir {
+		t.Error("bus wait must come after XDG_RUNTIME_DIR is exported")
+	}
+	if idxWait > idxSetup {
+		t.Error("bus wait must come before session setup runs")
+	}
+	// ExecForeground shares this prologue and needs stdout for JSON-RPC.
+	if idxLast := strings.LastIndex(script[:idxSetup], "echo"); idxLast >= 0 {
+		line := script[idxLast:]
+		if !strings.Contains(strings.SplitN(line, "\n", 2)[0], ">&2") {
+			t.Errorf("bus wait writes to stdout:\n%s", script)
+		}
+	}
+}
+
 // The app launch script must set XDG_SESSION_TYPE itself: it runs
 // intuneme-session-setup as a child process, whose exports are lost.
 // Without it, WebRTC in Edge falls back to X11 capture and shares only tabs.
