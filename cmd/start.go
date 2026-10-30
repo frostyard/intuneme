@@ -56,6 +56,12 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	if nspawn.IsRunning(r, cfg.MachineName) {
+		if !clix.DryRun {
+			// Heals containers booted before linger was unconditional.
+			if err := enableUserLinger(r, cfg); err != nil {
+				return err
+			}
+		}
 		rep.Message("Container %s is already running.", cfg.MachineName)
 		rep.Message("Use 'intuneme shell' to connect.")
 		return nil
@@ -109,8 +115,9 @@ func runStart(r runner.Runner, root string) error {
 		if nvidiaEnabled {
 			rep.Message("[dry-run] Would configure Nvidia GPU with %d libraries", len(nvidiaLibs))
 		}
+		rep.Message("[dry-run] Would enable linger for the container user")
 		if sessionBus {
-			rep.Message("[dry-run] Would enable linger and open a container login session")
+			rep.Message("[dry-run] Would open a container login session")
 		}
 		if cfg.BrokerProxy {
 			rep.Message("[dry-run] Would start broker proxy")
@@ -235,14 +242,14 @@ func runStart(r runner.Runner, root string) error {
 		rep.Message("No video devices detected.")
 	}
 
+	rep.Message("Enabling linger for container user...")
+	if err := enableUserLinger(r, cfg); err != nil {
+		return err
+	}
+
 	if !sessionBus {
 		rep.Message("Container is running. Use 'intuneme shell' to connect.")
 		return nil
-	}
-
-	rep.Message("Enabling linger for container user...")
-	if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
-		return fmt.Errorf("failed to enable linger: %w", err)
 	}
 
 	if clix.Verbose {
@@ -294,6 +301,19 @@ func runStart(r runner.Runner, root string) error {
 
 // startProxy launches the proxy subcommand in the background and waits for
 // its PID file. The PID file is <root>/<subcommand>.pid.
+// enableUserLinger makes the container start the user's systemd manager (and
+// so /run/user/<uid> and the session bus) without a login. The nsenter launch
+// path used by `intuneme open` and the GNOME extension never creates a logind
+// session, so without linger an app launched first after boot finds no session
+// bus: the D-Bus activation environment can't be set and the keyring can't be
+// unlocked. Idempotent; linger persists in the rootfs.
+func enableUserLinger(r runner.Runner, cfg *config.Config) error {
+	if _, err := r.Run("sudo", append([]string{"machinectl"}, broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)...)...); err != nil {
+		return fmt.Errorf("failed to enable linger: %w", err)
+	}
+	return nil
+}
+
 func startProxy(r runner.Runner, root, subcommand string) error {
 	if clix.Verbose {
 		rep.Message("Starting %s...", subcommand)

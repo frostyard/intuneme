@@ -242,12 +242,27 @@ The script (safe to source or execute; idempotent) does:
 4. Detects Wayland (`WAYLAND_DISPLAY`, and with it `XDG_SESSION_TYPE=wayland`: WebRTC in Edge captures screens through the ScreenCast portal only under that session type, otherwise it falls back to X11 capture and can share only tabs), PipeWire (`PIPEWIRE_REMOTE`), PulseAudio (`PULSE_SERVER`), Nvidia (`__NV_PRIME_RENDER_OFFLOAD` / `__GLX_VENDOR_LIBRARY_NAME`) from `/run/host-*`
 5. Propagates the env with **both** `systemctl --user import-environment` **and `dbus-update-activation-environment --systemd`**. The latter is essential: the identity broker is a **GTK app that the session D-Bus daemon activates on demand**, and it inherits `DISPLAY`/`XAUTHORITY` only from the D-Bus activation environment. Without it the broker dies on startup with `cannot open display` and Edge cannot authenticate.
 6. Sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` and `WEBKIT_DISABLE_COMPOSITING_MODE=1` — see below
-7. On first session per boot (marker at `/tmp/.intuneme-keyring-init-done`), and only if the login collection is locked:
+7. Until the keyring is verifiably unlocked this boot (marker at `/tmp/.intuneme-keyring-init-done`), and only once the user session bus socket `$XDG_RUNTIME_DIR/bus` exists:
    - Ensures `~/.local/share/keyrings/default` points to `login`
    - **Kills all keyring daemons (`pkill -x gnome-keyring-d`) and starts exactly one** via `echo "" | gnome-keyring-daemon --unlock --components=secrets,pkcs11 -d`. The well-known `org.freedesktop.secrets` name is held by whichever daemon claimed it first (often the systemd socket-activated one); a `--replace --unlock` daemon does *not* take that name, so its unlock never reaches the daemon the broker talks to. Note `echo ""` (newline = empty password) — `printf ""` would send EOF = "no password" and create nothing.
    - Forces default-collection creation via `secret-tool` (without this, `ReadAlias("default")` returns `/` and the broker can't store credentials)
+   - Re-reads the login collection's `Locked` property. **Only if it is `b false`** does it write the marker and continue to the restart below. Otherwise it leaves no marker, and the next session entry (another launch, `intuneme shell`) retries. Writing the marker unconditionally caused a real outage: a GNOME-extension launch straight after `start` ran before the container user's systemd manager existed, so the unlock failed (`couldn't create socket directory: /run/user/<uid>/keyring: Permission denied`), the marker was still written, and the keyring daemons D-Bus and socket activation started later came up locked for the rest of the boot. The broker then reported an empty token cache and asked the user to sign in again. `session_setup_test.go` runs the real script against stub binaries to pin this.
    - Restarts **only** `microsoft-identity-device-broker.service` (system) using `systemctl --no-ask-password` and the container polkit rule in `ubuntu-intune/system_files/etc/polkit-1/rules.d/49-intuneme-broker.rules`. `InstallSessionScripts` installs the embedded canonical rule for existing containers. This avoids setuid sudo, which `no_new_privs` deliberately disables. The user-session `com.microsoft.identity.broker1` is **D-Bus-activated, not a systemd unit**, so it is not restarted — it re-activates with a fresh process (and now-correct environment) on the next call from Edge. (The previous `systemctl --user restart microsoft-identity-broker.service` always errored with "Unit not found".)
 8. Starts `intune-agent.timer` for compliance checks if not already active
+
+#### The user session must exist before the first launch
+
+The nsenter path never creates a logind session, so by itself nothing starts
+the container user's `user@<uid>.service`, `/run/user/<uid>`, or the session
+bus. Without them, `systemctl --user`, `dbus-update-activation-environment`,
+and the keyring unlock all fail silently. `start` therefore enables **linger**
+for the container user on every run (`enableUserLinger` in `cmd/start.go`,
+`sudo machinectl shell root@<machine> /bin/loginctl enable-linger <user>`
+under start's authenticated sudo session), both after boot and on the
+already-running return. Linger used to be enabled only when a proxy was
+configured, and that gap is what left an extension-first launch with no
+session. The proxies still additionally open the `sleep infinity` login
+session (`broker.LoginSessionArgs`).
 
 `start` reinstalls the script via `provision.InstallSessionScripts` on **every**
 boot, unconditionally, so the copy in the rootfs always matches the embedded
@@ -286,7 +301,7 @@ that distinction.
 2. Deletes old rootfs, pulls new image, re-provisions
 3. Restores password hash and broker state into the new rootfs
 
-Enrollment data (Intune database, app state) persists via the `~/Intune` bind mount. The keyring is re-initialized fresh on every boot (marker file in `/tmp`).
+Enrollment data (Intune database, app state) persists via the `~/Intune` bind mount. The keyring is unlocked fresh on every boot (marker file in `/tmp`, written only after a verified unlock).
 
 ### CLI Framework (clix + reporter)
 

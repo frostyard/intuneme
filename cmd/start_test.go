@@ -57,6 +57,23 @@ func TestStartMigratesRunningContainer(t *testing.T) {
 	if strings.Contains(all, "sudo systemd-nspawn") {
 		t.Fatal("running container was rebooted")
 	}
+	// Without proxies, linger is still required: the GNOME extension's
+	// nsenter launch path needs the user manager and session bus.
+	if !strings.Contains(all, "sudo machinectl shell root@intuneme /bin/loginctl enable-linger") {
+		t.Fatalf("already-running start did not enable linger: %s", all)
+	}
+}
+
+func TestStartLingerFailureIsFatal(t *testing.T) {
+	mockLaunchInstall(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "rootfs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	r := &startSecurityRunner{fail: "enable-linger"}
+	if err := runStart(r, root); err == nil {
+		t.Fatal("linger failure reported as success")
+	}
 }
 
 func TestStartMigrationFailsClosed(t *testing.T) {
