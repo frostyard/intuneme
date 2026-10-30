@@ -45,7 +45,7 @@ These are copied directly into the image at the start of the builder stage:
 #### Systemd Overrides
 - `microsoft-identity-device-broker.service` — System-level broker override
 - `microsoft-identity-broker.service` (user) — Sets `DISPLAY` from `/etc/intuneme-host-display` marker
-- `intune-agent.timer` (user) — Timer override for compliance check schedule
+- `intune-agent.timer` (user) — Timer override for compliance check schedule; `ConditionPathExists=%t/intuneme-session-env` holds the timer back until `intuneme-session-setup` has pushed the environment into the D-Bus activation environment (the script touches that file, then starts the timer)
 
 #### Edge Wrapper
 - `/usr/local/bin/microsoft-edge` — Wrapper script that adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces) and enables Wayland/WebRTC PipeWire features when `WAYLAND_DISPLAY` is set
@@ -105,7 +105,8 @@ The container image works in concert with `internal/provision/intuneme-profile.s
    - Initializes `gnome-keyring-daemon` with `--replace --unlock --components=secrets,pkcs11`
    - Stores a test secret via `secret-tool` to force default collection creation
    - Restarts both identity brokers to pick up the initialized keyring
-8. Starts the `intune-agent` timer for compliance checks if not already active
+   - Caps the unlock at 3 attempts per boot (counter in `/tmp/.intuneme-keyring-unlock-attempts` — `/tmp` is tmpfs, so it resets at boot). A failed attempt logs `keyring unlock attempt N of 3 failed` to stderr and to the journal (`logger -t intuneme-session-setup`); at the limit the script stops retrying for that boot and logs the recovery command. Before the limit, every app launch and shell login would otherwise pay a `pkill` plus about 2 s of sleep. A verified unlock removes the counter
+8. Touches `$XDG_RUNTIME_DIR/intuneme-session-env` once `dbus-update-activation-environment` has succeeded and the session bus exists, then starts the `intune-agent` timer for compliance checks if not already active. The timer's condition (see above) is why the agent cannot run before this point
 
 ## Broker restart authorization
 

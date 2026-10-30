@@ -94,7 +94,14 @@ if [ -n "$_set_vars" ]; then
     # shellcheck disable=SC2086
     systemctl --user import-environment $_set_vars 2>/dev/null
     # shellcheck disable=SC2086
-    dbus-update-activation-environment --systemd $_set_vars 2>/dev/null
+    if dbus-update-activation-environment --systemd $_set_vars 2>/dev/null; then
+        # Gate for intune-agent.timer: a user manager started by linger at
+        # container boot has no activation environment yet, so the agent would
+        # run, activate the broker without DISPLAY, and the broker would die.
+        # ConditionPathExists=%t/intuneme-session-env holds the timer back until
+        # this script has pushed the environment and touched the file below.
+        [ -S "$XDG_RUNTIME_DIR/bus" ] && touch "$XDG_RUNTIME_DIR/intuneme-session-env" 2>/dev/null
+    fi
 fi
 
 # Initialize gnome-keyring once per boot. The keyring must be unlocked for the
@@ -108,8 +115,19 @@ fi
 # written anyway would suppress the unlock for the rest of the boot while
 # activated keyring daemons come up locked. Skip until the bus exists and retry
 # on the next session entry instead.
+#
+# Retries are capped per boot: every attempt kills the keyring daemons and
+# sleeps 2 s, so an unlock that keeps failing would slow every app launch and
+# every shell login for the whole boot. After _keyring_max_attempts failed
+# attempts the script stops trying until the attempts file is removed (see
+# site/troubleshooting.md). Each attempt and the give-up are logged to stderr
+# and to the journal (`journalctl -t intuneme-session-setup`).
 _keyring_dir="$HOME/.local/share/keyrings"
 _keyring_marker="/tmp/.intuneme-keyring-init-done"
+_keyring_attempts_file="/tmp/.intuneme-keyring-unlock-attempts"
+_keyring_max_attempts=3
+
+_intuneme_log() { echo "intuneme-session-setup: $*" >&2; logger -t intuneme-session-setup -- "$*" 2>/dev/null || :; }
 
 _keyring_locked() {
     busctl --user get-property org.freedesktop.secrets \
@@ -125,7 +143,25 @@ if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
     # alone — don't disrupt an in-use keyring.
     _locked=$(_keyring_locked)
 
-    if [ "$_locked" != "b false" ]; then
+    # Failed attempts so far this boot, from the attempts file.
+    _keyring_read_attempts() {
+        _attempts=0
+        if [ -f "$_keyring_attempts_file" ]; then
+            read -r _attempts_saved < "$_keyring_attempts_file" 2>/dev/null
+            case "$_attempts_saved" in
+                ''|*[!0-9]*) _attempts=0 ;;
+                *) _attempts=$_attempts_saved ;;
+            esac
+        fi
+        echo "$_attempts"
+    }
+    _attempts=$(_keyring_read_attempts)
+    _keyring_attempted=0
+
+    if [ "$_locked" != "b false" ] && [ "$_attempts" -lt "$_keyring_max_attempts" ]; then
+        _attempts=$((_attempts + 1))
+        echo "$_attempts" > "$_keyring_attempts_file" 2>/dev/null
+        _keyring_attempted=1
         # Reliable unlock: the well-known org.freedesktop.secrets name is held by
         # whichever gnome-keyring daemon claimed it first (often the systemd
         # socket-activated one). A `--replace --unlock` daemon does NOT take that
@@ -142,19 +178,29 @@ if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
     fi
 
     # Force-create the default collection so ReadAlias("default") resolves and the
-    # broker can store credentials. A no-op if it already exists.
-    if ! secret-tool lookup _keyring_init _keyring_init >/dev/null 2>&1; then
-        echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
+    # broker can store credentials. A no-op if it already exists. Skipped when
+    # the attempt limit is reached: the daemon is not ours then, so this write
+    # would fail anyway.
+    if [ "$_locked" = "b false" ] || [ "$_keyring_attempted" = 1 ]; then
+        if ! secret-tool lookup _keyring_init _keyring_init >/dev/null 2>&1; then
+            echo "init" | secret-tool store --label="Keyring Init" _keyring_init _keyring_init 2>/dev/null
+        fi
     fi
 
     if [ "$(_keyring_locked)" = "b false" ]; then
         touch "$_keyring_marker"
+        rm -f "$_keyring_attempts_file" 2>/dev/null
 
         # Restart the system device broker so it re-reads the now-initialized
         # keyring. The user-session identity broker is D-Bus-activated (not a
         # systemd unit), so it is NOT restarted here — it re-activates with a
         # fresh process, and now working environment, on the next call from Edge.
         systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+    elif [ "$_keyring_attempted" = 1 ]; then
+        _intuneme_log "keyring unlock attempt $_attempts of $_keyring_max_attempts failed"
+        if [ "$_attempts" -ge "$_keyring_max_attempts" ]; then
+            _intuneme_log "keyring still locked after $_keyring_max_attempts attempts: no more retries this boot. To recover, run: rm -f /tmp/.intuneme-keyring-init-done /tmp/.intuneme-keyring-unlock-attempts; /usr/local/bin/intuneme-session-setup"
+        fi
     fi
 fi
 
