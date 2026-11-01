@@ -15,8 +15,10 @@ permissions: {}
 # runs (several merges close together) race on those uploads and fail with
 # `422 already_exists`. One group runs them in order. A queued run must not
 # cancel the run in progress: that run can stop midway through its uploads.
+# Only a successful Tests completion joins the shared group. A failed one gets
+# a group of its own, so its skipped run cannot replace a pending real one.
 concurrency:
-  group: snapshot-dev
+  group: ${{ github.event.workflow_run.conclusion == 'success' && 'snapshot-dev' || format('snapshot-skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:

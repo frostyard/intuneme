@@ -205,11 +205,20 @@ func TestSnapshotWorkflowDoesNotPublishPackages(t *testing.T) {
 // TestSnapshotWorkflowRunsOneAtATime keeps parallel snapshot runs from racing
 // on the assets of the rolling `dev` prerelease (422 already_exists, run
 // 41258966652). A queued run must not cancel the run in progress, which can
-// be midway through its uploads.
+// be midway through its uploads. Only a successful Tests completion may join
+// the shared group: GitHub cancels an older pending run when a newer one
+// queues, and the run of a failed completion skips its job, so it must not
+// replace a pending run that would publish.
 func TestSnapshotWorkflowRunsOneAtATime(t *testing.T) {
 	wf := readWorkflow(t, ".github/workflows/snapshot.yml")
-	if wf.Concurrency.Group != "snapshot-dev" {
-		t.Errorf("snapshot concurrency group = %q, want a fixed group %q", wf.Concurrency.Group, "snapshot-dev")
+	const wantGroup = "${{ github.event.workflow_run.conclusion == 'success' && 'snapshot-dev' || format('snapshot-skip-{0}', github.run_id) }}"
+	if wf.Concurrency.Group != wantGroup {
+		t.Errorf("snapshot concurrency group = %q, want %q", wf.Concurrency.Group, wantGroup)
+	}
+	for name, job := range wf.Jobs {
+		if job.If != "${{ github.event.workflow_run.conclusion == 'success' }}" {
+			t.Errorf("snapshot job %s if = %q, want it to run only after a successful Tests run", name, job.If)
+		}
 	}
 	if v := wf.Concurrency.CancelInProgress.Value; v != "false" {
 		t.Errorf("snapshot cancel-in-progress = %q, want false", v)
