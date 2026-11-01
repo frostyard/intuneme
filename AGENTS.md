@@ -59,6 +59,7 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 ## CI workflows
 
 Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. Dependabot updates the SHA and the comment together.
+`.github/dependabot.yml` ignores major updates of `redhat-actions/buildah-build`: v3 defaults `squash` to true and would flatten the image to 1 layer, so the build stays on v2.13 (#233).
 
 ## Before committing
 
