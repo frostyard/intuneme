@@ -33,7 +33,11 @@ type workflowFile struct {
 			Branches []string `yaml:"branches"`
 		} `yaml:"push"`
 	} `yaml:"on"`
-	Jobs map[string]workflowJob `yaml:"jobs"`
+	Jobs        map[string]workflowJob `yaml:"jobs"`
+	Concurrency struct {
+		Group            string    `yaml:"group"`
+		CancelInProgress yaml.Node `yaml:"cancel-in-progress"`
+	} `yaml:"concurrency"`
 }
 
 // shaPinned matches an action reference pinned to a full commit SHA
@@ -195,5 +199,19 @@ func TestSnapshotWorkflowDoesNotPublishPackages(t *testing.T) {
 				t.Errorf("snapshot job %s requests APT publication; only tag releases may", name)
 			}
 		}
+	}
+}
+
+// TestSnapshotWorkflowRunsOneAtATime keeps parallel snapshot runs from racing
+// on the assets of the rolling `dev` prerelease (422 already_exists, run
+// 41258966652). A queued run must not cancel the run in progress, which can
+// be midway through its uploads.
+func TestSnapshotWorkflowRunsOneAtATime(t *testing.T) {
+	wf := readWorkflow(t, ".github/workflows/snapshot.yml")
+	if wf.Concurrency.Group != "snapshot-dev" {
+		t.Errorf("snapshot concurrency group = %q, want a fixed group %q", wf.Concurrency.Group, "snapshot-dev")
+	}
+	if v := wf.Concurrency.CancelInProgress.Value; v != "false" {
+		t.Errorf("snapshot cancel-in-progress = %q, want false", v)
 	}
 }

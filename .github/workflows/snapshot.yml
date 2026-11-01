@@ -11,6 +11,14 @@ on:
 
 permissions: {}
 
+# Every run replaces the assets of the same rolling `dev` prerelease. Parallel
+# runs (several merges close together) race on those uploads and fail with
+# `422 already_exists`. One group runs them in order. A queued run must not
+# cancel the run in progress: that run can stop midway through its uploads.
+concurrency:
+  group: snapshot-dev
+  cancel-in-progress: false
+
 jobs:
   snapshot:
     runs-on: ubuntu-latest
