@@ -13,3 +13,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # Stay on buildah-build v2 (#233): v3 defaults `squash` to true, which
+      # flattens the ubuntu-intune image to 1 layer and loses layer reuse.
+      - dependency-name: "redhat-actions/buildah-build"
+        update-types: ["version-update:semver-major"]
