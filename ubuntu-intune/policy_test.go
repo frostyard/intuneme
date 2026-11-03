@@ -25,14 +25,28 @@ func TestEdgeCommandLineFlagPolicy(t *testing.T) {
 	}
 }
 
-func TestEdgeWrapperFlagHasPolicy(t *testing.T) {
+// The GPU process sandbox crashes inside nspawn, so the wrapper must keep this flag.
+// EdgeCommandLineFlagPolicy, tested in TestEdgeCommandLineFlagPolicy, hides the Edge banner for it (issue #62).
+// If someone removes the flag on purpose, they must also reconsider the policy.
+func TestEdgeWrapperKeepsGPUSandboxFlag(t *testing.T) {
 	wrapper, err := os.ReadFile("system_files/usr/local/bin/microsoft-edge")
 	if err != nil {
 		t.Fatalf("read Edge wrapper: %v", err)
 	}
-	// The wrapper flag and the policy must ship together (issue #62).
-	if strings.Contains(string(wrapper), "--disable-gpu-sandbox") && len(EdgeCommandLineFlagPolicy) == 0 {
-		t.Fatal("Edge wrapper has --disable-gpu-sandbox, but EdgeCommandLineFlagPolicy is empty")
+
+	const expected = `set -- '--disable-gpu-sandbox' "$@"`
+	matches := 0
+	for _, line := range strings.Split(string(wrapper), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if trimmed == expected {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("Edge wrapper has %d GPU sandbox flag command lines, want exactly 1", matches)
 	}
 }
 
