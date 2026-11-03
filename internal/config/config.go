@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -30,6 +31,72 @@ type Config struct {
 	// ["mcp"] makes `intuneme mcp` run `<binary> mcp`. Keeps the VS Code config
 	// minimal (just ["mcp"]) by moving the server's own subcommand here.
 	MCPArgs []string `toml:"mcp_args"`
+	// Hostname is the container host name to write to /etc/hostname. Empty
+	// means the default `<host hostname>LXC`. `intuneme init` and
+	// `intuneme recreate` write it to the container /etc/hostname, and it
+	// becomes the device name in Intune. It must be a valid RFC 1123 host
+	// name; the value is validated only by ContainerHostname, never by Load,
+	// so unrelated commands keep working with a bad value.
+	Hostname string `toml:"hostname,omitempty"`
+}
+
+// hostnameMaxLen is the Linux HOST_NAME_MAX (64 bytes, without the trailing
+// NUL). RFC 1123 limits a single label to 63 characters.
+const (
+	hostnameMaxLen      = 64
+	hostnameLabelMaxLen = 63
+)
+
+// ValidateHostname reports whether name is a valid RFC 1123 host name within
+// the Linux HOST_NAME_MAX. The name must be 1 to 64 bytes long and made of
+// dot-separated labels; each label must be 1 to 63 characters of ASCII letters,
+// digits or '-', must not start or end with '-', and must not be empty. A name
+// with leading, trailing or doubled dots therefore fails, and surrounding
+// whitespace is rejected rather than trimmed.
+func ValidateHostname(name string) error {
+	if name == "" {
+		return fmt.Errorf("hostname %q is empty; it must be 1 to %d characters", name, hostnameMaxLen)
+	}
+	if len(name) > hostnameMaxLen {
+		return fmt.Errorf("hostname %q is %d bytes long; the maximum is %d", name, len(name), hostnameMaxLen)
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" {
+			return fmt.Errorf("hostname %q has an empty label; dots must separate non-empty labels", name)
+		}
+		if len(label) > hostnameLabelMaxLen {
+			return fmt.Errorf("hostname %q has a label of %d characters; the maximum is %d", name, len(label), hostnameLabelMaxLen)
+		}
+		if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return fmt.Errorf("hostname %q has the label %q that starts or ends with '-'", name, label)
+		}
+		for _, c := range label {
+			switch {
+			case c >= 'a' && c <= 'z':
+			case c >= 'A' && c <= 'Z':
+			case c >= '0' && c <= '9':
+			case c == '-':
+			default:
+				return fmt.Errorf("hostname %q has the character %q; only ASCII letters, digits and '-' are allowed", name, c)
+			}
+		}
+	}
+	return nil
+}
+
+// ContainerHostname returns the host name to write into the container. When the
+// hostname key is set it is validated and returned; a bad value is an error so
+// the caller can stop before changing anything. When the key is empty the
+// pre-existing default `<hostHostname>LXC` is returned unvalidated, so existing
+// installs keep their current host name.
+func (c *Config) ContainerHostname(hostHostname string) (string, error) {
+	if c.Hostname == "" {
+		return hostHostname + "LXC", nil
+	}
+	if err := ValidateHostname(c.Hostname); err != nil {
+		return "", fmt.Errorf("invalid hostname in config.toml: %w", err)
+	}
+	return c.Hostname, nil
 }
 
 func DefaultRoot() (string, error) {

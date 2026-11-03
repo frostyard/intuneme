@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -196,4 +197,153 @@ func FuzzLoad(f *testing.F) {
 		// Must never panic regardless of TOML content.
 		_, _ = Load(tmp)
 	})
+}
+
+func TestValidateHostname(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{name: "single letter", input: "a"},
+		{name: "hyphenated", input: "my-laptop"},
+		{name: "dotted", input: "host1.example.com"},
+		{name: "63 character label", input: strings.Repeat("a", 63)},
+		{name: "64 character total", input: strings.Repeat("a", 31) + "." + strings.Repeat("b", 32)},
+		{name: "empty", input: "", wantErr: true},
+		{name: "leading hyphen", input: "-a", wantErr: true},
+		{name: "trailing hyphen", input: "a-", wantErr: true},
+		{name: "underscore", input: "a_b", wantErr: true},
+		{name: "space inside", input: "a b", wantErr: true},
+		{name: "leading space", input: " a", wantErr: true},
+		{name: "double dot", input: "a..b", wantErr: true},
+		{name: "leading dot", input: ".a", wantErr: true},
+		{name: "trailing dot", input: "a.", wantErr: true},
+		{name: "64 character label", input: strings.Repeat("a", 64), wantErr: true},
+		{name: "65 character total", input: strings.Repeat("a", 65), wantErr: true},
+		{name: "non ASCII", input: "héllo", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateHostname(tt.input)
+			if tt.wantErr && err == nil {
+				t.Fatalf("ValidateHostname(%q) = nil, want error", tt.input)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("ValidateHostname(%q) error: %v", tt.input, err)
+			}
+			if err != nil && !strings.Contains(err.Error(), tt.input[:min(len(tt.input), 8)]) {
+				t.Errorf("error %q does not name the bad value", err)
+			}
+		})
+	}
+}
+
+func TestContainerHostnameDefault(t *testing.T) {
+	cfg := &Config{}
+	got, err := cfg.ContainerHostname("myworkstation")
+	if err != nil {
+		t.Fatalf("ContainerHostname error: %v", err)
+	}
+	if want := "myworkstationLXC"; got != want {
+		t.Errorf("ContainerHostname() = %q, want %q", got, want)
+	}
+}
+
+func TestContainerHostnameOverride(t *testing.T) {
+	cfg := &Config{Hostname: "intune-laptop"}
+	got, err := cfg.ContainerHostname("myworkstation")
+	if err != nil {
+		t.Fatalf("ContainerHostname error: %v", err)
+	}
+	if got != "intune-laptop" {
+		t.Errorf("ContainerHostname() = %q, want %q", got, "intune-laptop")
+	}
+}
+
+func TestContainerHostnameInvalid(t *testing.T) {
+	cfg := &Config{Hostname: "bad host"}
+	got, err := cfg.ContainerHostname("myworkstation")
+	if err == nil {
+		t.Fatalf("ContainerHostname() = %q, want error", got)
+	}
+	if got != "" {
+		t.Errorf("ContainerHostname() = %q, want empty on error", got)
+	}
+	if !strings.Contains(err.Error(), "invalid hostname in config.toml") {
+		t.Errorf("error %q does not mention config.toml", err)
+	}
+	if !strings.Contains(err.Error(), "bad host") {
+		t.Errorf("error %q does not name the bad value", err)
+	}
+}
+
+func TestLoadHostname(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte("hostname = \"x\"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Hostname != "x" {
+		t.Errorf("Hostname = %q, want %q", cfg.Hostname, "x")
+	}
+}
+
+func TestLoadHostnameDoesNotValidate(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "config.toml"), []byte("hostname = \"bad host\"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load must not validate the hostname, got error: %v", err)
+	}
+	if cfg.Hostname != "bad host" {
+		t.Errorf("Hostname = %q, want %q", cfg.Hostname, "bad host")
+	}
+}
+
+func TestSaveOmitsEmptyHostname(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &Config{
+		MachineName: "intuneme",
+		RootfsPath:  filepath.Join(tmp, "rootfs"),
+	}
+	if err := cfg.Save(tmp); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, "config.toml"))
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(string(data), "hostname") {
+		t.Errorf("config.toml must not contain a hostname key, got:\n%s", data)
+	}
+}
+
+func TestSaveRoundTripHostname(t *testing.T) {
+	tmp := t.TempDir()
+	cfg := &Config{
+		MachineName: "intuneme",
+		RootfsPath:  filepath.Join(tmp, "rootfs"),
+		Hostname:    "intune-laptop",
+	}
+	if err := cfg.Save(tmp); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	loaded, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if loaded.Hostname != "intune-laptop" {
+		t.Errorf("Hostname = %q, want %q", loaded.Hostname, "intune-laptop")
+	}
 }

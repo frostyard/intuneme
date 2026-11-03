@@ -65,9 +65,18 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("load config: %w", err)
 		}
 
+		// Resolve the container host name before any container work, so a bad
+		// hostname key stops init with nothing changed.
+		hostHostname, _ := os.Hostname()
+		containerHostname, err := cfg.ContainerHostname(hostHostname)
+		if err != nil {
+			return err
+		}
+
 		if clix.DryRun {
 			rep.Message("[dry-run] Would pull OCI image and create container at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would create container user %s", u.Username)
+			rep.Message("[dry-run] Would set container hostname to %s", containerHostname)
 			return nil
 		}
 
@@ -105,9 +114,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		hostname, _ := os.Hostname()
-
-		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname, cfg.MachineName); err != nil {
+		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), containerHostname, cfg.MachineName); err != nil {
 			return err
 		}
 
