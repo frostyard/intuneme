@@ -49,6 +49,7 @@ These are copied directly into the image at the start of the builder stage:
 
 #### Edge Wrapper
 - `/usr/local/bin/microsoft-edge` — Wrapper script that adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces) and enables Wayland/WebRTC PipeWire features when `WAYLAND_DISPLAY` is set
+- `/etc/opt/edge/policies/managed/intuneme-command-line-flags.json` — Sets `CommandLineFlagSecurityWarningsEnabled` to false; embedded in the Go binary and reinstalled by `intuneme start`
 
 #### Polkit
 - `50-pcscd.rules` — Allows smart card daemon access

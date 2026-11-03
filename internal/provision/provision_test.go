@@ -153,10 +153,22 @@ func TestInstallSessionScripts(t *testing.T) {
 	for _, want := range []string{
 		"usr/local/bin/intuneme-session-setup",
 		"etc/profile.d/intuneme.sh",
+		"etc/opt/edge/policies/managed/intuneme-command-line-flags.json",
 	} {
 		if !strings.Contains(allCmds, want) {
 			t.Errorf("expected command referencing %q, not found in:\n%s", want, allCmds)
 		}
+	}
+
+	foundInstall := false
+	for _, command := range r.commands {
+		if strings.Contains(command, "install -m 0644") && strings.Contains(command, "etc/opt/edge/policies/managed/intuneme-command-line-flags.json") {
+			foundInstall = true
+			break
+		}
+	}
+	if !foundInstall {
+		t.Errorf("expected install -m 0644 command for Edge policy, not found in:\n%s", allCmds)
 	}
 }
 

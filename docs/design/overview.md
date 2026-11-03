@@ -367,6 +367,8 @@ The puller detects available tools in order: podman → skopeo+umoci → docker.
 
 The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
 - Always adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces; renderer sandbox stays active)
+- The image ships `/etc/opt/edge/policies/managed/intuneme-command-line-flags.json`; `provision.InstallSessionScripts` reinstalls it on every `intuneme start`, so existing containers receive it with no recreate
+- The flag stays because the GPU process sandbox crashes inside nspawn with `SIGTRAP` (see `docs/plans/2026-02-18-chromium-container-fix-design.md`). The GPU process stays unsandboxed as before, and the policy also hides the banner for any other unsafe flag that a user adds
 - When `WAYLAND_DISPLAY` is set: unsets `DISPLAY`, adds `--enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland`
 
 ### GNOME Shell Extension

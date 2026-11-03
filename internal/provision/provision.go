@@ -33,6 +33,10 @@ var x11TmpfilesOverride []byte
 // and from nspawn.Exec (the non-login launch path).
 const sessionSetupPath = "usr/local/bin/intuneme-session-setup"
 
+// edgeFlagPolicyPath is the container-side install location of Edge's managed
+// command-line flag policy.
+const edgeFlagPolicyPath = "etc/opt/edge/policies/managed/intuneme-command-line-flags.json"
+
 // x11TmpfilesOverridePath is the container-side path of the override that
 // replaces the base image's /usr/lib/tmpfiles.d/x11.conf.
 const x11TmpfilesOverridePath = "etc/tmpfiles.d/x11.conf"
@@ -158,10 +162,11 @@ func OverrideX11Tmpfiles(r runner.Runner, rootfsPath string) error {
 	return nil
 }
 
-// InstallSessionScripts writes the shared session-setup script and the
-// profile.d entry point that sources it. Both the interactive login path and
-// the nsenter launch path (nspawn.Exec) rely on the shared script existing at
-// /usr/local/bin/intuneme-session-setup. Idempotent — safe to re-run.
+// InstallSessionScripts writes the shared session-setup script, the profile.d
+// entry point that sources it, and the Edge managed command-line flag policy.
+// Both the interactive login path and the nsenter launch path (nspawn.Exec)
+// rely on the shared script existing at /usr/local/bin/intuneme-session-setup.
+// Idempotent — safe to re-run.
 func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
 	policyDir := filepath.Join(rootfsPath, "etc/polkit-1/rules.d")
 	if err := sudoMkdirAll(r, policyDir); err != nil {
@@ -169,6 +174,14 @@ func InstallSessionScripts(r runner.Runner, rootfsPath string) error {
 	}
 	if err := sudo.WriteFile(r, filepath.Join(policyDir, "49-intuneme-broker.rules"), containerimage.BrokerRestartPolicy, 0644); err != nil {
 		return err
+	}
+
+	edgePolicyDir := filepath.Join(rootfsPath, filepath.Dir(edgeFlagPolicyPath))
+	if err := sudoMkdirAll(r, edgePolicyDir); err != nil {
+		return fmt.Errorf("mkdir Edge command-line flag policy directory: %w", err)
+	}
+	if err := sudo.WriteFile(r, filepath.Join(rootfsPath, edgeFlagPolicyPath), containerimage.EdgeCommandLineFlagPolicy, 0644); err != nil {
+		return fmt.Errorf("write Edge command-line flag policy %s: %w", edgeFlagPolicyPath, err)
 	}
 
 	binDir := filepath.Join(rootfsPath, filepath.Dir(sessionSetupPath))
