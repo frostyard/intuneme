@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 
 	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/broker"
@@ -14,6 +15,7 @@ import (
 	"github.com/frostyard/intuneme/internal/puller"
 	"github.com/frostyard/intuneme/internal/runner"
 	pkgversion "github.com/frostyard/intuneme/internal/version"
+	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 )
 
@@ -39,10 +41,23 @@ var recreateCmd = &cobra.Command{
 			return err
 		}
 
+		// Resolve the container host name before the dry-run return, before
+		// sudo, before stopping and before deleting the old rootfs, so a bad
+		// hostname key can never destroy an existing container.
+		hostHostname, _ := os.Hostname()
+		containerHostname, err := cfg.ContainerHostname(hostHostname)
+		if err != nil {
+			return err
+		}
+
 		// Verify initialized
 		if _, err := os.Stat(cfg.RootfsPath); err != nil {
 			return fmt.Errorf("not initialized — run 'intuneme init' first")
 		}
+
+		// Warn, also in dry-run, when the new host name differs from the one
+		// recorded in the current rootfs.
+		warnIfHostnameChanges(rep, cfg.RootfsPath, containerHostname)
 
 		u, err := user.Current()
 		if err != nil {
@@ -54,6 +69,7 @@ var recreateCmd = &cobra.Command{
 			rep.Message("[dry-run] Would backup shadow entry and broker state")
 			rep.Message("[dry-run] Would remove old rootfs at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would pull new image and re-provision")
+			rep.Message("[dry-run] Would set container hostname to %s", containerHostname)
 			return nil
 		}
 
@@ -146,9 +162,7 @@ var recreateCmd = &cobra.Command{
 		}
 
 		// Re-provision
-		hostname, _ := os.Hostname()
-
-		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), hostname, cfg.MachineName); err != nil {
+		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), containerHostname, cfg.MachineName); err != nil {
 			return err
 		}
 
@@ -174,6 +188,30 @@ var recreateCmd = &cobra.Command{
 		rep.Message("Container recreated. Run 'intuneme start' to boot.")
 		return nil
 	},
+}
+
+// containerHostnameFromRootfs returns the container host name recorded in
+// <rootfs>/etc/hostname, trimmed of surrounding whitespace. It returns "" when
+// the file cannot be read or holds nothing, because an unreadable or empty file
+// must never block recreate.
+func containerHostnameFromRootfs(rootfsPath string) string {
+	data, err := os.ReadFile(filepath.Join(rootfsPath, "etc", "hostname"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// warnIfHostnameChanges warns when the rootfs about to be deleted carries a
+// container host name other than newName. Intune shows the container host
+// name as the device name, so such a change can surface in the tenant as a
+// renamed or new device after the enrollment state is restored.
+func warnIfHostnameChanges(rep reporter.Reporter, rootfsPath, newName string) {
+	old := containerHostnameFromRootfs(rootfsPath)
+	if old == "" || old == newName {
+		return
+	}
+	rep.Warning("Container hostname changes from %q to %q. Intune can show this as a renamed or new device.", old, newName)
 }
 
 func init() {

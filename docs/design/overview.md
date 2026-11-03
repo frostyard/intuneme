@@ -204,7 +204,11 @@ During provisioning, `EnsureRenderGroup()` matches the container's `render` grou
 
 ### Container Hostname
 
-During provisioning (`WriteFixups`), the container hostname is set to `<host-hostname>LXC` — e.g., if the host is `myworkstation`, the container gets `myworkstationLXC`. This prevents hostname collisions when both host and container are visible on the same network.
+During provisioning (`WriteFixups`), the container hostname defaults to `<host-hostname>LXC` — e.g., if the host is `myworkstation`, the container gets `myworkstationLXC`. This prevents hostname collisions when both host and container are visible on the same network.
+
+The optional `hostname` key in `config.toml` overrides that default. `config.Config.ContainerHostname(hostHostname)` returns the key value when it is set, and `<host-hostname>LXC` when it is empty. A set value is checked by `config.ValidateHostname` (RFC 1123, 1 to 64 bytes, dot-separated labels of ASCII letters, digits and `-`, no label starting or ending with `-`, no empty label, whitespace rejected). `init` and `recreate` call it right after `config.Load`, before the dry-run return and before any container work, so an invalid value stops the command with nothing changed — recreate never deletes the old rootfs for a bad value. `config.Load` does not validate, so `stop`, `destroy` and the rest still work with a bad value. `ProvisionContainer` takes the final host name and writes it unchanged.
+
+Intune shows the container host name as the device name, so `recreate` reads the old `<rootfs>/etc/hostname` early, before the dry-run return and long before deleting the rootfs (`containerHostnameFromRootfs`, `warnIfHostnameChanges`), and prints a warning when the value differs from the new name: the tenant can show the device as renamed or new.
 
 ### Container User Groups
 
@@ -388,6 +392,7 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `notify_proxy` | bool | Forward container desktop notifications to the host |
 | `screencast_proxy` | bool | Forward the container's ScreenCast portal to the host |
 | `insiders` | bool | Use insiders channel image |
+| `hostname` | string | Container host name; unset means `<host hostname>LXC` (validated by `config.ValidateHostname`, RFC 1123, max 64 characters; used by `init` and `recreate` only) |
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
 

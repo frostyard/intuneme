@@ -24,6 +24,7 @@ The location can be overridden with the `--root` flag on any command. If you use
 | `insiders` | bool | `false` | Use the insiders channel container image (`ghcr.io/frostyard/ubuntu-intune:insiders`) instead of the stable release. Set at init time with `--insiders`. `intuneme recreate` keeps it, and changes it only when `--insiders` or `--insiders=false` is given. |
 | `mcp_binary` | string | _(unset)_ | Host path to a self-contained MCP server binary that `intuneme mcp` runs inside the container. Any MCP server works; there is no built-in default. The binary's directory is bind-mounted into the container at runtime, so it stays out of the rootfs and survives `recreate`. Override per-invocation with `intuneme mcp --binary`. See [MCP Servers](../user-guide/mcp-servers.md). |
 | `mcp_args` | array of strings | _(empty)_ | Default arguments passed to the MCP server binary by `intuneme mcp`. For a server whose stdio mode is a subcommand, set e.g. `mcp_args = ["mcp"]` so the VS Code config can be just `["mcp"]`. Trailing `intuneme mcp -- args...` override these. |
+| `hostname` | string | `<host hostname>LXC` | Container host name written to the container's `/etc/hostname` by `intuneme init` and `intuneme recreate`. It becomes the device name in Intune. The value must be a valid RFC 1123 host name of at most 64 characters. Leave it unset for the default. See [Container hostname](#container-hostname). |
 
 ## Example
 
@@ -57,6 +58,19 @@ For other fields, edit `config.toml` directly. Changes to `machine_name` or `roo
 
 !!! warning
     Changing `host_uid` or `host_user` after init is not supported without re-running `intuneme init --force`, as the container user is provisioned to match these values.
+
+## Container hostname
+
+By default the container host name is your host name with an `LXC` suffix, for example `myworkstationLXC`. Set `hostname` to choose your own:
+
+```toml
+hostname = "corp-laptop-01"
+```
+
+The value is written to the container's `/etc/hostname` and `/etc/hosts`, and Intune shows it as the device name. It must be a valid RFC 1123 host name: 1 to 64 characters, dot-separated labels of ASCII letters, digits and `-`, and no label that starts or ends with `-`. An invalid value stops `intuneme init` and `intuneme recreate` before they change anything. The key takes effect only at `init` and `recreate`, not at `start`.
+
+!!! warning
+    Set `hostname` before enrollment. A change after enrollment, by `intuneme recreate` or a new `intuneme init`, can show in the Intune tenant as a renamed or new device. `intuneme recreate` prints a warning when the host name changes.
 
 ## Error handling
 

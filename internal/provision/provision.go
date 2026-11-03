@@ -641,7 +641,9 @@ func InstallPolkitRule(r runner.Runner, rulesDir, machine, user string, uid int)
 
 // ProvisionContainer runs the shared provisioning sequence used by both init
 // and recreate: GPU render group setup, container user creation, fixups, and
-// polkit rule installation.
+// polkit rule installation. hostname is the final container host name, written
+// as-is to the container's /etc/hostname; init and recreate derive it from
+// config.ContainerHostname, which defaults to `<host hostname>LXC`.
 func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, username string, uid, gid int, hostname, machine string) error {
 	// Ensure container has a render group matching the host for GPU access
 	if renderGID, err := FindHostRenderGID(); err == nil && renderGID >= 0 {
@@ -661,7 +663,7 @@ func ProvisionContainer(r runner.Runner, rep reporter.Reporter, rootfsPath, user
 	if clix.Verbose {
 		rep.Message("Applying fixups...")
 	}
-	if err := WriteFixups(r, rootfsPath, username, uid, gid, hostname+"LXC"); err != nil {
+	if err := WriteFixups(r, rootfsPath, username, uid, gid, hostname); err != nil {
 		return err
 	}
 

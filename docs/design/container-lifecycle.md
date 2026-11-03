@@ -17,7 +17,7 @@ One-time provisioning that creates the container from scratch.
 5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
-8. **Write fixups** — `<hostname>LXC` to `/etc/hostname`, `/etc/hosts`, session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (a comment-only file with no grants; interactive sudo still requires the container password)
+8. **Write fixups** — the container host name to `/etc/hostname` and `/etc/hosts` (default `<hostname>LXC`, or the `hostname` key value, checked by `config.ValidateHostname` before any container work), session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (a comment-only file with no grants; interactive sudo still requires the container password)
 9. **Install polkit rule** — `50-intuneme.rules` grants only the configured caller UID a shell as the configured non-root user in the configured machine
 10. **Install sudoers rule + helper**: root-owned helper binary at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`), its root-owned config at `nsenter-exec.toml` (`0644`), and `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The config bakes the machine name, user, numeric UID/GID, home, and rootfs. The helper resolves and validates the container leader itself and drops to the numeric UID before executing the script, so the caller cannot supply a PID or influence the target UID. The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
 11. **SELinux** (if enabled — enforcing or permissive) — Label rootfs as `container_file_t` via `semanage fcontext` + `restorecon`, install `intuneme-machined` policy module granting `systemd_machined_t` PTY access (`user_devpts_t`) and `/tmp` symlink traversal (`user_tmp_t`). A real `semanage` failure aborts `init` before the config save with the `semanage` output; the error names `policycoreutils-python-utils` and `intuneme init --force`, because the rootfs now exists. Only a single legacy "already defined"/"already exists" line is ignored (`cmd.finishInit`, `provision.InstallSELinuxPolicy`)
@@ -135,14 +135,14 @@ Updates the container image while preserving enrollment. Can switch channels.
 
 **Flow:**
 
-1. **Early validation** — Verify initialized, validate sudo access
+1. **Early validation** — Resolve and validate the container host name (`cfg.ContainerHostname`, before the dry-run return, sudo, stop and the rootfs delete, so a bad `hostname` key cannot delete the old rootfs), verify initialized, warn (also in dry-run) when `<rootfs>/etc/hostname` differs from the new name (Intune can then show the device as renamed or new), validate sudo access
 2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
 3. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
    - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` to temp dir (`provision.BackupDeviceBrokerState()`)
 4. **Delete old rootfs** — `sudo rm -rf`
 5. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag)
-6. **Re-provision** — GPU render group, user creation, hostname (`<host>LXC`), fixups, polkit rule
+6. **Re-provision** — GPU render group, user creation, host name (default `<host>LXC`, or the `hostname` key value), fixups, polkit rule
 7. **Restore state:**
    - Write backed-up password hash into new `rootfs/etc/shadow`
    - Copy backed-up device broker state back into `rootfs/var/lib/microsoft-identity-device-broker`
