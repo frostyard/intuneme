@@ -2,6 +2,8 @@
 
 # Container-safe: disable the GPU process sandbox which fails inside nspawn
 # (cannot create nested user namespaces). The renderer sandbox stays active.
+# Edge warns about this flag; the managed policy at
+# /etc/opt/edge/policies/managed/intuneme-command-line-flags.json suppresses it (issue #62).
 set -- '--disable-gpu-sandbox' "$@"
 
 if [ -n "$WAYLAND_DISPLAY" ]
