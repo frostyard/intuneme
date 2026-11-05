@@ -659,6 +659,41 @@ func TestExecErrorWithoutOutput(t *testing.T) {
 	}
 }
 
+// Exec marks a session bus timeout for errors.Is, and only that failure; the
+// error text is the same as a plain wrapped error.
+func TestExecSessionBusTimeoutSentinel(t *testing.T) {
+	busOutput := "intuneme: the container user session bus (/run/user/1000/bus) is not ready after 30 s; run 'intuneme start' and try again\n"
+	tests := []struct {
+		name, output, want string
+		timeout            bool
+	}{
+		{"bus timeout", busOutput, "exec in container failed: exit status 1: " + strings.TrimSpace(busOutput), true},
+		{"sudo password", "sudo: a password is required\n", "exec in container failed: exit status 1: sudo: a password is required", false},
+		{"no output", "", "exec in container failed: exit status 1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := Exec(&failingExecRunner{output: tt.output}, 1000, "microsoft-edge")
+			if err == nil {
+				t.Fatal("failed launch reported as success")
+			}
+			if err.Error() != tt.want {
+				t.Errorf("error = %q, want %q", err.Error(), tt.want)
+			}
+			if got := errors.Is(err, ErrSessionBusTimeout); got != tt.timeout {
+				t.Errorf("errors.Is(err, ErrSessionBusTimeout) = %v, want %v", got, tt.timeout)
+			}
+			if errors.Unwrap(errors.Unwrap(err)) == nil {
+				t.Errorf("error no longer wraps the runner error: %#v", err)
+			}
+		})
+	}
+	// The prologue writes the line that Exec looks for.
+	if !strings.Contains(userBusWaitScript(sessionBusWaitAttempts), `echo "`+sessionBusTimeoutPrefix+" ") {
+		t.Error("userBusWaitScript does not write sessionBusTimeoutPrefix")
+	}
+}
+
 // The app launch script must set XDG_SESSION_TYPE itself: it runs
 // intuneme-session-setup as a child process, whose exports are lost.
 // Without it, WebRTC in Edge falls back to X11 capture and shares only tabs.

@@ -35,18 +35,19 @@ Alternatively, Arch Linux users can install `intuneme` or `intuneme-bin` from th
 
 A release build of intuneme writes 1 record to the local systemd journal
 (`MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e`, schema `frostyard.problem/1`)
-when it panics, or when 1 of 5 internal errors happens:
+when it panics, or when 1 of 4 internal errors happens:
 
 | Code | Meaning |
 | --- | --- |
-| `start.security_reconcile_failed` | `start` could not reconcile the host polkit rule, the trusted helpers, the container session scripts or the container sudoers file |
 | `start.boot_failed` | `systemd-nspawn` did not start, or the machine did not register within 30 seconds |
 | `start.linger_failed` | `start` could not enable linger for the container user |
 | `start.proxy_failed` | `start` could not start the broker, notify or screencast proxy |
-| `open.launch_failed` | `open` (or the GNOME extension) could not launch the app in the container |
+| `open.session_bus_timeout` | `open` (or the GNOME extension) could not launch the app because the container user session bus did not appear within 30 seconds |
 
-User errors (not initialized, not running, failed sudo authentication, a bad
-config) are not recorded.
+A code is recorded only for an internal failure after the config was
+validated and sudo authentication passed. User setup and authentication errors
+(not initialized, not running, failed sudo authentication, a bad config, a
+user-owned helper source, a missing sudoers rule) are never recorded.
 
 The structured fields hold the app ID (`org.frostyard.intuneme`), the version,
 the runtime (`go`), the component (`cli`), the class (`panic` or `error`), and

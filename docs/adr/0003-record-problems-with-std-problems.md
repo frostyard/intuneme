@@ -19,7 +19,7 @@ package of `github.com/frostyard/std` (v0.4.0). Apps never send: chairlift and
 package writes 1 datagram to the local journal socket, drops what does not
 fit, caps a process at 10 records a minute, and is inert when the version is
 not a release semver. `org.frostyard.intuneme` is in the schema's app ID
-allowlist. This work is frostyard plan T857, task t9.
+allowlist.
 
 The intuneme binary is also the privileged `nsenter-exec` and `machine-exec`
 helper, dispatched by `argv[0]` and run as root under sudo.
@@ -31,11 +31,17 @@ helper, dispatched by `argv[0]` and run as root under sudo.
   without 1 leading `v`. It does this only after the helper dispatch, so the
   root helpers never record. It defers `RecoverPanic` and turns on
   `CrashOutput`; a panic still prints its trace and exits 2.
-- intuneme records exactly 5 coded errors, with the original error, where it
-  returns them unchanged: `start.security_reconcile_failed`,
-  `start.boot_failed`, `start.linger_failed`, `start.proxy_failed`,
-  `open.launch_failed`. User errors (config load, not initialized, not
-  running, failed sudo authentication) get no record.
+- intuneme records exactly 4 coded errors, with the original error, where it
+  returns them unchanged: `start.boot_failed`, `start.linger_failed`,
+  `start.proxy_failed` and `open.session_bus_timeout`.
+- A code is recorded only for an internal failure after config validation
+  and sudo authentication passed. User setup and authentication errors are
+  never recorded: the config load, the rootfs check, `sudo -v` and the
+  security reconcile of `start` (which fails for a bad config identity or a
+  user-owned helper source), and any `open` launch failure other than the
+  session bus timeout (which can be a missing sudoers rule or a sudo
+  password prompt). The 3 `start` codes run only after `sudo -v` and the
+  security reconcile passed; dry run never reaches them.
 - Codes are a stable contract: a new code is added, never renamed or reused.
 - The error text goes only to the journal `MESSAGE` field, never to a
   `FROSTYARD_*` field.
@@ -59,6 +65,9 @@ helper, dispatched by `argv[0]` and run as root under sudo.
 
 ## Alternatives considered
 
+- **Record every security reconcile or launch failure:** these fail for user
+  setup and authentication too, so the records would not show defects of
+  intuneme.
 - **Record every returned error:** most are user mistakes or host setup; they
   say nothing about intuneme's code and would use up the rate cap.
 - **Record in the root helpers too:** a root process would write to the

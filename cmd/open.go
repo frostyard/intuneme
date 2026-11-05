@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -40,7 +41,12 @@ func runOpen(r runner.Runner, root, command string, args []string) error {
 	}
 
 	if err := nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " ")); err != nil {
-		problemrec.Error(problemrec.CodeLaunchFailed, err)
+		// Only the session bus timeout is an internal failure. Any other
+		// Exec error can be a missing sudoers rule or failed sudo
+		// authentication, which is never recorded.
+		if errors.Is(err, nspawn.ErrSessionBusTimeout) {
+			problemrec.Error(problemrec.CodeSessionBusTimeout, err)
+		}
 		return err
 	}
 	return nil

@@ -7,12 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/problemrec/problemrectest"
 )
 
-// The tests below each write 1 problem record. std caps the records of 1
+// The positive tests below each write 1 problem record (5 in all). std caps the records of 1
 // process at 10 a minute, for all recorders, so this package must keep its
 // records at 10 or fewer. Every other test keeps the nil recorder.
 
@@ -44,16 +46,29 @@ func startRoot(t *testing.T, config string) string {
 	return root
 }
 
-func TestStartRecordsSecurityReconcileFailure(t *testing.T) {
-	mockLaunchInstall(t)
-	s := problemrectest.Use(t, recordVersion)
-	r := &startSecurityRunner{fail: "install-helpers"}
-	err := runStart(r, startRoot(t, ""))
-	const inner = "install trusted helpers (install intuneme in a root-owned path): injected failure"
-	if err == nil || err.Error() != "security migration failed: "+inner {
-		t.Fatalf("error = %v", err)
+// User setup and authentication errors are never recorded. These tests use a
+// real test socket, so they prove that nothing is written (a nil recorder
+// would prove nothing). They write no record.
+func TestStartUserErrorsAreNotRecorded(t *testing.T) {
+	tests := []struct {
+		name, config, fail, want string
+	}{
+		{"invalid host uid", "host_uid = -1\n", "", "invalid host uid"},
+		{"sudo authentication", "", "sudo -v", "sudo authentication failed: injected failure"},
+		{"untrusted helper source", "", "install-helpers", "security migration failed: install trusted helpers"},
 	}
-	checkProblem(t, s, problemrec.CodeSecurityReconcile, inner)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockLaunchInstall(t)
+			s := problemrectest.Use(t, recordVersion)
+			r := &startSecurityRunner{fail: tt.fail}
+			err := runStart(r, startRoot(t, tt.config))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			s.ExpectNone(50 * time.Millisecond)
+		})
+	}
 }
 
 // bootFailRunner is a cold boot whose systemd-nspawn does not start.
@@ -137,14 +152,41 @@ func TestStartRecordsProxyFailure(t *testing.T) {
 	checkProblem(t, s, problemrec.CodeProxyFailed, want)
 }
 
-func TestOpenRecordsLaunchFailure(t *testing.T) {
+// execOutputRunner fails the nsenter launch with output, like sudo or the
+// session bus wait would.
+type execOutputRunner struct {
+	mcpMockRunner
+	output string
+}
+
+func (r *execOutputRunner) Run(name string, args ...string) ([]byte, error) {
+	if name == "sudo" && len(args) > 0 && args[0] == nspawn.NsenterHelperPath {
+		return []byte(r.output), errors.New("exit status 1")
+	}
+	return r.mcpMockRunner.Run(name, args...)
+}
+
+func TestOpenRecordsSessionBusTimeout(t *testing.T) {
 	s := problemrectest.Use(t, recordVersion)
-	r := &mcpMockRunner{probeErr: errors.New("injected launch failure")}
+	const output = "intuneme: the container user session bus (/run/user/1000/bus) is not ready after 30 s; run 'intuneme start' and try again"
 	root, _ := initializedRoot(t, true)
-	err := runOpen(r, root, "microsoft-edge", nil)
-	const want = "exec in container failed: injected launch failure"
+	err := runOpen(&execOutputRunner{output: output + "\n"}, root, "microsoft-edge", nil)
+	const want = "exec in container failed: exit status 1: " + output
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v, want %s", err, want)
 	}
-	checkProblem(t, s, problemrec.CodeLaunchFailed, want)
+	checkProblem(t, s, problemrec.CodeSessionBusTimeout, want)
+}
+
+// Any other launch failure, such as sudo authentication without the
+// passwordless rule, is not recorded.
+func TestOpenSudoFailureIsNotRecorded(t *testing.T) {
+	s := problemrectest.Use(t, recordVersion)
+	root, _ := initializedRoot(t, true)
+	err := runOpen(&execOutputRunner{output: "sudo: a password is required\n"}, root, "microsoft-edge", nil)
+	const want = "exec in container failed: exit status 1: sudo: a password is required"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %s", err, want)
+	}
+	s.ExpectNone(50 * time.Millisecond)
 }

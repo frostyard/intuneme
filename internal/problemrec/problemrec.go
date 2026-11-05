@@ -9,8 +9,11 @@
 //     panic in another goroutine, or of a fatal error, into a record at the
 //     next start;
 //   - a coded internal error: Error, at the failure points named by the Code
-//     constants. User errors (not initialized, not running, failed sudo
-//     authentication, a bad config) are never recorded.
+//     constants. A code is recorded only for an internal failure after config
+//     validation and sudo authentication passed: user setup and
+//     authentication errors (not initialized, not running, failed sudo
+//     authentication, a bad config, an untrusted helper source) are never
+//     recorded.
 //
 // A record is 1 datagram to the local journal socket. The package sends
 // nothing over a network, adds no flag, and writes nothing to stdout or
@@ -39,12 +42,9 @@ const AppID = "org.frostyard.intuneme"
 const Component = problems.ComponentCLI
 
 // Codes of the coded internal errors (FROSTYARD_CODE). A code is a stable
-// contract: add a new code, never rename or reuse one.
+// contract: add a new code, never rename or reuse one. Record a code only
+// where the failure cannot come from user config or sudo authentication.
 const (
-	// CodeSecurityReconcile: start could not reconcile the host polkit
-	// rule, the trusted helpers, the container session scripts or the
-	// container sudoers file.
-	CodeSecurityReconcile = "start.security_reconcile_failed"
 	// CodeBootFailed: systemd-nspawn did not start, or the machine was not
 	// registered within 30 seconds.
 	CodeBootFailed = "start.boot_failed"
@@ -54,13 +54,15 @@ const (
 	// CodeProxyFailed: start could not start the broker, notify or
 	// screencast proxy.
 	CodeProxyFailed = "start.proxy_failed"
-	// CodeLaunchFailed: open could not launch the app in the container.
-	CodeLaunchFailed = "open.launch_failed"
+	// CodeSessionBusTimeout: open could not launch the app because the
+	// container user session bus did not appear in time
+	// (nspawn.ErrSessionBusTimeout).
+	CodeSessionBusTimeout = "open.session_bus_timeout"
 )
 
 // Codes returns every code constant, for tests and docs.
 func Codes() []string {
-	return []string{CodeSecurityReconcile, CodeBootFailed, CodeLingerFailed, CodeProxyFailed, CodeLaunchFailed}
+	return []string{CodeBootFailed, CodeLingerFailed, CodeProxyFailed, CodeSessionBusTimeout}
 }
 
 // ReleaseVersion returns the record version of the stamped build version v:

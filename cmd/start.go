@@ -48,12 +48,17 @@ func runStart(r runner.Runner, root string) error {
 		return fmt.Errorf("not initialized — run 'intuneme init' first")
 	}
 
+	// Problem records: the config load, the rootfs check, sudo -v and
+	// refreshStartSecurity are never recorded, because they fail for user
+	// setup (a bad config identity, an untrusted helper source) and for
+	// authentication. The boot, linger and proxy records below run only after
+	// these steps passed, so the identity is validated and sudo is
+	// authenticated; dry run never reaches them.
 	if !clix.DryRun {
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
 		if err := refreshStartSecurity(r, cfg); err != nil {
-			problemrec.Error(problemrec.CodeSecurityReconcile, err)
 			return fmt.Errorf("security migration failed: %w", err)
 		}
 	}

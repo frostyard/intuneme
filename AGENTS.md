@@ -41,11 +41,12 @@ Key design points:
 
 ## Problem records
 
-intuneme writes panics and 5 coded internal errors to the local journal with `github.com/frostyard/std/problems` (`internal/problemrec`, ADR-0003, core ADR-0069). Rules:
+intuneme writes panics and 4 coded internal errors to the local journal with `github.com/frostyard/std/problems` (`internal/problemrec`, ADR-0003, core ADR-0069). Rules:
 
 - The recorder starts in `main()` only after the helper dispatch. Never make a recorder, call `problemrec.Error`, or defer `RecoverPanic` in `nshelper.Main`, `nshelper.MachineMain` or anything they call: they run as root.
 - `defer rec.RecoverPanic()` stays a direct defer in `main()`, so a panic still exits 2.
 - Codes (`problemrec.Code*`) are a stable contract: add a new one (with a test, the README table, `docs/design/overview.md` and ADR-0003), never rename or reuse one. Record only internal failures, never user errors.
+- A code is recorded only for an internal failure after config validation and sudo authentication passed; user setup and authentication errors are never recorded. Record a code only where the failure cannot come from user config or sudo authentication (so `refreshStartSecurity` and any `sudo` failure of `nspawn.Exec` other than `nspawn.ErrSessionBusTimeout` get no record), and prove each exclusion with a socket-backed negative test (`problemrectest.Use` then `ExpectNone`), never with a nil recorder.
 - Pass the original error to `problemrec.Error`; its text goes only to the journal `MESSAGE` field. Never put error text in another field, and never change a returned error or output to record it.
 - No network: a record is 1 datagram to the local journal socket. Never add a sender, a flag or output for problems.
 - Tests use `problemrectest.Use` (a `unixgram` socket in `t.TempDir()`). std caps a process at 10 records a minute and tests cannot reset it, so 1 test package writes at most 10 records.

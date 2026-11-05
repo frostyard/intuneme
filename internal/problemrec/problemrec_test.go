@@ -75,10 +75,10 @@ func TestErrorRecord(t *testing.T) {
 	if err := problemrec.Current().Err(); err != nil {
 		t.Fatalf("release recorder is inert: %v", err)
 	}
-	problemrec.Error(problemrec.CodeLaunchFailed, errors.New("exec in container failed: exit status 1"))
+	problemrec.Error(problemrec.CodeSessionBusTimeout, errors.New("exec in container failed: exit status 1"))
 	f := s.Next()
-	d := problemrectest.Check(t, f, "error", "0.21.0", problemrec.CodeLaunchFailed)
-	if d.Code != problemrec.CodeLaunchFailed {
+	d := problemrectest.Check(t, f, "error", "0.21.0", problemrec.CodeSessionBusTimeout)
+	if d.Code != problemrec.CodeSessionBusTimeout {
 		t.Errorf("detail code = %q", d.Code)
 	}
 	if got := f["MESSAGE"]; got != "exec in container failed: exit status 1" {
@@ -113,8 +113,8 @@ func TestCodesMatchPattern(t *testing.T) {
 		}
 		seen[c] = true
 	}
-	if len(seen) != 5 {
-		t.Errorf("got %d codes, want 5", len(seen))
+	if len(seen) != 4 {
+		t.Errorf("got %d codes, want 4", len(seen))
 	}
 }
 
