@@ -45,8 +45,11 @@ helper, dispatched by `argv[0]` and run as root under sudo.
 - A code is also recorded only when the config identity matches the running
   user and the container account (`identityConsistent` in `cmd`): `host_uid`
   is the running non-root UID, `host_user` is a plausible non-root name, and
-  the container's `/etc/passwd` has that name with that UID. Any read or
-  parse error fails closed: a lost record is better than a wrong one.
+  the container's `/etc/passwd` has exactly 1 strict 7-field entry for that
+  name, with that UID, a numeric GID and an absolute home. The file is opened
+  with `O_NONBLOCK` and `O_NOFOLLOW` and must be a regular file. A malformed
+  or duplicate entry, or any read or parse error, fails closed: a lost record
+  is better than a wrong one. With an inert recorder nothing is read.
 - `open.session_bus_timeout` is recorded only when 1 output line is exactly
   the prologue's timeout diagnostic for the configured UID. A substring is
   not enough: sudo quotes the submitted script, which holds the `echo` of

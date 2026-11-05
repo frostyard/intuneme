@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -151,6 +152,7 @@ func TestStartLingerFailureWithoutContainerAccountIsNotRecorded(t *testing.T) {
 	tests := []struct{ name, passwd string }{
 		{"no line for the user", "root:x:0:0:root:/root:/bin/bash\n"},
 		{"line with another uid", fmt.Sprintf("root:x:0:0:root:/root:/bin/bash\n%s:x:%d:%d::/home/%s:/bin/bash\n", testUser, os.Getuid()+1, os.Getgid(), testUser)},
+		{"malformed line for the user", fmt.Sprintf("root:x:0:0:root:/root:/bin/bash\n%s:x:%d\n", testUser, os.Getuid())},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -299,6 +301,17 @@ func TestIdentityConsistent(t *testing.T) {
 		{"user with a colon", "a:b", uid, fmt.Sprintf("a:b:%d:0::/x:/bin/sh\n", uid), false},
 		{"user with a space", "a b", uid, fmt.Sprintf("a b:x:%d:0::/x:/bin/sh\n", uid), false},
 		{"passwd over 1 MiB", testUser, uid, strings.Repeat("#\n", maxPasswdSize/2+1) + good, false},
+		{"good 7-field line", testUser, uid, fmt.Sprintf("%s:x:%d:100:Tester:/home/%s:/bin/sh\n", testUser, uid, testUser), true},
+		{"3 fields", testUser, uid, fmt.Sprintf("%s:x:%d\n", testUser, uid), false},
+		{"8 fields", testUser, uid, fmt.Sprintf("%s:x:%d:100::/home/x:/bin/sh:extra\n", testUser, uid), false},
+		{"non-numeric gid", testUser, uid, fmt.Sprintf("%s:x:%d:users::/home/x:/bin/sh\n", testUser, uid), false},
+		{"empty gid", testUser, uid, fmt.Sprintf("%s:x:%d:::/home/x:/bin/sh\n", testUser, uid), false},
+		{"gid MaxUint32", testUser, uid, fmt.Sprintf("%s:x:%d:4294967295::/home/x:/bin/sh\n", testUser, uid), false},
+		{"relative home", testUser, uid, fmt.Sprintf("%s:x:%d:100::home/x:/bin/sh\n", testUser, uid), false},
+		{"signed uid", testUser, uid, fmt.Sprintf("%s:x:+%d:100::/home/x:/bin/sh\n", testUser, uid), false},
+		{"leading zero uid", testUser, uid, fmt.Sprintf("%s:x:0%d:100::/home/x:/bin/sh\n", testUser, uid), false},
+		{"malformed line before a good line", testUser, uid, fmt.Sprintf("%s:x:%d\n", testUser, uid) + good, false},
+		{"duplicate good line", testUser, uid, good + fmt.Sprintf("%s:x:%d:%d::/home/%s:/bin/bash\n", testUser, uid, uid, testUser), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -332,4 +345,62 @@ func TestIdentityConsistent(t *testing.T) {
 	if identityConsistent(nil) {
 		t.Error("identityConsistent(nil) = true")
 	}
+}
+
+// fifoRoot returns a rootfs whose etc/passwd is a FIFO with no writer.
+func fifoRoot(t *testing.T) string {
+	t.Helper()
+	rootfs := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(filepath.Join(rootfs, "etc", "passwd"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return rootfs
+}
+
+// returnsWithin fails the test when f does not return within d. A hung f is
+// left behind, so the suite does not hang.
+func returnsWithin(t *testing.T, d time.Duration, f func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		f()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		t.Fatalf("did not return within %s", d)
+	}
+}
+
+// A FIFO at etc/passwd must not block an error path of start.
+func TestIdentityConsistentFIFODoesNotBlock(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("a root test process has no consistent non-root identity")
+	}
+	cfg := &config.Config{HostUser: testUser, HostUID: os.Getuid(), RootfsPath: fifoRoot(t)}
+	var got bool
+	returnsWithin(t, 2*time.Second, func() { got = identityConsistent(cfg) })
+	if got {
+		t.Error("identityConsistent accepted a FIFO")
+	}
+}
+
+// With an inert recorder (a dev build, or none), recordInternal reads no file.
+func TestRecordInternalInertReadsNothing(t *testing.T) {
+	old := problemrec.Set(nil)
+	t.Cleanup(func() { problemrec.Set(old) })
+	oldCheck := identityCheck
+	t.Cleanup(func() { identityCheck = oldCheck })
+	identityCheck = func(*config.Config) bool {
+		t.Error("recordInternal checked the identity with an inert recorder")
+		return false
+	}
+	cfg := &config.Config{HostUser: testUser, HostUID: os.Getuid(), RootfsPath: fifoRoot(t)}
+	returnsWithin(t, 2*time.Second, func() { recordInternal(cfg, problemrec.CodeLingerFailed, errors.New("x")) })
+	problemrec.Init("dev")
+	returnsWithin(t, 2*time.Second, func() { recordInternal(cfg, problemrec.CodeLingerFailed, errors.New("x")) })
 }
