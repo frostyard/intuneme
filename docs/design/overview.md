@@ -337,6 +337,19 @@ The CLI uses `frostyard/clix` and `frostyard/std/reporter` for consistent output
 - **Verbose** — `clix.Verbose` flag enables verbose output.
 - **JSON output** — `clix.OutputJSON()` provides `--output json` support (used by `status`).
 
+### Problem Records
+
+intuneme records its own problems in the local systemd journal through `github.com/frostyard/std/problems` (frostyard/core ADR-0069, schema `frostyard.problem/1`). The wrapper is `internal/problemrec`; the decision is [ADR-0003](../adr/0003-record-problems-with-std-problems.md).
+
+- **Where the recorder is made.** `main()` calls `problemrec.Init(version, problemOpts...)` after the `nsenter-exec`/`machine-exec` dispatch and after `pkgversion.Version = version`, then `defer rec.RecoverPanic()` and `_ = rec.CrashOutput()`. The helpers return through `os.Exit` before that point, so the root helpers (run under sudo) never make a recorder, never write a crash file and never record. `RecoverPanic` must be deferred directly (Go's `recover` rule); it records the panic and panics again, so a panic still prints the original trace (with `[recovered, repanicked]`) and exits 2. A command error still exits 1 through `os.Exit(1)`, which runs no deferred call.
+- **Crash output.** `CrashOutput` sets `runtime/debug.SetCrashOutput` to a locked crash file under `$STATE_DIRECTORY`, else `$XDG_STATE_HOME`, else `~/.local/state`, in `frostyard-problems/org.frostyard.intuneme/`. A panic in another goroutine (the proxies run goroutines) or a fatal runtime error leaves that file; the next intuneme run turns it into a `panic` record and removes it (at most 8 per start). A file of a clean exit holds no crash and is removed with no record. A `CrashOutput` error is ignored: it never changes output or exit status.
+- **Coded errors.** `problemrec.Error(code, err)` is called with the original error just before the return, at 5 points: `start.security_reconcile_failed` (`refreshStartSecurity` in `runStart`), `start.boot_failed` (`nspawn.Boot`, or no machine after the 30-second wait), `start.linger_failed` (`enableUserLinger`, on the already-running path and the cold-boot path), `start.proxy_failed` (`startProxy` for each of the 3 proxies, at the call site in `runStart`), `open.launch_failed` (`nspawn.Exec` in `runOpen`). User errors (config load, not initialized, not running, `sudo -v`) are not recorded. The returned errors and `rep.Message` output are unchanged. Codes are a stable contract: add new ones, never rename or reuse one.
+- **Fields.** `MESSAGE` holds the error text or panic value (local journal only). The `FROSTYARD_*` fields hold the app ID, version, runtime `go`, component `cli`, class, and the code or the panic frames (function names mapped by `problems.MapFrame`: no path, line, offset or argument; a non-frostyard, non-stdlib frame becomes `other`).
+- **Version rule.** `problemrec.ReleaseVersion` trims 1 leading `v`: GoReleaser stamps `0.21.0`, `make build` stamps `git describe` output such as `v0.21.0`. A `dev`, `-N-gHASH`, `-dirty` or snapshot version fails the schema's semver pattern, so the recorder is inert: it records nothing and makes no crash file.
+- **Rate cap.** std allows 10 records a minute per process, shared by all recorders. A record that the journal socket cannot take at once is dropped; nothing blocks or retries.
+- **No network.** A record is 1 datagram to `/run/systemd/journal/socket`. intuneme sends nothing anywhere else and adds no flag or output; chairlift is the only sender, after the user opts in. `TestNoNetworkImports` (in `internal/problemrec`) parses the package and fails on a network import.
+- **Tests.** `internal/problemrec/problemrectest` binds a `unixgram` test socket in `t.TempDir()` (`Use` installs a recorder that writes to it and restores the old one; `Check` asserts the fields and runs `problems.Validate`). `cmd/problemrec_test.go` triggers each code through the existing runner mocks. `main_test.go` re-executes the test binary (`INTUNEME_TEST_PROBLEM_CHILD`) to check a forced panic (exit 2, 1 record), a goroutine panic recorded from its crash file at the next start, and a dev build that records nothing. Because the rate cap is per process and cannot be reset, a test package must write at most 10 records; every other test keeps the nil recorder, which is inert.
+
 ### Sudoers Rule Safety
 
 The `internal/sudoers/` package writes the sudoers rule via a safe workflow: write to a temp file, validate syntax with `visudo -c -f <tmpfile>`, then `sudo install` to `/etc/sudoers.d/intuneme-exec`. This prevents a broken sudoers file from locking out sudo. The rule authorizes exactly one root-owned helper path with no wildcards: `<user> ALL=(root) NOPASSWD: /usr/local/libexec/intuneme/nsenter-exec`. All target selection (machine, leader, rootfs, UID) is baked into the helper and its root-owned config, never supplied by the caller.
@@ -402,9 +415,9 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 
 | Module | Version | Purpose |
 |--------|---------|---------|
-| `frostyard/clix` | v0.2.0 | CLI helpers (reporter, dry-run, verbose, JSON output) |
-| `frostyard/std` | v0.1.0 | Standard library (reporter interface) |
-| `godbus/dbus/v5` | v5.2.2 | D-Bus bindings for the broker, notify and screencast proxies |
+| `frostyard/clix` | v0.5.0 | CLI helpers (reporter, dry-run, verbose, JSON output) |
+| `frostyard/std` | v0.4.0 | Standard library (reporter interface; `problems` for journal problem records) |
+| `godbus/dbus/v5` | v5.2.4 | D-Bus bindings for the broker, notify and screencast proxies |
 | `spf13/cobra` | v1.10.2 | CLI command framework |
 | `BurntSushi/toml` | v1.6.0 | TOML config parsing |
 | `charmbracelet/x/term` | v0.2.2 | Terminal password input |
@@ -425,6 +438,10 @@ Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.In
 └── screencast-proxy.pid PID file for screencast proxy process
 
 /run/intuneme/devices/   Udev forwarded device state (tmpfs, only while running)
+
+~/.local/state/frostyard-problems/org.frostyard.intuneme/
+└── *.crash              Crash output of a running release build ($XDG_STATE_HOME
+                         if set); turned into a problem record at the next run
 
 ~/Intune/                Bind-mounted as container home directory
 ├── .config/intune/      Enrollment database

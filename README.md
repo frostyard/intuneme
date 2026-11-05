@@ -31,6 +31,45 @@ Alternatively, Arch Linux users can install `intuneme` or `intuneme-bin` from th
 - [intuneme](https://aur.archlinux.org/packages/intuneme) (build from source)
 - [intuneme-bin](https://aur.archlinux.org/packages/intuneme-bin) (pre-compiled binary)
 
+## Problem records
+
+A release build of intuneme writes 1 record to the local systemd journal
+(`MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e`, schema `frostyard.problem/1`)
+when it panics, or when 1 of 5 internal errors happens:
+
+| Code | Meaning |
+| --- | --- |
+| `start.security_reconcile_failed` | `start` could not reconcile the host polkit rule, the trusted helpers, the container session scripts or the container sudoers file |
+| `start.boot_failed` | `systemd-nspawn` did not start, or the machine did not register within 30 seconds |
+| `start.linger_failed` | `start` could not enable linger for the container user |
+| `start.proxy_failed` | `start` could not start the broker, notify or screencast proxy |
+| `open.launch_failed` | `open` (or the GNOME extension) could not launch the app in the container |
+
+User errors (not initialized, not running, failed sudo authentication, a bad
+config) are not recorded.
+
+The structured fields hold the app ID (`org.frostyard.intuneme`), the version,
+the runtime (`go`), the component (`cli`), the class (`panic` or `error`), and
+the code or, for a panic, the function names of the stack (no file paths, no
+line numbers, no arguments). The error text or panic value stays in the local
+journal `MESSAGE` field only. A panic in another goroutine or a fatal runtime
+error goes to a crash file under
+`$XDG_STATE_HOME/frostyard-problems/org.frostyard.intuneme/` (default
+`~/.local/state/...`), and the next intuneme run turns it into a record.
+
+Only release builds record: a `dev`, `git describe` (`v0.21.0-2-gabc1234`,
+`-dirty`) or snapshot version records nothing. intuneme sends nothing, opens no
+network connection, and adds no flag or output for this. chairlift's Problems
+page can show the records. To read them:
+
+```bash
+journalctl --user MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e
+```
+
+`--user` needs a persistent journal (`Storage=persistent` or `auto` with
+`/var/log/journal`). On a volatile journal, use
+`journalctl MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e`.
+
 ## Contributing
 
 See the [contributing guide](https://frostyard.github.io/intuneme/contributing/) on the docs site.

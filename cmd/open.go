@@ -7,6 +7,7 @@ import (
 
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
+	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +39,11 @@ func runOpen(r runner.Runner, root, command string, args []string) error {
 		parts = append(parts, nspawn.ShellQuote(a))
 	}
 
-	return nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " "))
+	if err := nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " ")); err != nil {
+		problemrec.Error(problemrec.CodeLaunchFailed, err)
+		return err
+	}
+	return nil
 }
 
 func makeOpenAppCmd(use, short, command string) *cobra.Command {

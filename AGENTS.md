@@ -39,6 +39,17 @@ Key design points:
 - **Binary stays out of the rootfs.** The server binary lives on the host (`mcp_binary` config key or `--binary`). Its directory is bind-mounted read-only at `/opt/intuneme-mcp` by a scoped root-owned machine helper (`machine-exec bind <dir>`), which validates that the directory is owned by the host user and forces `--read-only` and the fixed destination. The bind is runtime-only and re-established on demand, so it **survives `intuneme recreate`** — nothing is added to `ubuntu-intune/`.
 - **Server-agnostic.** No assumption about a particular tool; any self-contained MCP server works. The server's own arguments come from the `mcp_args` config key (e.g. `["mcp"]` for `workiq mcp`), with trailing `intuneme mcp -- args...` overriding them — this keeps the VS Code config to just `["mcp"]`. A `DOTNET_BUNDLE_EXTRACT_BASE_DIR` env var is set (harmless for non-.NET) so single-file .NET servers extract to ephemeral `/tmp` and the mount can stay read-only.
 
+## Problem records
+
+intuneme writes panics and 5 coded internal errors to the local journal with `github.com/frostyard/std/problems` (`internal/problemrec`, ADR-0003, core ADR-0069). Rules:
+
+- The recorder starts in `main()` only after the helper dispatch. Never make a recorder, call `problemrec.Error`, or defer `RecoverPanic` in `nshelper.Main`, `nshelper.MachineMain` or anything they call: they run as root.
+- `defer rec.RecoverPanic()` stays a direct defer in `main()`, so a panic still exits 2.
+- Codes (`problemrec.Code*`) are a stable contract: add a new one (with a test, the README table, `docs/design/overview.md` and ADR-0003), never rename or reuse one. Record only internal failures, never user errors.
+- Pass the original error to `problemrec.Error`; its text goes only to the journal `MESSAGE` field. Never put error text in another field, and never change a returned error or output to record it.
+- No network: a record is 1 datagram to the local journal socket. Never add a sender, a flag or output for problems.
+- Tests use `problemrectest.Use` (a `unixgram` socket in `t.TempDir()`). std caps a process at 10 records a minute and tests cannot reset it, so 1 test package writes at most 10 records.
+
 ## Release automation
 
 `make bump` tags a release with svu and pushes the tag. `.github/workflows/release.yml` runs only for tag pushes: GoReleaser Pro creates the GitHub release (including `frostyard-intuneme_<version>_amd64.deb`), `actions/attest-build-provenance` attests the assets including `dist/*.deb`, and the last step requests APT publication. That request is a `repository_dispatch` of type `publish-deb` to `frostyard/apt-publisher` with `repo` and `tag`, authenticated by `APT_PUBLISH_TOKEN`. It has no ref guard (a tag run's ref is `refs/tags/<tag>`, never `refs/heads/<default>`) and is not `continue-on-error`.

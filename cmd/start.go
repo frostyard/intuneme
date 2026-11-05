@@ -12,6 +12,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/nvidia"
+	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/provision"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
@@ -52,6 +53,7 @@ func runStart(r runner.Runner, root string) error {
 			return fmt.Errorf("sudo authentication failed: %w", err)
 		}
 		if err := refreshStartSecurity(r, cfg); err != nil {
+			problemrec.Error(problemrec.CodeSecurityReconcile, err)
 			return fmt.Errorf("security migration failed: %w", err)
 		}
 	}
@@ -60,6 +62,7 @@ func runStart(r runner.Runner, root string) error {
 		if !clix.DryRun {
 			// Heals containers booted before linger was unconditional.
 			if err := enableUserLinger(r, cfg); err != nil {
+				problemrec.Error(problemrec.CodeLingerFailed, err)
 				return err
 			}
 		}
@@ -148,6 +151,7 @@ func runStart(r runner.Runner, root string) error {
 
 	rep.Message("Booting container...")
 	if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets, nvidiaDevices); err != nil {
+		problemrec.Error(problemrec.CodeBootFailed, err)
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
@@ -160,7 +164,9 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	if !nspawn.IsRunning(r, cfg.MachineName) {
-		return fmt.Errorf("container failed to start within 30 seconds")
+		err := fmt.Errorf("container failed to start within 30 seconds")
+		problemrec.Error(problemrec.CodeBootFailed, err)
+		return err
 	}
 
 	// Enable linger as soon as the machine registers, before any other boot
@@ -168,6 +174,7 @@ func runStart(r runner.Runner, root string) error {
 	// and that nsenter path needs the user manager and session bus.
 	rep.Message("Enabling linger for container user...")
 	if err := enableUserLinger(r, cfg); err != nil {
+		problemrec.Error(problemrec.CodeLingerFailed, err)
 		return err
 	}
 
@@ -279,6 +286,7 @@ func runStart(r runner.Runner, root string) error {
 
 	if cfg.BrokerProxy {
 		if err := startProxy(r, root, "broker-proxy"); err != nil {
+			problemrec.Error(problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Broker proxy running.")
@@ -286,6 +294,7 @@ func runStart(r runner.Runner, root string) error {
 	}
 	if cfg.NotifyProxy {
 		if err := startProxy(r, root, "notify-proxy"); err != nil {
+			problemrec.Error(problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Notify proxy running.")
@@ -293,6 +302,7 @@ func runStart(r runner.Runner, root string) error {
 	}
 	if cfg.ScreencastProxy {
 		if err := startProxy(r, root, "screencast-proxy"); err != nil {
+			problemrec.Error(problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Screencast proxy running.")
