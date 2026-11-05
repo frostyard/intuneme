@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
+	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/spf13/cobra"
 )
@@ -38,7 +40,17 @@ func runOpen(r runner.Runner, root, command string, args []string) error {
 		parts = append(parts, nspawn.ShellQuote(a))
 	}
 
-	return nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " "))
+	if err := nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " ")); err != nil {
+		// Only the session bus timeout is an internal failure. Any other
+		// Exec error can be a missing sudoers rule or failed sudo
+		// authentication, which is never recorded. A bad config identity
+		// (host_uid = -1) also times out, so recordInternal checks it.
+		if errors.Is(err, nspawn.ErrSessionBusTimeout) {
+			recordInternal(cfg, problemrec.CodeSessionBusTimeout, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func makeOpenAppCmd(use, short, command string) *cobra.Command {

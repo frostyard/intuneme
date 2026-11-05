@@ -1,6 +1,7 @@
 package nspawn
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -279,18 +280,58 @@ func MachineUnit(r runner.Runner, machine string) (string, error) {
 // leader itself and drops to the configured UID before exec. Requires
 // passwordless sudo for the helper (installed by intuneme init/start via
 // /etc/sudoers.d/intuneme-exec).
+//
+// When the prologue gave up waiting for the user session bus, the returned
+// error matches ErrSessionBusTimeout (errors.Is). Its text is the same either
+// way.
 func Exec(r runner.Runner, uid int, command string) error {
 	script := buildSessionEnvScript(uid) +
 		fmt.Sprintf("\nnohup %s >/dev/null 2>&1 &", command)
 	if out, err := r.Run("sudo", buildNsenterArgs(script)...); err != nil {
 		// The prologue's stderr reaches the runner as output: it carries the
 		// reason the launch failed, such as a session bus that never appeared.
-		if msg := strings.TrimSpace(string(out)); msg != "" {
-			return fmt.Errorf("exec in container failed: %w: %s", err, msg)
+		msg := strings.TrimSpace(string(out))
+		e := &execError{busTimeout: isSessionBusTimeout(out, uid)}
+		if msg != "" {
+			e.err = fmt.Errorf("exec in container failed: %w: %s", err, msg)
+		} else {
+			e.err = fmt.Errorf("exec in container failed: %w", err)
 		}
-		return fmt.Errorf("exec in container failed: %w", err)
+		return e
 	}
 	return nil
+}
+
+// ErrSessionBusTimeout matches (errors.Is) an Exec error whose launch failed
+// because the container user session bus did not appear in time.
+var ErrSessionBusTimeout = errors.New("container user session bus timeout")
+
+// execError is an Exec failure. It adds no text to the wrapped error; it only
+// marks a session bus timeout for errors.Is.
+type execError struct {
+	err        error
+	busTimeout bool
+}
+
+func (e *execError) Error() string { return e.err.Error() }
+func (e *execError) Unwrap() error { return e.err }
+func (e *execError) Is(target error) bool {
+	return e.busTimeout && target == ErrSessionBusTimeout
+}
+
+// isSessionBusTimeout reports whether 1 line of out, trimmed, is exactly the
+// diagnostic that userBusWaitScript writes for uid. A substring match is not
+// enough: sudo quotes the submitted script (which holds the echo line) in a
+// policy-denial message.
+func isSessionBusTimeout(out []byte, uid int) bool {
+	re := regexp.MustCompile("^" + regexp.QuoteMeta(fmt.Sprintf("%s (/run/user/%d%s", sessionBusTimeoutPrefix, uid, sessionBusTimeoutMiddle)) +
+		"[0-9]+" + regexp.QuoteMeta(sessionBusTimeoutTail) + "$")
+	for _, line := range strings.Split(string(out), "\n") {
+		if re.MatchString(strings.TrimSpace(line)) {
+			return true
+		}
+	}
+	return false
 }
 
 // ExecForeground runs a command inside the container in the FOREGROUND with the
@@ -337,6 +378,19 @@ func EnsureBind(r runner.Runner, hostDir, probePath string) error {
 // outlasts linger setup instead of failing on it.
 const sessionBusWaitAttempts = 150
 
+// The diagnostic line that userBusWaitScript writes to stderr when the session
+// bus does not appear is
+//
+//	<prefix> (<$XDG_RUNTIME_DIR><middle><seconds><tail>
+//
+// Exec matches the whole line (isSessionBusTimeout) to mark the error as
+// ErrSessionBusTimeout; both use these constants so they cannot drift.
+const (
+	sessionBusTimeoutPrefix = "intuneme: the container user session bus"
+	sessionBusTimeoutMiddle = "/bus) is not ready after "
+	sessionBusTimeoutTail   = " s; run 'intuneme start' and try again"
+)
+
 // userBusWaitScript returns a shell snippet that waits, bounded, for the
 // container user's session bus at $XDG_RUNTIME_DIR/bus: attempts tries, 0.2s
 // apart. The GNOME extension can launch an app while `intuneme start` is still
@@ -357,7 +411,7 @@ while [ ! -S "$XDG_RUNTIME_DIR/bus" ] && [ "$_bus_wait" -lt %d ]; do
     _bus_wait=$((_bus_wait + 1))
 done
 if [ ! -S "$XDG_RUNTIME_DIR/bus" ]; then
-    echo "intuneme: the container user session bus ($XDG_RUNTIME_DIR/bus) is not ready after %d s; run 'intuneme start' and try again" >&2
+    echo "`+sessionBusTimeoutPrefix+` ($XDG_RUNTIME_DIR`+sessionBusTimeoutMiddle+`%d`+sessionBusTimeoutTail+`" >&2
     exit 1
 fi`, attempts, attempts/5)
 }

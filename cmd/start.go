@@ -12,6 +12,7 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/nvidia"
+	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/provision"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
@@ -47,6 +48,15 @@ func runStart(r runner.Runner, root string) error {
 		return fmt.Errorf("not initialized — run 'intuneme init' first")
 	}
 
+	// Problem records: the config load, the rootfs check, sudo -v and
+	// refreshStartSecurity are never recorded, because they fail for user
+	// setup (a bad config identity, an untrusted helper source) and for
+	// authentication. The boot, linger and proxy records below run only after
+	// these steps passed, so the identity is validated and sudo is
+	// authenticated; dry run never reaches them. recordInternal also records
+	// only when the config identity matches the running user and a container
+	// account (identityConsistent): a user name with no container account
+	// passes refreshStartSecurity but makes linger fail.
 	if !clix.DryRun {
 		if err := nspawn.ValidateSudo(r); err != nil {
 			return fmt.Errorf("sudo authentication failed: %w", err)
@@ -60,6 +70,7 @@ func runStart(r runner.Runner, root string) error {
 		if !clix.DryRun {
 			// Heals containers booted before linger was unconditional.
 			if err := enableUserLinger(r, cfg); err != nil {
+				recordInternal(cfg, problemrec.CodeLingerFailed, err)
 				return err
 			}
 		}
@@ -148,6 +159,7 @@ func runStart(r runner.Runner, root string) error {
 
 	rep.Message("Booting container...")
 	if err := nspawn.Boot(r, cfg.RootfsPath, cfg.MachineName, intuneHome, containerHome, sockets, nvidiaDevices); err != nil {
+		recordInternal(cfg, problemrec.CodeBootFailed, err)
 		return fmt.Errorf("failed to start container: %w", err)
 	}
 
@@ -160,7 +172,9 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	if !nspawn.IsRunning(r, cfg.MachineName) {
-		return fmt.Errorf("container failed to start within 30 seconds")
+		err := fmt.Errorf("container failed to start within 30 seconds")
+		recordInternal(cfg, problemrec.CodeBootFailed, err)
+		return err
 	}
 
 	// Enable linger as soon as the machine registers, before any other boot
@@ -168,6 +182,7 @@ func runStart(r runner.Runner, root string) error {
 	// and that nsenter path needs the user manager and session bus.
 	rep.Message("Enabling linger for container user...")
 	if err := enableUserLinger(r, cfg); err != nil {
+		recordInternal(cfg, problemrec.CodeLingerFailed, err)
 		return err
 	}
 
@@ -279,6 +294,7 @@ func runStart(r runner.Runner, root string) error {
 
 	if cfg.BrokerProxy {
 		if err := startProxy(r, root, "broker-proxy"); err != nil {
+			recordInternal(cfg, problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Broker proxy running.")
@@ -286,6 +302,7 @@ func runStart(r runner.Runner, root string) error {
 	}
 	if cfg.NotifyProxy {
 		if err := startProxy(r, root, "notify-proxy"); err != nil {
+			recordInternal(cfg, problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Notify proxy running.")
@@ -293,6 +310,7 @@ func runStart(r runner.Runner, root string) error {
 	}
 	if cfg.ScreencastProxy {
 		if err := startProxy(r, root, "screencast-proxy"); err != nil {
+			recordInternal(cfg, problemrec.CodeProxyFailed, err)
 			return err
 		}
 		rep.Message("Screencast proxy running.")

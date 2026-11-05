@@ -21,6 +21,7 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 
 - [0001 — Make the helper privilege drop irreversible](adr/0001-make-helper-privilege-drop-irreversible.md)
 - [0002 — Pin machine operations and scope shell authorization](adr/0002-pin-machine-operations-and-scope-shell-authorization.md)
+- [0003 — Record problems with std/problems](adr/0003-record-problems-with-std-problems.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
