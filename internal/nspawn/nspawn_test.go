@@ -663,13 +663,24 @@ func TestExecErrorWithoutOutput(t *testing.T) {
 // error text is the same as a plain wrapped error.
 func TestExecSessionBusTimeoutSentinel(t *testing.T) {
 	busOutput := "intuneme: the container user session bus (/run/user/1000/bus) is not ready after 30 s; run 'intuneme start' and try again\n"
+	otherUID := "intuneme: the container user session bus (/run/user/1001/bus) is not ready after 30 s; run 'intuneme start' and try again\n"
+	// sudo quotes the submitted command, and the script holds the echo line
+	// of the diagnostic: a policy denial is not a timeout.
+	denial := "Sorry, user brian is not allowed to execute '" + NsenterHelperPath + " exec " +
+		buildSessionEnvScript(1000) + "\nnohup microsoft-edge >/dev/null 2>&1 &' as root on host.\n"
+	echoed := "echo intuneme: the container user session bus (/run/user/1000/bus) is not ready after 30 s; run 'intuneme start' and try again\n"
 	tests := []struct {
-		name, output, want string
-		timeout            bool
+		name, output string
+		timeout      bool
 	}{
-		{"bus timeout", busOutput, "exec in container failed: exit status 1: " + strings.TrimSpace(busOutput), true},
-		{"sudo password", "sudo: a password is required\n", "exec in container failed: exit status 1: sudo: a password is required", false},
-		{"no output", "", "exec in container failed: exit status 1", false},
+		{"bus timeout", busOutput, true},
+		{"bus timeout among other lines", "session setup: warning\n  " + busOutput + "more\n", true},
+		{"bus timeout for another uid", otherUID, false},
+		{"sudo denial quoting the script", denial, false},
+		{"echo line", echoed, false},
+		{"diagnostic with a trailing word", strings.TrimSpace(busOutput) + " x\n", false},
+		{"sudo password", "sudo: a password is required\n", false},
+		{"no output", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -677,8 +688,12 @@ func TestExecSessionBusTimeoutSentinel(t *testing.T) {
 			if err == nil {
 				t.Fatal("failed launch reported as success")
 			}
-			if err.Error() != tt.want {
-				t.Errorf("error = %q, want %q", err.Error(), tt.want)
+			want := "exec in container failed: exit status 1"
+			if msg := strings.TrimSpace(tt.output); msg != "" {
+				want += ": " + msg
+			}
+			if err.Error() != want {
+				t.Errorf("error = %q, want %q", err.Error(), want)
 			}
 			if got := errors.Is(err, ErrSessionBusTimeout); got != tt.timeout {
 				t.Errorf("errors.Is(err, ErrSessionBusTimeout) = %v, want %v", got, tt.timeout)
@@ -688,9 +703,22 @@ func TestExecSessionBusTimeoutSentinel(t *testing.T) {
 			}
 		})
 	}
-	// The prologue writes the line that Exec looks for.
-	if !strings.Contains(userBusWaitScript(sessionBusWaitAttempts), `echo "`+sessionBusTimeoutPrefix+" ") {
-		t.Error("userBusWaitScript does not write sessionBusTimeoutPrefix")
+}
+
+// The real prologue's diagnostic, for the uid of the launch, is what Exec
+// matches: the script and the matcher cannot drift.
+func TestUserBusWaitDiagnosticMatches(t *testing.T) {
+	const uid = 4242424
+	// /run/user/4242424 does not exist, so the wait times out.
+	_, stderr, err := runShell(t, userBusWaitScript(1), "/run/user/"+strconv.Itoa(uid), nil)
+	if err == nil {
+		t.Fatal("bus wait did not time out")
+	}
+	if !isSessionBusTimeout([]byte(stderr), uid) {
+		t.Errorf("diagnostic %q does not match for uid %d", stderr, uid)
+	}
+	if isSessionBusTimeout([]byte(stderr), uid+1) {
+		t.Errorf("diagnostic %q matches another uid", stderr)
 	}
 }
 

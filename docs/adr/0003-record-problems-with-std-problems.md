@@ -42,6 +42,15 @@ helper, dispatched by `argv[0]` and run as root under sudo.
   session bus timeout (which can be a missing sudoers rule or a sudo
   password prompt). The 3 `start` codes run only after `sudo -v` and the
   security reconcile passed; dry run never reaches them.
+- A code is also recorded only when the config identity matches the running
+  user and the container account (`identityConsistent` in `cmd`): `host_uid`
+  is the running non-root UID, `host_user` is a plausible non-root name, and
+  the container's `/etc/passwd` has that name with that UID. Any read or
+  parse error fails closed: a lost record is better than a wrong one.
+- `open.session_bus_timeout` is recorded only when 1 output line is exactly
+  the prologue's timeout diagnostic for the configured UID. A substring is
+  not enough: sudo quotes the submitted script, which holds the `echo` of
+  that message, in a policy-denial message.
 - Codes are a stable contract: a new code is added, never renamed or reused.
 - The error text goes only to the journal `MESSAGE` field, never to a
   `FROSTYARD_*` field.

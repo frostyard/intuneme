@@ -43,9 +43,10 @@ func runOpen(r runner.Runner, root, command string, args []string) error {
 	if err := nspawn.Exec(r, cfg.HostUID, strings.Join(parts, " ")); err != nil {
 		// Only the session bus timeout is an internal failure. Any other
 		// Exec error can be a missing sudoers rule or failed sudo
-		// authentication, which is never recorded.
+		// authentication, which is never recorded. A bad config identity
+		// (host_uid = -1) also times out, so recordInternal checks it.
 		if errors.Is(err, nspawn.ErrSessionBusTimeout) {
-			problemrec.Error(problemrec.CodeSessionBusTimeout, err)
+			recordInternal(cfg, problemrec.CodeSessionBusTimeout, err)
 		}
 		return err
 	}

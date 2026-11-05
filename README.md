@@ -45,9 +45,12 @@ when it panics, or when 1 of 4 internal errors happens:
 | `open.session_bus_timeout` | `open` (or the GNOME extension) could not launch the app because the container user session bus did not appear within 30 seconds |
 
 A code is recorded only for an internal failure after the config was
-validated and sudo authentication passed. User setup and authentication errors
-(not initialized, not running, failed sudo authentication, a bad config, a
-user-owned helper source, a missing sudoers rule) are never recorded.
+validated and sudo authentication passed, and only when the configured user
+and UID match the user who runs intuneme and an account in the container.
+`open.session_bus_timeout` is recorded only for the exact timeout message of
+the configured UID. User setup and authentication errors (not initialized, not
+running, failed sudo authentication, a bad config, a user-owned helper source,
+a missing sudoers rule) are never recorded.
 
 The structured fields hold the app ID (`org.frostyard.intuneme`), the version,
 the runtime (`go`), the component (`cli`), the class (`panic` or `error`), and
