@@ -27,59 +27,99 @@
     },
     {
       "glob": "mise.toml",
-      "why": "supply chain: the tool pins that CI installs"
+      "why": "update verification: the tool pins that CI installs, checked against mise.lock"
     },
     {
       "glob": "mise.lock",
-      "why": "supply chain: the checksums of the tools that CI installs"
+      "why": "update verification: the checksums of the tools that CI installs"
     },
     {
       "glob": ".svu.yml",
-      "why": "release: the version configuration for release tags"
+      "why": "publication: the version configuration for release tags"
     },
     {
       "glob": ".goreleaser.yaml",
-      "why": "release: the build and package definitions GoReleaser runs"
+      "why": "publication: the build, signing and package definitions GoReleaser runs"
     },
     {
       "glob": "internal/nshelper/**",
-      "why": "privileged: the root nsenter-exec and machine-exec helpers"
+      "why": "auth: the root nsenter-exec and machine-exec helpers"
     },
     {
       "glob": "internal/sudoers/**",
-      "why": "privileged: installs the helpers, their config and the host sudoers rule"
+      "why": "auth: installs the helpers, their config and the host sudoers rule"
     },
     {
       "glob": "internal/sudo/**",
-      "why": "privileged: runs host commands through sudo"
+      "why": "auth: runs host commands through sudo"
     },
     {
       "glob": "internal/nspawn/**",
-      "why": "privileged: boots the machine and enters it through the helper"
+      "why": "auth: boots the machine and enters it through the helper"
     },
     {
       "glob": "internal/provision/**",
-      "why": "privileged: writes host polkit rules and the container session and privilege files as root"
+      "why": "auth: writes host polkit rules and the container session and privilege files as root"
     },
     {
       "glob": "internal/udev/**",
-      "why": "install: host udev rules and the hotplug script that udev runs as root"
+      "why": "auth: host udev rules and the hotplug script that udev runs as root"
     },
     {
       "glob": "polkit/**",
-      "why": "security: the host polkit rule"
+      "why": "auth: the host polkit rule"
     },
     {
       "glob": "cmd/extension/*.policy",
-      "why": "security: the polkit action of the GNOME extension"
+      "why": "auth: the polkit action of the GNOME extension"
     },
     {
       "glob": "ubuntu-intune/**",
-      "why": "supply chain: the container image, its sudoers, polkit and PAM files, and its cosign key"
+      "why": "auth: the container image, with its sudoers, polkit and PAM files"
     },
     {
       "glob": "scripts/fix-selinux.sh",
-      "why": "install: changes the host SELinux policy as root"
+      "why": "auth: changes the host SELinux policy as root"
+    },
+    {
+      "glob": "cmd/extension.go",
+      "why": "auth: installs the extension's polkit action with sudo"
+    },
+    {
+      "glob": "cmd/start.go",
+      "why": "auth: refreshes the helpers, sudoers and polkit files with sudo before boot"
+    },
+    {
+      "glob": "cmd/destroy.go",
+      "why": "destructive operations: deletes the rootfs, the polkit files and the sudoers rule with sudo"
+    },
+    {
+      "glob": "cmd/recreate.go",
+      "why": "destructive operations: deletes and replaces the rootfs with sudo"
+    },
+    {
+      "glob": "ubuntu-intune/cosign.pub",
+      "why": "signing and keys: the cosign key that verifies the container image"
+    },
+    {
+      "glob": "scripts/install-desktop-items.sh",
+      "why": "destructive operations: installs desktop entries and, with --uninstall, deletes them"
+    },
+    {
+      "glob": "scripts/completions.sh",
+      "why": "publication: a GoReleaser hook that builds release assets"
+    },
+    {
+      "glob": "scripts/manpages.sh",
+      "why": "publication: a GoReleaser hook that builds release assets"
+    },
+    {
+      "glob": "internal/nvidia/**",
+      "why": "auth: enters the container mount namespace as root to set up the Nvidia libraries"
+    },
+    {
+      "glob": "internal/puller/**",
+      "why": "auth: pulls the container image and extracts the rootfs as root"
     }
   ]
 }

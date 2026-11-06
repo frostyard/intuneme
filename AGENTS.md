@@ -51,6 +51,7 @@ intuneme writes panics and 4 coded internal errors to the local journal with `gi
 - Open a path under the container rootfs with `O_NONBLOCK|O_NOFOLLOW` and reject a non-regular file before you read it; parse a passwd entry strictly (7 fields, numeric UID and GID, absolute home) and fail closed.
 - Classify a failure by matching 1 full diagnostic line (for `open`, the exact session bus timeout line for the configured UID, `nspawn.ErrSessionBusTimeout`), never by a substring: sudo quotes the submitted script, which holds the `echo` of that message.
 - Pass the original error to `problemrec.Error`; its text goes only to the journal `MESSAGE` field. Never put error text in another field, and never change a returned error or output to record it.
+- A statement about what a record holds (README, site, docs) names the part it covers: the structured fields never hold file paths, line numbers or arguments, but the journal `MESSAGE` field holds the original error text or panic value, which can hold a path. Never write "the record never holds" for the whole record.
 - No network: a record is 1 datagram to the local journal socket. Never add a sender, a flag or output for problems.
 - Tests use `problemrectest.Use` (a `unixgram` socket in `t.TempDir()`). std caps a process at 10 records a minute and tests cannot reset it, so 1 test package writes at most 10 records.
 
@@ -90,7 +91,7 @@ Always run `make check` before committing, and `make ci BASE=origin/main` before
 
 ## Security and risk paths
 
-- `.github/risk-paths.json` lists the high-risk paths: governance and CI files, the release configuration, the privileged helpers and installers, the polkit files, `scripts/fix-selinux.sh` and `ubuntu-intune/`. A pull request that touches one gets the `risk:high` label from core's `risk-paths.yml` (frostyard/core ADR-0068). Never remove the label to make a pull request ready; the PR body names each matched path and why the change is safe. A new privileged helper, installer or root-run script gets an entry in the same change.
+- `.github/risk-paths.json` lists the high-risk paths: governance and CI files, the release configuration and hooks, every file that runs `sudo` (the privileged helpers, installers and the `cmd/` files that install or delete host files), the polkit files, the scripts in `scripts/` and `ubuntu-intune/`. Each `why` starts with 1 category of core's `docs/specs/risk-paths.md` (section B) and a colon. `risk_paths_test.go` checks the categories and that every non-test Go file that calls `"sudo"` and every `scripts/*.sh` is covered. A pull request that touches one gets the `risk:high` label from core's `risk-paths.yml` (frostyard/core ADR-0068). Never remove the label to make a pull request ready; the PR body names each matched path and why the change is safe. A new privileged helper, installer or root-run script gets an entry in the same change.
 - Report vulnerabilities as `SECURITY.md` says (GitHub private vulnerability reporting). Never put vulnerability details in a public issue or in `.memory/corrections.jsonl`.
 
 ## Corrections

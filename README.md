@@ -39,7 +39,7 @@ The [command reference](https://frostyard.github.io/intuneme/reference/cli/intun
 
 ## Problem records
 
-A release build writes 1 record to the local systemd journal when it panics or when 1 of 4 internal errors happens, and it sends nothing over the network. The record holds the app ID, the version and a stable code, or for a panic the function names of the stack; it never holds file paths, line numbers or arguments. [Problem records](https://frostyard.github.io/intuneme/reference/problem-records/) lists the codes. To read them:
+A release build writes 1 record to the local systemd journal when it panics or when 1 of 4 internal errors happens, and it sends nothing over the network. Its structured fields hold the app ID, the version and a stable code, or for a panic the function names of the stack, and never file paths, line numbers or arguments. The original error text or panic value stays in the local journal `MESSAGE` field only. [Problem records](https://frostyard.github.io/intuneme/reference/problem-records/) lists the codes. To read them:
 
 ```bash
 journalctl --user MESSAGE_ID=8915bdd215c84cbab0c31c05a1a33e7e

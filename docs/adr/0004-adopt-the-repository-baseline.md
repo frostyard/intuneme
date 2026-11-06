@@ -41,8 +41,9 @@ rows:
   aliases, the `docs/README.md` index, the risk-path list, the corrections
   file and the hash pins of the 2 files copied from core.
 - **Risk paths.** `.github/risk-paths.json` lists the governance files, the
-  release configuration, the privileged helpers and installers, the polkit
-  files and the container image; `.github/workflows/risk-paths.yml` calls
+  release configuration, every file that runs `sudo`, the scripts, the polkit
+  files and the container image, each with a category of core's risk-paths
+  spec (`risk_paths_test.go` checks both); `.github/workflows/risk-paths.yml` calls
   core's labeller ([core ADR-0068](https://github.com/frostyard/core/blob/main/docs/adr/0068-label-pull-requests-that-touch-high-risk-paths.md)).
 - **Leftovers.** `docs/superpowers/`, the 28 finished plans, `notes.md` and
   `test_build.sh` are deleted. Each plan's feature is in the code, and its
