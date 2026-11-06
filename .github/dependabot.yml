@@ -26,9 +26,14 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     ignore:
-      # Stay on Ubuntu 24.04 LTS: Microsoft does not support the Intune agent
-      # and the identity broker on Ubuntu 26.04 yet. A new major needs its own
-      # change (the Microsoft repository key, package checks and an enrollment
-      # test), not a digest bump. Remove this when Intune supports the release.
+      # Stay on Ubuntu 24.04 LTS: Microsoft supports the Intune agent and the
+      # identity broker only on LTS releases, and not yet on Ubuntu 26.04.
+      # Dependabot reads an interim release (24.10, 25.04) as a minor or major
+      # version, so ignore both; digest updates of 24.04 continue. A move to a
+      # new LTS needs its own change (the Microsoft repository key, package
+      # checks and an enrollment test), not a Dependabot bump. Remove this when
+      # Intune supports the next LTS. dependabot_config_test.go pins it.
       - dependency-name: "library/ubuntu"
-        update-types: ["version-update:semver-major"]
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"

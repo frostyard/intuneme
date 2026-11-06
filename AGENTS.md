@@ -76,6 +76,7 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. A call of a frostyard/core reusable workflow (core has no release tags) is SHA-pinned with a comment that names its source instead. Dependabot updates the SHA and the comment together.
 `.github/dependabot.yml` ignores major updates of `redhat-actions/buildah-build`: v3 defaults `squash` to true and would flatten the image to 1 layer, so the build stays on v2.13 (#233).
+The docker update for `/ubuntu-intune` ignores `library/ubuntu` major and minor updates: Intune supports only Ubuntu LTS releases, and Dependabot reads an interim release (24.04 to 24.10) as a minor update. Patch and digest updates continue. `dependabot_config_test.go` pins it.
 
 ## Gate
 
