@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "paths": [
+    {
+      "glob": ".github/risk-paths.json",
+      "why": "governance: the high-risk path list"
+    },
+    {
+      "glob": ".github/workflows/**",
+      "why": "governance: CI, the risk-paths caller and token permissions"
+    },
+    {
+      "glob": "Makefile",
+      "why": "governance: the verify gate"
+    },
+    {
+      "glob": "scripts/check-template.mjs",
+      "why": "governance: the template verification gate"
+    },
+    {
+      "glob": "scripts/check-corrections.mjs",
+      "why": "governance: the corrections validation gate"
+    },
+    {
+      "glob": "scripts/lib/**",
+      "why": "governance: the vendored risk-path validator and matcher"
+    },
+    {
+      "glob": "mise.toml",
+      "why": "update verification: the tool pins that CI installs, checked against mise.lock"
+    },
+    {
+      "glob": "mise.lock",
+      "why": "update verification: the checksums of the tools that CI installs"
+    },
+    {
+      "glob": ".svu.yml",
+      "why": "publication: the version configuration for release tags"
+    },
+    {
+      "glob": ".goreleaser.yaml",
+      "why": "publication: the build, signing and package definitions GoReleaser runs"
+    },
+    {
+      "glob": "internal/nshelper/**",
+      "why": "auth: the root nsenter-exec and machine-exec helpers"
+    },
+    {
+      "glob": "internal/sudoers/**",
+      "why": "auth: installs the helpers, their config and the host sudoers rule"
+    },
+    {
+      "glob": "internal/sudo/**",
+      "why": "auth: runs host commands through sudo"
+    },
+    {
+      "glob": "internal/nspawn/**",
+      "why": "auth: boots the machine and enters it through the helper"
+    },
+    {
+      "glob": "internal/provision/**",
+      "why": "auth: writes host polkit rules and the container session and privilege files as root"
+    },
+    {
+      "glob": "internal/udev/**",
+      "why": "auth: host udev rules and the hotplug script that udev runs as root"
+    },
+    {
+      "glob": "polkit/**",
+      "why": "auth: the host polkit rule"
+    },
+    {
+      "glob": "cmd/extension/*.policy",
+      "why": "auth: the polkit action of the GNOME extension"
+    },
+    {
+      "glob": "ubuntu-intune/**",
+      "why": "auth: the container image, with its sudoers, polkit and PAM files"
+    },
+    {
+      "glob": "scripts/fix-selinux.sh",
+      "why": "auth: changes the host SELinux policy as root"
+    },
+    {
+      "glob": "cmd/extension.go",
+      "why": "auth: installs the extension's polkit action with sudo"
+    },
+    {
+      "glob": "cmd/start.go",
+      "why": "auth: refreshes the helpers, sudoers and polkit files with sudo before boot"
+    },
+    {
+      "glob": "cmd/destroy.go",
+      "why": "destructive operations: deletes the rootfs, the polkit files and the sudoers rule with sudo"
+    },
+    {
+      "glob": "cmd/recreate.go",
+      "why": "destructive operations: deletes and replaces the rootfs with sudo"
+    },
+    {
+      "glob": "ubuntu-intune/cosign.pub",
+      "why": "signing and keys: the cosign key that verifies the container image"
+    },
+    {
+      "glob": "scripts/install-desktop-items.sh",
+      "why": "destructive operations: installs desktop entries and, with --uninstall, deletes them"
+    },
+    {
+      "glob": "scripts/completions.sh",
+      "why": "publication: a GoReleaser hook that builds release assets"
+    },
+    {
+      "glob": "scripts/manpages.sh",
+      "why": "publication: a GoReleaser hook that builds release assets"
+    },
+    {
+      "glob": "internal/nvidia/**",
+      "why": "auth: enters the container mount namespace as root to set up the Nvidia libraries"
+    },
+    {
+      "glob": "internal/puller/**",
+      "why": "auth: pulls the container image and extracts the rootfs as root"
+    },
+    {
+      "glob": "main.go",
+      "why": "auth: dispatches the nsenter-exec and machine-exec helpers, which run as root"
+    },
+    {
+      "glob": "cmd/init.go",
+      "why": "auth: installs the helpers, the sudoers rule and the SELinux policy with sudo"
+    },
+    {
+      "glob": "cmd/udev.go",
+      "why": "auth: installs and removes the host udev rules and the root-run hotplug script"
+    },
+    {
+      "glob": "cmd/stop.go",
+      "why": "destructive operations: removes the host udev rules and powers off the machine"
+    }
+  ]
+}

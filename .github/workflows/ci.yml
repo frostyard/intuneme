@@ -1,3 +1,9 @@
+# CI workflow. The jobs together run every prerequisite of `make ci`
+# (core ADR-0073): each prerequisite runs as its own `make <target>` step, so a
+# new prerequisite of `ci` needs a job step in the same change. The name stays
+# `Tests` because snapshot.yml triggers on it. Actions use full commit SHA
+# pins, the token has no permissions by default, and checkout does not persist
+# credentials (core ADR-0021).
 name: Tests
 
 on:
@@ -13,38 +19,29 @@ on:
 permissions: {}
 
 jobs:
-  lint:
-    name: Lint
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version-file: go.mod
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+      # golangci-lint and Node come from mise.toml and mise.lock, checksum
+      # verified, exactly as a developer's `mise install` does.
+      - name: Install the pinned tools
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
-          version: latest
-
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: stable
+          install: true
+          install_args: golangci-lint node
+          cache: true
 
       - name: Prepare namespace regression tests
         run: |
@@ -61,37 +58,15 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Run tests
-        run: go test -v -race ./...
+      - name: Run make verify
+        run: make verify
         env:
           INTUNEME_REQUIRE_KERNEL_TESTS: "1"
 
-  verify:
-    name: Verify
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: stable
-
-      - name: Verify go.mod is tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Check formatting
-        run: |
-          gofmt -l .
-          test -z "$(gofmt -l .)"
+      # A push event has no pull request, so BASE is empty and the check is
+      # skipped there.
+      - name: Check corrections against the base
+        run: make corrections-base BASE=${{ github.event.pull_request.base.sha }}
 
   vulncheck:
     name: Vulncheck
@@ -109,9 +84,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # The govulncheck version is pinned, and the Go checksum database verifies the module.
-      - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      # The govulncheck release is pinned in the Makefile (`make vulncheck`),
+      # and the Go checksum database verifies the module.
+      - name: Run make vulncheck
+        run: make vulncheck
 
   build:
     name: Build
@@ -125,7 +101,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version-file: go.mod
 
-      - name: Build binary
+      - name: Run make build
         run: make build

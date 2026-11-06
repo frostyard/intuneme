@@ -2,7 +2,7 @@
 
 Go CLI tool that provisions and manages a systemd-nspawn container running Microsoft Intune on an immutable Linux host.
 
-This file (`AGENTS.md`) is the canonical agent instructions file — `CLAUDE.md`, `GEMINI.md`, and `.cursorrules` are symlinks to it (frostyard/core ADR-0018).
+This file (`AGENTS.md`) is the canonical agent instructions file — `CLAUDE.md`, `GEMINI.md`, `.cursorrules` and `.github/copilot-instructions.md` are relative symlinks to it, and `.claude/skills` links to `.agents/skills` (frostyard/core ADR-0018, ADR-0029). Edit `AGENTS.md`, never an alias; `make verify` checks the links.
 
 ## Architecture
 
@@ -45,12 +45,13 @@ intuneme writes panics and 4 coded internal errors to the local journal with `gi
 
 - The recorder starts in `main()` only after the helper dispatch. Never make a recorder, call `problemrec.Error`, or defer `RecoverPanic` in `nshelper.Main`, `nshelper.MachineMain` or anything they call: they run as root.
 - `defer rec.RecoverPanic()` stays a direct defer in `main()`, so a panic still exits 2.
-- Codes (`problemrec.Code*`) are a stable contract: add a new one (with a test, the README table, `docs/design/overview.md` and ADR-0003), never rename or reuse one. Record only internal failures, never user errors.
+- Codes (`problemrec.Code*`) are a stable contract: add a new one (with a test, the table in `site/reference/problem-records.md`, `docs/design/overview.md` and ADR-0003), never rename or reuse one. Record only internal failures, never user errors.
 - A code is recorded only for an internal failure after config validation and sudo authentication passed; user setup and authentication errors are never recorded. Record a code only where the failure cannot come from user config or sudo authentication (so `refreshStartSecurity` and any `sudo` failure of `nspawn.Exec` other than `nspawn.ErrSessionBusTimeout` get no record), and prove each exclusion with a socket-backed negative test (`problemrectest.Use` then `ExpectNone`), never with a nil recorder.
 - Record only through `recordInternal(cfg, code, err)` in `cmd`: it records only when `identityConsistent(cfg)` holds (the config `host_uid` is the running non-root UID, `host_user` is a plausible non-root name, and the container's `/etc/passwd` has exactly 1 strict entry for that name with that UID; any read or parse error fails closed). A config that passes validation can still name no container account. With an inert recorder `recordInternal` returns at once and reads no file.
 - Open a path under the container rootfs with `O_NONBLOCK|O_NOFOLLOW` and reject a non-regular file before you read it; parse a passwd entry strictly (7 fields, numeric UID and GID, absolute home) and fail closed.
 - Classify a failure by matching 1 full diagnostic line (for `open`, the exact session bus timeout line for the configured UID, `nspawn.ErrSessionBusTimeout`), never by a substring: sudo quotes the submitted script, which holds the `echo` of that message.
 - Pass the original error to `problemrec.Error`; its text goes only to the journal `MESSAGE` field. Never put error text in another field, and never change a returned error or output to record it.
+- A statement about what a record holds (README, site, docs) names the part it covers: the structured fields never hold file paths, line numbers or arguments, but the journal `MESSAGE` field holds the original error text or panic value, which can hold a path. Never write "the record never holds" for the whole record.
 - No network: a record is 1 datagram to the local journal socket. Never add a sender, a flag or output for problems.
 - Tests use `problemrectest.Use` (a `unixgram` socket in `t.TempDir()`). std caps a process at 10 records a minute and tests cannot reset it, so 1 test package writes at most 10 records.
 
@@ -73,12 +74,29 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 ## CI workflows
 
-Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. Dependabot updates the SHA and the comment together.
+Every external action in `.github/workflows` is pinned to a full commit SHA with a `# vX.Y.Z` comment (frostyard/core ADR-0021). `workflow_pinning_test.go` enforces this. A call of a frostyard/core reusable workflow (core has no release tags) is SHA-pinned with a comment that names its source instead. Dependabot updates the SHA and the comment together.
 `.github/dependabot.yml` ignores major updates of `redhat-actions/buildah-build`: v3 defaults `squash` to true and would flatten the image to 1 layer, so the build stays on v2.13 (#233).
+
+## Gate
+
+- `mise install` provisions the pinned tools (`mise.toml`, checksums in `mise.lock`): golangci-lint and Node. Go comes from `go.mod` only. Bump golangci-lint in `mise.toml` and run `mise lock`; never pin it in a workflow or the `Makefile`.
+- `make verify` is the credential-free gate and changes no file: tidy diff, vet, gofmt check, the pinned golangci-lint, the template gate (`scripts/check-template.mjs`) and the race tests. `make check` runs `make fmt`, then `make verify`. `make ci BASE=origin/main` adds the corrections check against `BASE`, govulncheck and the build.
+- `ci` has no recipe: `.github/workflows/ci.yml` runs each prerequisite as its own `make <target>` step (frostyard/core ADR-0073). A new prerequisite of `ci` needs its step in `ci.yml` in the same change. Keep the workflow name `Tests`: `snapshot.yml` follows it.
+- `scripts/check-template.mjs`, `scripts/check-corrections.mjs`, `scripts/lib/risk-paths.mjs` and `test/check-template.test.mjs` are copies from bketelsen/agentic-template. Never edit them here; take a new copy.
+- Every doc under `docs/` must be linked from `docs/README.md`, or `make verify` fails.
 
 ## Before committing
 
-Always run `make fmt` and `make lint` before committing. Fix any lint errors before creating commits.
+Always run `make check` before committing, and `make ci BASE=origin/main` before you open a pull request. Fix any lint errors before creating commits.
+
+## Security and risk paths
+
+- `.github/risk-paths.json` lists the high-risk paths: governance and CI files, the release configuration and hooks, every file that runs `sudo` or installs or removes host privilege files (the privileged helpers, `main.go` and the `cmd/` files that install or delete host files), the polkit files, the scripts in `scripts/` and `ubuntu-intune/`. Each `why` starts with 1 category of core's `docs/specs/risk-paths.md` (section B) and a colon. `risk_paths_test.go` checks the categories and the coverage of every non-test Go file that calls `"sudo"` or an `Install*`, `Remove*`, `Main` or `MachineMain` function of `sudoers`, `udev`, `nshelper` or `provision`, of its `privilegedRequired` entry points (`main.go` and the `cmd/` installers), and of every `scripts/*.sh`. A new privileged entry point that the scan cannot see goes in `privilegedRequired`. A pull request that touches one gets the `risk:high` label from core's `risk-paths.yml` (frostyard/core ADR-0068). Never remove the label to make a pull request ready; the PR body names each matched path and why the change is safe. A new privileged helper, installer or root-run script gets an entry in the same change.
+- Report vulnerabilities as `SECURITY.md` says (GitHub private vulnerability reporting). Never put vulnerability details in a public issue or in `.memory/corrections.jsonl`.
+
+## Corrections
+
+`.memory/corrections.jsonl` is append-only, 1 JSON object per line with exactly `date`, `scope`, `correction`, `evidence` and `promoted_to` (`.memory/README.md`). A blocking review point adds 1 line in the pull request that fixes it, with a guard (a test that fails without the fix, or an `AGENTS.md` rule). Set `promoted_to` to the file that now holds the rule; never edit an older line.
 
 ## Documentation rules
 
@@ -97,9 +115,13 @@ decision rationale rather than user-facing guides.
 - **update documentation** After any change to source code, update relevant
   documentation in AGENTS.md, README.md, and `docs/`. A task is not complete
   without reviewing and updating relevant documentation.
-- Update `README.md` when adding new commands, flags, or changing existing
-  functionality. The README contains a commands table and feature sections
-  that must stay in sync with the code.
+- `README.md` is a `tool` README to frostyard/core's README spec (ADR-0072):
+  a short top block, `What it does`, `Install`, `Use`, `Problem records`,
+  `Develop` and `Where to go next`, at most 1000 words. Check it with
+  `node .agents/skills/frostyard-readme/scripts/check-readme.mjs .` (the skill
+  comes with core's skills sync). Guides, the command reference and long
+  tables go to the site in `site/`, not to the README. Update the `What it
+  does` list when a feature is added or removed.
 - User-facing docs are separate: the MkDocs site content lives in `site/`
   (`mkdocs.yml`, published to GitHub Pages).
 

@@ -75,6 +75,8 @@ nav:
       - CLI Commands: reference/cli/intuneme.md
       - Configuration: reference/configuration.md
       - Storage Layout: reference/storage.md
+      - Helper Security: reference/helper-security.md
+      - Problem Records: reference/problem-records.md
   - Contributing: contributing.md
 
 extra_css:

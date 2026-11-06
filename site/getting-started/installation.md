@@ -26,6 +26,13 @@ Pre-built packages are available on the [GitHub releases page](https://github.co
     sudo rpm -i frostyard-intuneme-X.Y.Z-1.x86_64.rpm
     ```
 
+## Arch Linux (AUR)
+
+Arch Linux users can install `intuneme` or `intuneme-bin` from the Arch User Repository (AUR):
+
+- [intuneme](https://aur.archlinux.org/packages/intuneme) (build from source)
+- [intuneme-bin](https://aur.archlinux.org/packages/intuneme-bin) (pre-compiled binary)
+
 ## go install
 
 If you have Go 1.26 or later installed, you can install directly from source:
