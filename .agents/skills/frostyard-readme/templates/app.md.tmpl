@@ -1,0 +1,44 @@
+<!-- readme-kind: app -->
+<img src="{icon path}" alt="{name} icon" width="112" align="right">
+
+# {name}
+
+**{Tagline of at most 12 words.}**
+
+{name} is a desktop app for {who} that {does what}. {1 sentence: how it differs from what the reader knows.}
+
+**Status:** pre-release. {At most 1 sentence: what works today.}
+
+**Documentation:** [frostyard.github.io/{repo}](https://frostyard.github.io/{repo}/)
+
+## What it does
+
+- **{Feature}.** {1 or 2 sentences.} [{Guide}](https://frostyard.github.io/{repo}/guides/{page}/)
+- **{Feature}.** {1 or 2 sentences.} [{Guide}](https://frostyard.github.io/{repo}/guides/{page}/)
+
+## Install
+
+{name} is on the [Frostyard Flatpak remote](https://github.com/frostyard/flatpak-index). Add it and Flathub (for the runtime) once, for your user, then install {name} and update it with `flatpak update`:
+
+```sh
+flatpak remote-add --user --if-not-exists frostyard https://frostyard.github.io/flatpak-index/frostyard.flatpakrepo
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user frostyard {app ID}
+```
+
+## Develop
+
+```sh
+mise install   # the pinned tools
+make ci        # what CI runs
+make run       # build and start the app
+```
+
+[Build from source](https://frostyard.github.io/{repo}/contributing/build/) covers the toolchain and the Flatpak build.
+
+## Where to go next
+
+- [AGENTS.md](AGENTS.md): the rules for agents and contributors.
+- [docs/README.md](docs/README.md): the decisions, designs, specs and plans.
+- [SECURITY.md](SECURITY.md): report a vulnerability privately.
+- [LICENSE](LICENSE): MIT.

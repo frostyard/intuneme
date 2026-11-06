@@ -1,0 +1,42 @@
+<!-- readme-kind: image -->
+# {name}
+
+{name} builds {base} bootc OCI images and system extensions (sysexts) with {builder}, for {who}.
+
+**Status:** pre-release. {At most 1 sentence: what is tested.}
+
+**Documentation:** [frostyard.org/docs](https://frostyard.org/docs/)
+
+## Images
+
+| Image | Purpose | Base |
+| --- | --- | --- |
+| **{Name}** (`{id}`) | {purpose} | {base and kernel} |
+
+## Install
+
+Download the installer, check it, and follow the [installation guide](docs/installing.md):
+
+- [Installer ISO](https://repository.frostyard.org/isos/{path})
+- [SHA256SUMS](https://repository.frostyard.org/isos/{path}/SHA256SUMS) and its [signature](https://repository.frostyard.org/isos/{path}/SHA256SUMS.gpg)
+
+## How it works
+
+{1 paragraph: how an image is built and updated.} The [overview](docs/design/overview.md) has the details.
+
+## Develop
+
+```sh
+mise install   # the pinned tools
+just           # list the build recipes
+make ci        # what CI runs
+```
+
+Image builds and VM tests need privileged tools: see [docs/design/build-pipeline.md](docs/design/build-pipeline.md).
+
+## Where to go next
+
+- [AGENTS.md](AGENTS.md): the rules for agents and contributors.
+- [docs/README.md](docs/README.md): the decisions, designs, specs and plans.
+- [SECURITY.md](SECURITY.md): report a vulnerability privately.
+- [LICENSE](LICENSE): MIT.
