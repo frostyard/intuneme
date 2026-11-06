@@ -120,6 +120,22 @@
     {
       "glob": "internal/puller/**",
       "why": "auth: pulls the container image and extracts the rootfs as root"
+    },
+    {
+      "glob": "main.go",
+      "why": "auth: dispatches the nsenter-exec and machine-exec helpers, which run as root"
+    },
+    {
+      "glob": "cmd/init.go",
+      "why": "auth: installs the helpers, the sudoers rule and the SELinux policy with sudo"
+    },
+    {
+      "glob": "cmd/udev.go",
+      "why": "auth: installs and removes the host udev rules and the root-run hotplug script"
+    },
+    {
+      "glob": "cmd/stop.go",
+      "why": "destructive operations: removes the host udev rules and powers off the machine"
     }
   ]
 }
