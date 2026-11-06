@@ -46,7 +46,7 @@ This skill guides the creation of robust, idiomatic error handling in Go applica
 2. **Errors MUST be wrapped with context** using `fmt.Errorf("{context}: %w", err)`
 3. **Error strings MUST be lowercase**, without trailing punctuation
 4. **Use `%w` internally, `%v` at system boundaries** to control error chain exposure
-5. **MUST use `errors.Is` for sentinel matching and `errors.As`/`errors.AsType` for typed chain inspection** instead of direct comparison or bare type assertions. For Go 1.26+, prefer `errors.AsType[T]`(`err`) when `T` implements `error`; use `errors.As(err, &target)` for Go <1.26 or for non-error interface targets. <!-- Frostyard override: the call is split out of the code span, which core's docs gate would read as a link. -->
+5. **MUST use `errors.Is` for sentinel matching and `errors.As`/`errors.AsType` for typed chain inspection** instead of direct comparison or bare type assertions. For Go 1.26+, prefer `errors.AsType[T](err)` when `T` implements `error`; use `errors.As(err, &target)` for Go <1.26 or for non-error interface targets.
 6. **SHOULD use `errors.Join`** (Go 1.20+) to combine independent errors
 7. **Errors MUST be either logged OR returned**, NEVER both (single handling rule)
 8. **Use sentinel errors** for expected conditions, custom types for carrying data
