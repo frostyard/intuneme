@@ -7,7 +7,7 @@ The container image defines everything that runs inside the nspawn container. It
 The `Containerfile` uses a multi-stage build:
 
 1. **scratch AS ctx** — Copies `build_files/` (build script and chunk helper) into a minimal stage, mounted into the builder via `--mount=type=bind`
-2. **ubuntu:24.04 AS builder** — Static `system_files/` are copied directly into this image, then the build script runs with cache mounts for `/var/cache/apt`, `/var/log`, `/var/lib/apt`, `/var/lib/dpkg/updates` (persistent across builds) and `/tmp` (tmpfs). After the build script finishes, the `chunk` helper tags every file with its owning package name (`setfattr -n user.component`) so chunkah can group files by package into layers.
+2. **ubuntu:24.04 AS builder** — Static `system_files/` are copied directly into this image, then the build script runs with cache mounts for `/var/cache/apt`, `/var/log`, `/var/lib/apt`, `/var/lib/dpkg/updates` (persistent across builds) and `/tmp` (tmpfs). The cache mount is `/var/cache/apt`, never all of `/var/cache`: a cache mount hides what the build writes under it, and `cracklib-runtime` writes its dictionaries to `/var/cache/cracklib`. Without them `chpasswd` reports `cracklib_dict.pwd: No such file or directory` during `init`, and Intune reports the password policy as not compliant. After the build script finishes, the `chunk` helper tags every file with its owning package name (`setfattr -n user.component`) so chunkah can group files by package into layers.
 3. **chunkah** — Rechunks the builder output into max 64 layers for efficient OCI distribution
 4. **final** — Outputs the rechunked OCI archive
 

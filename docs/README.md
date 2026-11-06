@@ -14,6 +14,13 @@ This tree (formerly `yeti/`) is the engineering documentation, written to be
 maximally useful in an agent's context window. The **user-facing** MkDocs site
 is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 `docs_dir: site`), published to GitHub Pages by `.github/workflows/docs.yml`.
+Its move to ProperDocs and MaterialX
+([core ADR-0070](https://github.com/frostyard/core/blob/main/docs/adr/0070-build-tool-docs-sites-with-materialx-on-github-pages.md))
+is a separate change.
+
+Outside this tree: [`AGENTS.md`](../AGENTS.md) holds the rules for agents,
+and [`.memory/corrections.jsonl`](../.memory/corrections.jsonl) is the
+append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
 
 ## Index
 
@@ -22,6 +29,7 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
 - [0001 — Make the helper privilege drop irreversible](adr/0001-make-helper-privilege-drop-irreversible.md)
 - [0002 — Pin machine operations and scope shell authorization](adr/0002-pin-machine-operations-and-scope-shell-authorization.md)
 - [0003 — Record problems with std/problems](adr/0003-record-problems-with-std-problems.md)
+- [0004 — Adopt the frostyard repository baseline](adr/0004-adopt-the-repository-baseline.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
@@ -48,34 +56,11 @@ is separate: its content lives in [`site/`](../site/) (`mkdocs.yml`
   `ghcr.io/frostyard/ubuntu-intune` image: build stages, package set, static
   config, tag scheme
 
-Historical (superpowers workflow, point-in-time):
-
-- [MkDocs site design](superpowers/specs/2026-03-23-mkdocs-site-design.md)
-- [Stop-wait design](superpowers/specs/2026-03-10-stop-wait-design.md)
-- [Display marker fix design](superpowers/specs/2026-03-10-display-marker-fix-design.md)
-
 ### Plans
 
-Historical point-in-time design/implementation plans (kept as-is; the living
-docs above reflect current reality):
-
-- intuneme CLI — [design](plans/2026-02-13-intuneme-cli-design.md), [implementation](plans/2026-02-13-intuneme-implementation.md)
-- intuneme v2 — [design](plans/2026-02-13-intuneme-v2-design.md), [implementation](plans/2026-02-13-intuneme-v2-implementation.md)
-- Audio support — [design](plans/2026-02-13-audio-support-design.md), [implementation](plans/2026-02-13-audio-support-implementation.md)
-- Release pipeline — [design](plans/2026-02-13-release-pipeline-design.md), [implementation](plans/2026-02-13-release-pipeline-implementation.md)
-- Broker proxy — [design](plans/2026-02-17-broker-proxy-design.md), [implementation](plans/2026-02-17-broker-proxy-implementation.md)
-- Versioned container pulls — [design](plans/2026-02-17-versioned-container-pulls-design.md), [implementation](plans/2026-02-17-versioned-container-pulls-implementation.md)
-- Webcam passthrough — [design](plans/2026-02-17-webcam-passthrough-design.md), [implementation](plans/2026-02-17-webcam-passthrough-implementation.md)
-- Chromium container fix — [design](plans/2026-02-18-chromium-container-fix-design.md), [implementation](plans/2026-02-18-chromium-container-fix-implementation.md)
-- GNOME extension — [design](plans/2026-02-18-gnome-extension-design.md), [implementation](plans/2026-02-18-gnome-extension-implementation.md)
-- Multi-backend puller — [design](plans/2026-02-18-multi-backend-puller-design.md), [implementation](plans/2026-02-18-multi-backend-puller-implementation.md)
-- Password prompt — [design](plans/2026-02-18-password-prompt-design.md), [implementation](plans/2026-02-18-password-prompt-implementation.md)
-- Recreate container — [design](plans/2026-02-18-recreate-container-design.md), [implementation](plans/2026-02-18-recreate-container-implementation.md)
-- Render GID conflict — [design](plans/2026-03-03-render-gid-conflict-design.md), [implementation](plans/2026-03-03-render-gid-conflict-implementation.md)
-- clix integration — [design](plans/2026-03-04-clix-integration-design.md), [implementation](plans/2026-03-04-clix-integration-implementation.md)
-- MkDocs site — [plan](superpowers/plans/2026-03-23-mkdocs-site.md)
-- Stop-wait — [implementation](superpowers/plans/2026-03-10-stop-wait-implementation.md)
-- Display marker fix — [plan](superpowers/plans/2026-03-10-display-marker-fix.md)
+No open plans. Finished plans were removed when their work landed
+([ADR-0004](adr/0004-adopt-the-repository-baseline.md)); the designs and specs
+above describe the code as it is, and git history keeps the old plans.
 
 ## Conventions
 

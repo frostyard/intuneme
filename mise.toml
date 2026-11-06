@@ -1,0 +1,12 @@
+# Tool pins for this repository. Go comes from go.mod — never pin it here.
+# Every tool the gates invoke is listed; mise.lock carries the checksums.
+# `mise install` provisions the same versions locally and in CI.
+[settings]
+idiomatic_version_file_enable_tools = ["go"]
+lockfile = true
+
+[tools]
+golangci-lint = "2.15.0"
+# The template gate (make verify) runs scripts/check-template.mjs and the Node
+# test file, so the Node release is pinned here too. Node 24 LTS.
+node = "24.22.2"

@@ -1,7 +1,8 @@
 /intune-mkosi
 /noahs-notes.md
 /noahs-setup.sh
-/.claude
+/.claude/*
+!/.claude/skills
 /intuneme
 .envrc
 /completions

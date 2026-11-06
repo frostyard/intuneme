@@ -383,7 +383,7 @@ The puller detects available tools in order: podman → skopeo+umoci → docker.
 The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
 - Always adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces; renderer sandbox stays active)
 - The image ships `/etc/opt/edge/policies/managed/intuneme-command-line-flags.json`; `provision.InstallSessionScripts` reinstalls it on every `intuneme start`, so existing containers receive it with no recreate
-- The flag stays because the GPU process sandbox crashes inside nspawn with `SIGTRAP` (see `docs/plans/2026-02-18-chromium-container-fix-design.md`). The GPU process stays unsandboxed as before, and the policy also hides the banner for any other unsafe flag that a user adds
+- The flag stays because the GPU process sandbox crashes inside nspawn with `SIGTRAP`: it tries to create a user namespace (`CLONE_NEWUSER`), which nspawn restricts, and Chromium crashes before it can fall back to software rendering. The GPU process stays unsandboxed as before, and the policy also hides the banner for any other unsafe flag that a user adds
 - When `WAYLAND_DISPLAY` is set: unsets `DISPLAY`, adds `--enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland`
 
 ### GNOME Shell Extension
@@ -494,6 +494,17 @@ This repository therefore holds no package-signing key or R2 credentials and doe
 Every snapshot run for a successful Tests completion joins the concurrency group `snapshot-dev`, with `cancel-in-progress: false`. A run for a failed Tests completion skips its job, so it gets a group of its own (`snapshot-skip-<run_id>`): in the shared group it would cancel a pending run that publishes, and then publish nothing. Every run uploads assets with the same names to the same `dev` prerelease, so 2 parallel runs (several merges close together) collide and 1 fails with `422 already_exists` (run 41258966652). The group runs them 1 at a time. GitHub keeps at most 1 pending run in a group and cancels an older pending run when a newer one queues; that loses nothing, because a `workflow_run` run builds the commit that `main` points to when the run is triggered, so the newer run builds the same or a later commit. The run in progress is never cancelled, because a cancel midway through the uploads leaves `dev` with a partial asset set.
 
 `release_workflow_contract_test.go` (package `main`) pins the trigger, the attestation over `dist/*.deb`, the ordering, and the shape of the request, and refuses a repogen step, a direct snosi dispatch, or a publication request from `snapshot.yml`. It also pins the snapshot concurrency group.
+
+## Gate and CI
+
+[ADR-0004](../adr/0004-adopt-the-repository-baseline.md) records this shape (frostyard/core's repository baseline).
+
+- `make verify` runs `tidy-check` (`go mod tidy -diff`), `vet`, `format-check` (`gofmt -l`), `lint`, `verify-template` and `race` (`go test -v -race ./...`). It changes no file. `make check` runs `fmt`, then `verify`.
+- `make ci` is `verify`, `corrections-base`, `vulncheck` (govulncheck v1.9.0) and `build`. It has no recipe. `.github/workflows/ci.yml` (workflow name `Tests`, which `snapshot.yml` follows) runs each prerequisite as its own `make <target>` step: the `Verify` job runs `make verify` and `make corrections-base BASE=<PR base>`, and the `Vulncheck` and `Build` jobs run the other 2. A new prerequisite of `ci` needs a step in `ci.yml` in the same change.
+- The `Verify` job prepares subordinate UID/GID maps and sets `INTUNEME_REQUIRE_KERNEL_TESTS=1`, so `TestHelperKernelBoundary` (`internal/nshelper`) fails there instead of skipping.
+- `mise.toml` pins golangci-lint and Node (the template gate); `mise.lock` holds their checksums. Go comes from `go.mod`. `make lint` fails unless the installed golangci-lint is the pin and was built with a Go minor no older than `go.mod`'s.
+- `verify-template` runs `scripts/check-template.mjs` and its Node test. They are byte-identical copies from bketelsen/agentic-template and check the agent aliases, the `docs/README.md` index, `.github/risk-paths.json`, `.memory/corrections.jsonl` and the hash pins of the 2 files copied from core. `corrections-base` fails when `BASE` does not resolve, and skips with a notice when `BASE` has no `scripts/check-corrections.mjs`.
+- `.github/risk-paths.json` lists the paths whose pull requests get the `risk:high` label from core's `risk-paths.yml`: governance and CI files, the release configuration, the privileged helpers and installers (`internal/nshelper`, `internal/sudoers`, `internal/sudo`, `internal/nspawn`, `internal/provision`, `internal/udev`), the polkit files, `scripts/fix-selinux.sh` and `ubuntu-intune/`.
 
 ## Documentation Site
 

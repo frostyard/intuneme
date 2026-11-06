@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "paths": [
+    {
+      "glob": ".github/risk-paths.json",
+      "why": "governance: the high-risk path list"
+    },
+    {
+      "glob": ".github/workflows/**",
+      "why": "governance: CI, the risk-paths caller and token permissions"
+    },
+    {
+      "glob": "Makefile",
+      "why": "governance: the verify gate"
+    },
+    {
+      "glob": "scripts/check-template.mjs",
+      "why": "governance: the template verification gate"
+    },
+    {
+      "glob": "scripts/check-corrections.mjs",
+      "why": "governance: the corrections validation gate"
+    },
+    {
+      "glob": "scripts/lib/**",
+      "why": "governance: the vendored risk-path validator and matcher"
+    },
+    {
+      "glob": "mise.toml",
+      "why": "supply chain: the tool pins that CI installs"
+    },
+    {
+      "glob": "mise.lock",
+      "why": "supply chain: the checksums of the tools that CI installs"
+    },
+    {
+      "glob": ".svu.yml",
+      "why": "release: the version configuration for release tags"
+    },
+    {
+      "glob": ".goreleaser.yaml",
+      "why": "release: the build and package definitions GoReleaser runs"
+    },
+    {
+      "glob": "internal/nshelper/**",
+      "why": "privileged: the root nsenter-exec and machine-exec helpers"
+    },
+    {
+      "glob": "internal/sudoers/**",
+      "why": "privileged: installs the helpers, their config and the host sudoers rule"
+    },
+    {
+      "glob": "internal/sudo/**",
+      "why": "privileged: runs host commands through sudo"
+    },
+    {
+      "glob": "internal/nspawn/**",
+      "why": "privileged: boots the machine and enters it through the helper"
+    },
+    {
+      "glob": "internal/provision/**",
+      "why": "privileged: writes host polkit rules and the container session and privilege files as root"
+    },
+    {
+      "glob": "internal/udev/**",
+      "why": "install: host udev rules and the hotplug script that udev runs as root"
+    },
+    {
+      "glob": "polkit/**",
+      "why": "security: the host polkit rule"
+    },
+    {
+      "glob": "cmd/extension/*.policy",
+      "why": "security: the polkit action of the GNOME extension"
+    },
+    {
+      "glob": "ubuntu-intune/**",
+      "why": "supply chain: the container image, its sudoers, polkit and PAM files, and its cosign key"
+    },
+    {
+      "glob": "scripts/fix-selinux.sh",
+      "why": "install: changes the host SELinux policy as root"
+    }
+  ]
+}

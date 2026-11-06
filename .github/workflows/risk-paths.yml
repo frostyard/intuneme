@@ -1,0 +1,18 @@
+# Risk paths (ADR-0068, docs/specs/risk-paths.md): this caller runs on
+# pull_request_target so the base risk list and trusted caller execute. It does
+# not run a PR branch. It checks out nothing. It is not a required check. The
+# repository must have the risk:high label, or this job fails.
+name: Risk paths caller
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  risk-paths:
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: frostyard/core/.github/workflows/risk-paths.yml@1b02a129026329cef2b46d1fbd0465a863c1cd81 # frostyard/core main, 2026-11-04 (core has no release tags)
