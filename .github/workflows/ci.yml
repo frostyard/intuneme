@@ -37,7 +37,7 @@ jobs:
       # golangci-lint and Node come from mise.toml and mise.lock, checksum
       # verified, exactly as a developer's `mise install` does.
       - name: Install the pinned tools
-        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           install: true
           install_args: golangci-lint node
