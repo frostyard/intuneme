@@ -1,0 +1,35 @@
+<!-- readme-kind: website -->
+# {domain}
+
+This repository is the source of [{domain}](https://{domain}), {what the site is for and who reads it}. It is built with {generator} and served by {host}.
+
+**Status:** in production.
+
+**Documentation:** [{domain}](https://{domain})
+
+## What the site covers
+
+- [{Section}](https://{domain}/{path}/): {what it holds}.
+- [{Section}](https://{domain}/{path}/): {what it holds}.
+
+## Deploy
+
+{Host} builds `main` and deploys it to {domain} after each merge. A pull request gets a preview URL in its {check name} check.
+
+## Develop
+
+```sh
+mise install   # the pinned Node release
+npm ci         # the locked dependencies
+npm run dev    # a local server with live reload
+make ci        # the full gate
+```
+
+[docs/development.md](docs/development.md) explains each command and check.
+
+## Where to go next
+
+- [AGENTS.md](AGENTS.md): the rules for agents and contributors.
+- [docs/README.md](docs/README.md): the decisions, designs, specs and plans.
+- [SECURITY.md](SECURITY.md): report a vulnerability privately.
+- [LICENSE](LICENSE): MIT.

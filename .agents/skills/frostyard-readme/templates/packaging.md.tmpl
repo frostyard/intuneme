@@ -1,0 +1,43 @@
+<!-- readme-kind: packaging -->
+# {repo}
+
+{repo} builds Debian packages of {upstream} from pinned, verified upstream sources, and publishes them to the [Frostyard APT repository](https://repository.frostyard.org/debian/) through [apt-publisher](https://github.com/frostyard/apt-publisher). {Who installs them.}
+
+**Status:** in production.
+
+**Documentation:** [docs/README.md](docs/README.md)
+
+## What it publishes
+
+| Package | What it is | Component | Codenames |
+| --- | --- | --- | --- |
+| `{package}` | {1 sentence} | `main` | `trixie`, `forky` |
+
+## Install
+
+Add the Frostyard APT repository once, then install the package:
+
+```sh
+sudo curl -fsSLo /etc/apt/keyrings/frostyard.gpg https://repository.frostyard.org/debian/frostyard.gpg
+printf 'Types: deb\nURIs: https://repository.frostyard.org/debian/\nSuites: trixie\nComponents: main\nSigned-By: /etc/apt/keyrings/frostyard.gpg\n' | sudo tee /etc/apt/sources.list.d/frostyard.sources
+sudo apt update && sudo apt install {package}
+```
+
+## How it works
+
+{1 paragraph: where the upstream versions are pinned, and how a release reaches the repository.} [docs/design/overview.md](docs/design/overview.md) has the details.
+
+## Develop
+
+```sh
+mise install   # the pinned tools
+make ci        # what CI runs
+make build     # build the packages into dist/
+```
+
+## Where to go next
+
+- [AGENTS.md](AGENTS.md): the rules for agents and contributors.
+- [docs/README.md](docs/README.md): the decisions, designs, specs and plans.
+- [SECURITY.md](SECURITY.md): report a vulnerability privately.
+- [LICENSE](LICENSE): MIT.
