@@ -655,7 +655,7 @@ Major JSON revision, experimental via `GOEXPERIMENT=jsonv2` in Go 1.25–1.26. G
 - `sync.WaitGroup.Go`: simple fire-and-wait goroutines; function must not panic; no errors/cancellation.
 - `testing/synctest.Test` and `synctest.Wait`: stable deterministic concurrent/time tests. Do not use the Go 1.24 experimental `synctest.Run` in Go 1.25+.
 - `net/http.CrossOriginProtection`: stdlib helper for cross-origin / CSRF-style protection in HTTP servers.
-- `reflect.TypeAssert[T]`(`v`): prefer over `v.Interface().(T)` in reflection code. <!-- Frostyard override: the call is split out of the code span, which core's docs gate would read as a link. -->
+- `reflect.TypeAssert[T](v)`: prefer over `v.Interface().(T)` in reflection code.
 - `os.Root.FS` and additional `os.Root` methods: use for confined filesystem APIs.
 - New vet checks: `waitgroup` misuse and manual host:port formatting; prefer `net.JoinHostPort`.
 

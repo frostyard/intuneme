@@ -31,7 +31,7 @@ Prevents programmer mistakes — bugs, panics, and silent data corruption in nor
 ## Best Practices Summary
 
 1. **Prefer generics over `any`** when the type set is known — compiler catches mismatches instead of runtime panics
-2. **Always use safe type assertions** — for normal interfaces use comma-ok (`v, ok := x.(T)`); for reflection in Go 1.25+ prefer `reflect.TypeAssert[T]`(`value`) over `value.Interface().(T)`. <!-- Frostyard override: the call is split out of the code span, which core's docs gate would read as a link. -->
+2. **Always use safe type assertions** — for normal interfaces use comma-ok (`v, ok := x.(T)`); for reflection in Go 1.25+ prefer `reflect.TypeAssert[T](value)` over `value.Interface().(T)`.
 3. **Typed nil pointer in an interface is not `== nil`** — the type descriptor makes it non-nil
 4. **Writing to a nil map panics** — always initialize before use
 5. **`append` may reuse the backing array** — both slices share memory if capacity allows, silently corrupting each other
