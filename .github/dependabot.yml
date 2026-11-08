@@ -1,3 +1,6 @@
+# Each entry has 1 group with `patterns: ["*"]`, so it opens at most 1
+# version-update PR for each run (frostyard/core ADR-0075). Security
+# updates stay ungrouped.
 version: 2
 updates:
   # Maintain Go module dependencies
@@ -6,6 +9,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    groups:
+      gomod:
+        patterns: ["*"]
 
   # Maintain GitHub Actions
   - package-ecosystem: "github-actions"
@@ -18,6 +24,9 @@ updates:
       # flattens the ubuntu-intune image to 1 layer and loses layer reuse.
       - dependency-name: "redhat-actions/buildah-build"
         update-types: ["version-update:semver-major"]
+    groups:
+      actions:
+        patterns: ["*"]
 
   # Maintain the container base images
   - package-ecosystem: "docker"
@@ -37,3 +46,6 @@ updates:
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
+    groups:
+      docker:
+        patterns: ["*"]
