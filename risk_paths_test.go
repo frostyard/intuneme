@@ -25,8 +25,9 @@ var riskCategories = []string{
 }
 
 type riskPath struct {
-	Glob string `json:"glob"`
-	Why  string `json:"why"`
+	Glob  string `json:"glob"`
+	Level string `json:"level"`
+	Why   string `json:"why"`
 }
 
 func readRiskPaths(t *testing.T) []riskPath {
@@ -87,14 +88,44 @@ func riskCategoryOK(why string) bool {
 	return false
 }
 
+// riskWhyOK reports whether an entry's `why` fits its level: an L1 or L2 entry,
+// and an entry with no level (which counts as L1), must start its `why` with a
+// category of core's risk-paths spec and a colon; L3 and L4 take free text.
+func riskWhyOK(p riskPath) bool {
+	if p.Level == "L3" || p.Level == "L4" {
+		return true
+	}
+	return riskCategoryOK(p.Why)
+}
+
 func TestRiskPathCategories(t *testing.T) {
 	paths := readRiskPaths(t)
 	for _, p := range paths {
-		if !riskCategoryOK(p.Why) {
-			t.Errorf("%s: why %q must start with 1 of the risk-paths spec categories and a colon: %s", p.Glob, p.Why, strings.Join(riskCategories, ", "))
+		if !riskWhyOK(p) {
+			t.Errorf("%s (%s): why %q must start with 1 of the risk-paths spec categories and a colon: %s", p.Glob, p.Level, p.Why, strings.Join(riskCategories, ", "))
 		}
 	}
 	t.Logf("checked %d risk-path categories", len(paths))
+}
+
+func TestRiskWhyOK(t *testing.T) {
+	cases := []struct {
+		name string
+		path riskPath
+		want bool
+	}{
+		{"L3 takes free text", riskPath{Glob: "docs/**", Level: "L3", Why: "needs a careful read"}, true},
+		{"L1 with a category", riskPath{Glob: "main.go", Level: "L1", Why: "auth: the root helper"}, true},
+		{"L1 without a category", riskPath{Glob: "main.go", Level: "L1", Why: "the root helper"}, false},
+		{"no level without a category", riskPath{Glob: "main.go", Why: "the root helper"}, false},
+		{"L2 with a category", riskPath{Glob: ".github/workflows/**", Level: "L2", Why: "governance: CI and token permissions"}, true},
+		{"L2 without a category", riskPath{Glob: ".github/workflows/**", Level: "L2", Why: "the workflows"}, false},
+	}
+	for _, tc := range cases {
+		if got := riskWhyOK(tc.path); got != tc.want {
+			t.Errorf("%s: riskWhyOK(%q at %s) = %v, want %v", tc.name, tc.path.Why, tc.path.Level, got, tc.want)
+		}
+	}
 }
 
 func TestRiskCategoryOK(t *testing.T) {

@@ -40,9 +40,9 @@ func TestUsesPinned(t *testing.T) {
 		{"action without comment", "actions/checkout@" + sha, "", false},
 		{"action with other comment", "actions/checkout@" + sha, " # main", false},
 		{"action on a tag", "actions/checkout@v7", " # v7", false},
-		{"core workflow with source comment", "frostyard/core/.github/workflows/risk-paths.yml@" + sha, " # frostyard/core main", true},
-		{"core workflow without comment", "frostyard/core/.github/workflows/risk-paths.yml@" + sha, "", false},
-		{"core workflow on a branch", "frostyard/core/.github/workflows/risk-paths.yml@main", " # main", false},
+		{"core workflow with source comment", "frostyard/core/.github/workflows/pr-triage.yml@" + sha, " # frostyard/core main", true},
+		{"core workflow without comment", "frostyard/core/.github/workflows/pr-triage.yml@" + sha, "", false},
+		{"core workflow on a branch", "frostyard/core/.github/workflows/pr-triage.yml@main", " # main", false},
 		{"other repository workflow with source comment", "frostyard/other/.github/workflows/x.yml@" + sha, " # main", false},
 	}
 	for _, tc := range cases {

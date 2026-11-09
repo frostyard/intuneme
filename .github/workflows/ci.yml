@@ -1,9 +1,10 @@
 # CI workflow. The jobs together run every prerequisite of `make ci`
 # (core ADR-0073): each prerequisite runs as its own `make <target>` step, so a
 # new prerequisite of `ci` needs a job step in the same change. The name stays
-# `Tests` because snapshot.yml triggers on it. Actions use full commit SHA
-# pins, the token has no permissions by default, and checkout does not persist
-# credentials (core ADR-0021).
+# `Tests` because snapshot.yml triggers on it. A required check must run on
+# every pull request; a path filter would leave it pending (core ADR-0076).
+# Actions use full commit SHA pins, the token has no permissions by default,
+# and checkout does not persist credentials (core ADR-0021).
 name: Tests
 
 on:
@@ -13,8 +14,6 @@ on:
       - "ubuntu-intune/**"
   pull_request:
     branches: [main, "security/**"]
-    paths-ignore:
-      - "ubuntu-intune/**"
 
 permissions: {}
 
