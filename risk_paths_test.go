@@ -68,13 +68,45 @@ func riskGlob(glob string) *regexp.Regexp {
 	return regexp.MustCompile(b.String())
 }
 
+// riskHighLevel reports whether an entry's level earns `risk:high`: L1 and L2
+// do, L3 and L4 do not, and an entry with no level counts as L1 (a v1 list).
+func riskHighLevel(level string) bool {
+	return level != "L3" && level != "L4"
+}
+
+// riskCovered reports whether a file matches a glob at L1 or L2, so that a
+// change to it gets `risk:high`. A glob at L3 or L4 gives no `risk:high` on its
+// own; a file that both a high glob and an L3 glob match stays covered,
+// because the strictest matching level wins.
 func riskCovered(paths []riskPath, file string) bool {
 	for _, p := range paths {
-		if riskGlob(p.Glob).MatchString(file) {
+		if riskHighLevel(p.Level) && riskGlob(p.Glob).MatchString(file) {
 			return true
 		}
 	}
 	return false
+}
+
+func TestRiskCovered(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []riskPath
+		file  string
+		want  bool
+	}{
+		{"L1 covers", []riskPath{{Glob: "cmd/**", Level: "L1", Why: "auth: start"}}, "cmd/start.go", true},
+		{"L2 covers", []riskPath{{Glob: ".github/workflows/**", Level: "L2", Why: "governance: CI"}}, ".github/workflows/ci.yml", true},
+		{"no level counts as L1", []riskPath{{Glob: "main.go", Why: "auth: the dispatcher"}}, "main.go", true},
+		{"L3 only does not cover", []riskPath{{Glob: "cmd/**", Level: "L3", Why: "takes a careful read"}}, "cmd/start.go", false},
+		{"L4 only does not cover", []riskPath{{Glob: "scripts/**", Level: "L4", Why: "takes a careful read"}}, "scripts/fix-selinux.sh", false},
+		{"L3 and L1 globs cover", []riskPath{{Glob: "cmd/**", Level: "L3"}, {Glob: "cmd/start.go", Level: "L1"}}, "cmd/start.go", true},
+		{"no glob matches", []riskPath{{Glob: "internal/**", Level: "L1"}}, "cmd/start.go", false},
+	}
+	for _, tc := range cases {
+		if got := riskCovered(tc.paths, tc.file); got != tc.want {
+			t.Errorf("%s: riskCovered(%s) = %v, want %v", tc.name, tc.file, got, tc.want)
+		}
+	}
 }
 
 // riskCategoryOK reports whether a `why` starts with an allowed category and
@@ -229,7 +261,7 @@ func TestRiskPathsCoverPrivilegedFiles(t *testing.T) {
 		}
 		seen[file] = true
 		if !riskCovered(paths, file) {
-			t.Errorf("%s runs sudo, installs or removes host privilege files, or is a script, but no glob in .github/risk-paths.json matches it", file)
+			t.Errorf("%s runs sudo, installs or removes host privilege files, or is a script, but no glob at L1 or L2 in .github/risk-paths.json matches it", file)
 		}
 	}
 	t.Logf("checked %d privileged files against %d risk paths", len(seen), len(paths))
