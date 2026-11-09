@@ -1,21 +1,51 @@
-// Risk paths (ADR-0068, docs/specs/risk-paths.md): strict parser, validator,
-// glob matcher, a minimal GitHub API client and the labeling job.
+// Risk paths and levels (ADR-0068, ADR-0078, docs/specs/risk-paths.md): strict
+// parser, validator for list versions 1 and 2, glob matcher, the level of a
+// path and of a pull request, and a minimal GitHub API client. The labeling
+// step lives in scripts/lib/pr-triage.mjs.
 //
 // This module has no static imports. The reusable workflow
-// .github/workflows/risk-paths.yml embeds this file verbatim and runs it as
-// stdin to `node --input-type=module`, with no checkout. Edit this file, then
-// run `npm run sync:risk-paths-workflow`; `npm run check:risk-paths` fails when
+// .github/workflows/pr-triage.yml embeds this file verbatim, writes it to a
+// file in the runner temp directory, and scripts/lib/pr-triage.mjs imports it
+// there, with no checkout. Edit this file, then run
+// `npm run sync:risk-paths-workflow`; `npm run check:risk-paths` fails when
 // the embedded copy drifts. Never edit the embedded copy by hand.
+//
+// Other repositories vendor this file and import validateRiskPaths,
+// matchGlob, parseStrictJson and matchFiles. Keep those names, their
+// signatures and their results for a version 1 list.
 
 export const LIST_PATH = ".github/risk-paths.json";
 export const LABEL = "risk:high";
 export const FILE_LIST_LIMIT = 3000;
 export const MAX_BRACE_EXPANSIONS = 256;
 export const MAX_WHY_LENGTH = 200;
+
+// Levels, strictest first: a lower number is stricter.
+export const LEVELS = Object.freeze(["L1", "L2", "L3", "L4"]);
+const LEVEL_LIST = LEVELS.join(", ");
+
+// The org floor: a path that matches the floor is at least this strict, whatever
+// a repository list says. A repository cannot change it.
+export const ORG_FLOORS = Object.freeze({
+  L1: Object.freeze({
+    words: Object.freeze([
+      "secret", "secrets", "credential", "credentials", "password", "passwords", "passwd",
+      "signing", "keyring", "keyrings", "keys", "gpg", "pgp",
+    ]),
+    extensions: Object.freeze(["pem", "key", "p12", "pfx", "gpg", "asc"]),
+  }),
+  L2: Object.freeze({
+    globs: Object.freeze([
+      ".github/workflows/**",
+      ".github/actions/**",
+      ".github/risk-paths.json",
+      "policies/**",
+      ".github/policies/**",
+    ]),
+  }),
+});
 const MAX_JSON_DEPTH = 64;
 const MAX_PAGES = 40;
-const SUMMARY_ROW_LIMIT = 500;
-const LOG_PREFIX = "risk-paths: ";
 
 // ---- Strict JSON ----------------------------------------------------------
 
@@ -299,15 +329,23 @@ function checkKeys(value, allowed, at, errors) {
   }
 }
 
+const isLevel = (value) => typeof value === "string" && LEVELS.includes(value);
+
 // Validates a parsed list against the spec field table. Collects every error.
+// Version 1 has the keys schema_version and paths, and entries glob and why.
+// Version 2 adds default_level and a level in each entry.
 export function validateRiskPaths(value) {
   const errors = [];
   if (!isPlainObject(value)) {
     return { ok: false, errors: ["$: the top level must be an object"] };
   }
-  checkKeys(value, ["schema_version", "paths"], "$", errors);
-  if (Object.hasOwn(value, "schema_version") && value.schema_version !== 1) {
-    errors.push("schema_version: must be the integer 1");
+  const v2 = value.schema_version === 2;
+  checkKeys(value, v2 ? ["schema_version", "default_level", "paths"] : ["schema_version", "paths"], "$", errors);
+  if (value.schema_version !== 1 && value.schema_version !== 2) {
+    errors.push("schema_version: must be the integer 1 or 2");
+  }
+  if (v2 && Object.hasOwn(value, "default_level") && !isLevel(value.default_level)) {
+    errors.push(`default_level: must be 1 of ${LEVEL_LIST}`);
   }
   if (Object.hasOwn(value, "paths")) {
     if (!Array.isArray(value.paths)) {
@@ -321,7 +359,7 @@ export function validateRiskPaths(value) {
           errors.push(`${at}: must be an object`);
           return;
         }
-        checkKeys(entry, ["glob", "why"], at, errors);
+        checkKeys(entry, v2 ? ["glob", "level", "why"] : ["glob", "why"], at, errors);
         if (Object.hasOwn(entry, "glob")) {
           if (typeof entry.glob !== "string") {
             errors.push(`${at}.glob: must be a string`);
@@ -335,6 +373,9 @@ export function validateRiskPaths(value) {
               globs.set(entry.glob, index);
             }
           }
+        }
+        if (v2 && Object.hasOwn(entry, "level") && !isLevel(entry.level)) {
+          errors.push(`${at}.level: must be 1 of ${LEVEL_LIST}`);
         }
         if (Object.hasOwn(entry, "why")) {
           if (typeof entry.why !== "string") {
@@ -375,6 +416,103 @@ export function matchFiles(list, files) {
     }
   }
   return matches;
+}
+
+// ---- Levels ---------------------------------------------------------------
+
+const levelRank = (level) => LEVELS.indexOf(level);
+
+// The strictest of 2 levels; the first one wins a tie.
+const stricter = (a, b) => (levelRank(b) < levelRank(a) ? b : a);
+
+// The org floor of a path: { level, reason } or null.
+function floorOfPath(path) {
+  const words = path.toLowerCase().split(/[/.\-_]/).filter((word) => word !== "");
+  const word = words.find((candidate) => ORG_FLOORS.L1.words.includes(candidate));
+  if (word !== undefined) return { level: "L1", reason: `org floor: path word ${JSON.stringify(word)}` };
+  const last = path.split("/").pop();
+  const dot = last.lastIndexOf(".");
+  if (dot > 0) {
+    const extension = last.slice(dot + 1).toLowerCase();
+    if (ORG_FLOORS.L1.extensions.includes(extension)) {
+      return { level: "L1", reason: `org floor: extension ${JSON.stringify(extension)}` };
+    }
+  }
+  const glob = ORG_FLOORS.L2.globs.find((candidate) => matchGlob(candidate, path));
+  if (glob !== undefined) return { level: "L2", reason: `org floor: ${glob}` };
+  return null;
+}
+
+// A version 1 list reads as every glob at L1 and default_level L3.
+function levelEntries(list) {
+  const v2 = list.schema_version === 2;
+  return {
+    defaultLevel: v2 ? list.default_level : "L3",
+    entries: list.paths.map((entry) => ({ glob: entry.glob, level: v2 ? entry.level : "L1", why: entry.why })),
+  };
+}
+
+// The level of 1 path under a valid list of version 1 or 2.
+// Returns { path, level, source, glob, why }; source is "glob", "default" or "floor".
+export function levelOfFile(list, path) {
+  const { defaultLevel, entries } = levelEntries(list);
+  let result = { path, level: defaultLevel, source: "default", glob: null, why: null };
+  let best = null;
+  for (const entry of entries) {
+    if (!matchGlob(entry.glob, path)) continue;
+    if (best === null || levelRank(entry.level) < levelRank(best.level)) best = entry;
+  }
+  if (best !== null) result = { path, level: best.level, source: "glob", glob: best.glob, why: best.why };
+  const floor = floorOfPath(path);
+  if (floor !== null && levelRank(floor.level) < levelRank(result.level)) {
+    result = { path, level: floor.level, source: "floor", glob: null, why: floor.reason };
+  }
+  return result;
+}
+
+// The level of a pull request: the strictest level of its changed paths.
+// files: entries of the pulls/{n}/files shape, or plain path strings. A rename
+// counts by both names. A file list at the API limit is truncated: L1.
+export function levelOfPullRequest(list, files) {
+  const paths = [];
+  const seen = new Set();
+  const add = (path) => {
+    if (typeof path !== "string" || path === "" || seen.has(path)) return;
+    seen.add(path);
+    paths.push(path);
+  };
+  for (const file of files) {
+    if (typeof file === "string") {
+      add(file);
+    } else {
+      add(file?.filename);
+      add(file?.previous_filename);
+    }
+  }
+  const results = paths.map((path) => levelOfFile(list, path));
+  const truncated = files.length >= FILE_LIST_LIMIT;
+  let level = levelEntries(list).defaultLevel;
+  if (results.length > 0) level = results.map((result) => result.level).reduce(stricter);
+  if (truncated) level = "L1";
+  return { level, truncated, files: results };
+}
+
+// Rule C for the gates: each required path must match a glob and, in a
+// version 2 list, no glob that matches it may be L3 or L4. Returns error strings.
+export function checkRequiredPaths(list, requiredPaths) {
+  const errors = [];
+  const v2 = list.schema_version === 2;
+  for (const required of requiredPaths) {
+    const matching = list.paths.filter((entry) => matchGlob(entry.glob, required));
+    if (matching.length === 0) errors.push(`no glob matches the required path ${required}`);
+    if (!v2) continue;
+    for (const entry of matching) {
+      if (entry.level === "L3" || entry.level === "L4") {
+        errors.push(`the glob ${entry.glob} matches the required path ${required} at level ${entry.level}; it must be L1 or L2`);
+      }
+    }
+  }
+  return errors;
 }
 
 // ---- GitHub API -----------------------------------------------------------
@@ -422,6 +560,27 @@ export function createGitHubApi({ token, apiUrl = "https://api.github.com", fetc
     return null;
   };
 
+  // Reads every page of a list. The body is an array, or an object whose
+  // `field` is the array.
+  const paginate = async (first, { field, what }) => {
+    const items = [];
+    let next = first;
+    for (let page = 0; next; page++) {
+      if (page >= MAX_PAGES) throw new Error(`GitHub API ${what} has more than ${MAX_PAGES} pages`);
+      // The token goes only to the configured API host.
+      if (!next.startsWith("/") && !next.startsWith(`${base}/`)) {
+        throw new Error("GitHub API pagination link leaves the API host");
+      }
+      const response = await request("GET", next);
+      const body = await response.json();
+      const part = field === undefined ? body : body?.[field];
+      if (!Array.isArray(part)) throw new Error(`GitHub API ${what} is not an array`);
+      items.push(...part);
+      next = nextLink(response.headers.get("link"));
+    }
+    return items;
+  };
+
   return {
     async getFileAtRef(owner, repo, path, ref) {
       const encodedPath = path.split("/").map(enc).join("/");
@@ -433,22 +592,86 @@ export function createGitHubApi({ token, apiUrl = "https://api.github.com", fetc
       return response === null ? null : await response.text();
     },
 
+    // The pull request as it is now: a delayed or re-run job compares its head
+    // with the head of its event.
+    async getPullRequest(owner, repo, number) {
+      const response = await request("GET", `/repos/${enc(owner)}/${enc(repo)}/pulls/${enc(String(number))}`);
+      return await response.json();
+    },
+
     async listPullFiles(owner, repo, number) {
-      const files = [];
-      let next = `/repos/${enc(owner)}/${enc(repo)}/pulls/${enc(String(number))}/files?per_page=100`;
-      for (let page = 0; next; page++) {
-        if (page >= MAX_PAGES) throw new Error(`GitHub API pull request file list has more than ${MAX_PAGES} pages`);
-        // The token goes only to the configured API host.
-        if (!next.startsWith("/") && !next.startsWith(`${base}/`)) {
-          throw new Error("GitHub API pagination link leaves the API host");
-        }
-        const response = await request("GET", next);
-        const items = await response.json();
-        if (!Array.isArray(items)) throw new Error("GitHub API pull request file list is not an array");
-        files.push(...items);
-        next = nextLink(response.headers.get("link"));
-      }
-      return files;
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/pulls/${enc(String(number))}/files?per_page=100`, {
+        what: "pull request file list",
+      });
+    },
+
+    async listIssueComments(owner, repo, number) {
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/issues/${enc(String(number))}/comments?per_page=100`, {
+        what: "issue comment list",
+      });
+    },
+
+    async listIssueLabels(owner, repo, number) {
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/issues/${enc(String(number))}/labels?per_page=100`, {
+        what: "issue label list",
+      });
+    },
+
+    // The comment GitHub created, so that a caller can compare its id with another
+    // run's comment for the same head.
+    async createIssueComment(owner, repo, number, body) {
+      const response = await request("POST", `/repos/${enc(owner)}/${enc(repo)}/issues/${enc(String(number))}/comments`, {
+        body: { body },
+      });
+      return await response.json();
+    },
+
+    // Returns true when the comment went away, false when it was already gone (HTTP 404).
+    async deleteIssueComment(owner, repo, commentId) {
+      const response = await request(
+        "DELETE",
+        `/repos/${enc(owner)}/${enc(repo)}/issues/comments/${enc(String(commentId))}`,
+        { allow404: true },
+      );
+      return response !== null;
+    },
+
+    // Returns true when the label came off, false when the issue did not have it (HTTP 404).
+    async removeIssueLabel(owner, repo, number, name) {
+      const response = await request(
+        "DELETE",
+        `/repos/${enc(owner)}/${enc(repo)}/issues/${enc(String(number))}/labels/${enc(name)}`,
+        { allow404: true },
+      );
+      return response !== null;
+    },
+
+    // The latest run of each check name (filter=latest), as GitHub's checks
+    // rollup counts them: an older failed run that a re-run replaced does not
+    // count.
+    async listCheckRuns(owner, repo, sha) {
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/commits/${enc(sha)}/check-runs?filter=latest&per_page=100`, {
+        field: "check_runs",
+        what: "check run list",
+      });
+    },
+
+    // The statuses array, not the combined state: the combined state is
+    // "pending" when a commit has no statuses.
+    async listCommitStatuses(owner, repo, sha) {
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/commits/${enc(sha)}/status?per_page=100`, {
+        field: "statuses",
+        what: "commit status list",
+      });
+    },
+
+    // The rules that apply to a branch (the rulesets API), all pages. The branch
+    // is encoded part by part, as a path is.
+    async listBranchRules(owner, repo, branch) {
+      const encodedBranch = String(branch).split("/").map(enc).join("/");
+      return paginate(`/repos/${enc(owner)}/${enc(repo)}/rules/branches/${encodedBranch}?per_page=100`, {
+        what: "branch rule list",
+      });
     },
 
     async labelExists(owner, repo, name) {
@@ -464,9 +687,9 @@ export function createGitHubApi({ token, apiUrl = "https://api.github.com", fetc
   };
 }
 
-// ---- Job ------------------------------------------------------------------
+// ---- Helpers --------------------------------------------------------------
 
-function escapeCell(value) {
+export function escapeCell(value) {
   return String(value)
     .replace(/[\\`*_[\]|]/g, "\\$&")
     .replace(/&/g, "&amp;")
@@ -475,124 +698,9 @@ function escapeCell(value) {
     .replace(/\r\n|\r|\n|\u2028|\u2029/g, " ");
 }
 
-const NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
-
-export async function runRiskPathsJob({ api, eventName, event, summary, log }) {
-  const say = (message, value) => log(value === undefined ? `${LOG_PREFIX}${message}` : `${LOG_PREFIX}${message} ${JSON.stringify(value)}`);
-
-  if (eventName !== "pull_request_target") {
-    throw new Error(`the caller must run on pull_request_target, not ${JSON.stringify(eventName)}`);
-  }
-  const pr = event?.pull_request;
-  const owner = event?.repository?.owner?.login;
-  const repo = event?.repository?.name;
-  const number = pr?.number;
-  const baseSha = pr?.base?.sha;
-  if (typeof owner !== "string" || !NAME_PATTERN.test(owner) || typeof repo !== "string" || !NAME_PATTERN.test(repo)) {
-    throw new Error("the event has no valid repository owner and name");
-  }
-  if (!Number.isSafeInteger(number) || number < 1) throw new Error("the event has no valid pull request number");
-  if (typeof baseSha !== "string" || !/^[0-9a-f]{40}$/.test(baseSha)) {
-    throw new Error("the event has no valid pull_request.base.sha (40 hex characters)");
-  }
-  const fullName = `${owner}/${repo}`;
-  say("repository", fullName);
-  say("pull request", number);
-  say("base sha", baseSha);
-
-  const text = await api.getFileAtRef(owner, repo, LIST_PATH, baseSha);
-  if (text === null) {
-    say(`no list on base: ${LIST_PATH} does not exist at`, baseSha);
-    await summary(`## Risk paths\n\nno list on base: \`${LIST_PATH}\` does not exist at \`${baseSha}\`. No label change.\n`);
-    return { outcome: "no-list", matches: [], truncated: false };
-  }
-
-  let list;
-  try {
-    list = parseStrictJson(text);
-  } catch (error) {
-    throw new Error(`${LIST_PATH} at ${baseSha} is not valid: ${error.message}`);
-  }
-  const validation = validateRiskPaths(list);
-  if (!validation.ok) {
-    throw new Error(`${LIST_PATH} at ${baseSha} is not valid: ${validation.errors.join("; ")}`);
-  }
-  say("list entries", list.paths.length);
-
-  if (!(await api.labelExists(owner, repo, LABEL))) {
-    throw new Error(
-      `label ${LABEL} does not exist in ${fullName}; the accountable owner must create it ` +
-        `(gh label create ${LABEL} --repo ${fullName} --color B60205 --description "Touches a high-risk path (ADR-0068)")`,
-    );
-  }
-
-  const files = await api.listPullFiles(owner, repo, number);
-  const truncated = files.length >= FILE_LIST_LIMIT;
-  say("changed files", files.length);
-  const matches = matchFiles(list, files);
-
-  if (!truncated && matches.length === 0) {
-    say("no high-risk path changed");
-    await summary("## Risk paths\n\nno high-risk path changed. No label change.\n");
-    return { outcome: "no-match", matches, truncated };
-  }
-
-  await api.addLabels(owner, repo, number, [LABEL]);
-  say("added label", LABEL);
-  for (const match of matches) say("match", match);
-
-  const lines = ["## Risk paths", "", `Added the label \`${LABEL}\`.`, ""];
-  if (truncated) {
-    say("file list truncated at", files.length);
-    lines.push(
-      `The file list is truncated: the GitHub API returned ${files.length} files, its limit is ${FILE_LIST_LIMIT}. The label is added (fail safe).`,
-      "",
-    );
-  }
-  if (matches.length > 0) {
-    lines.push("| Path | Glob | Why |", "| --- | --- | --- |");
-    for (const match of matches.slice(0, SUMMARY_ROW_LIMIT)) {
-      lines.push(`| ${escapeCell(match.path)} | ${escapeCell(match.glob)} | ${escapeCell(match.why)} |`);
-    }
-    if (matches.length > SUMMARY_ROW_LIMIT) {
-      lines.push("", `${matches.length - SUMMARY_ROW_LIMIT} more matches are not shown here; the job log lists every match.`);
-    }
-  }
-  await summary(`${lines.join("\n")}\n`);
-  return { outcome: "labeled", matches, truncated };
-}
+export const NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 // Escapes a workflow-command value (the runner reads %, CR and LF specially).
-function commandValue(text) {
+export function commandValue(text) {
   return String(text).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
-}
-
-export async function main(env) {
-  const token = env.GITHUB_TOKEN;
-  try {
-    const fs = await import("node:fs/promises");
-    if (!env.GITHUB_EVENT_PATH) throw new Error("GITHUB_EVENT_PATH is not set");
-    if (!token) throw new Error("GITHUB_TOKEN is not set");
-    const event = JSON.parse(await fs.readFile(env.GITHUB_EVENT_PATH, "utf8"));
-    const api = createGitHubApi({
-      token,
-      apiUrl: env.GITHUB_API_URL || "https://api.github.com",
-      fetch: globalThis.fetch,
-    });
-    const summary = async (markdown) => {
-      if (env.GITHUB_STEP_SUMMARY) await fs.appendFile(env.GITHUB_STEP_SUMMARY, markdown);
-    };
-    const log = (line) => {
-      const text = String(line).replace(/[\r\n\u2028\u2029]/g, " ");
-      process.stdout.write(`${text.startsWith(LOG_PREFIX) ? text : LOG_PREFIX + JSON.stringify(text)}\n`);
-    };
-    return await runRiskPathsJob({ api, eventName: env.GITHUB_EVENT_NAME, event, summary, log });
-  } catch (error) {
-    let message = String(error?.message ?? error);
-    if (token) message = message.split(token).join("***");
-    message = message.replace(/[\r\n\u2028\u2029]+/g, " ");
-    process.stdout.write(`::error::${commandValue(message)}\n`);
-    process.exitCode = 1;
-    return undefined;
-  }
 }

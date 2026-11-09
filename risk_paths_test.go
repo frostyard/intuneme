@@ -25,8 +25,9 @@ var riskCategories = []string{
 }
 
 type riskPath struct {
-	Glob string `json:"glob"`
-	Why  string `json:"why"`
+	Glob  string `json:"glob"`
+	Level string `json:"level"`
+	Why   string `json:"why"`
 }
 
 func readRiskPaths(t *testing.T) []riskPath {
@@ -67,13 +68,45 @@ func riskGlob(glob string) *regexp.Regexp {
 	return regexp.MustCompile(b.String())
 }
 
+// riskHighLevel reports whether an entry's level earns `risk:high`: L1 and L2
+// do, L3 and L4 do not, and an entry with no level counts as L1 (a v1 list).
+func riskHighLevel(level string) bool {
+	return level != "L3" && level != "L4"
+}
+
+// riskCovered reports whether a file matches a glob at L1 or L2, so that a
+// change to it gets `risk:high`. A glob at L3 or L4 gives no `risk:high` on its
+// own; a file that both a high glob and an L3 glob match stays covered,
+// because the strictest matching level wins.
 func riskCovered(paths []riskPath, file string) bool {
 	for _, p := range paths {
-		if riskGlob(p.Glob).MatchString(file) {
+		if riskHighLevel(p.Level) && riskGlob(p.Glob).MatchString(file) {
 			return true
 		}
 	}
 	return false
+}
+
+func TestRiskCovered(t *testing.T) {
+	cases := []struct {
+		name  string
+		paths []riskPath
+		file  string
+		want  bool
+	}{
+		{"L1 covers", []riskPath{{Glob: "cmd/**", Level: "L1", Why: "auth: start"}}, "cmd/start.go", true},
+		{"L2 covers", []riskPath{{Glob: ".github/workflows/**", Level: "L2", Why: "governance: CI"}}, ".github/workflows/ci.yml", true},
+		{"no level counts as L1", []riskPath{{Glob: "main.go", Why: "auth: the dispatcher"}}, "main.go", true},
+		{"L3 only does not cover", []riskPath{{Glob: "cmd/**", Level: "L3", Why: "takes a careful read"}}, "cmd/start.go", false},
+		{"L4 only does not cover", []riskPath{{Glob: "scripts/**", Level: "L4", Why: "takes a careful read"}}, "scripts/fix-selinux.sh", false},
+		{"L3 and L1 globs cover", []riskPath{{Glob: "cmd/**", Level: "L3"}, {Glob: "cmd/start.go", Level: "L1"}}, "cmd/start.go", true},
+		{"no glob matches", []riskPath{{Glob: "internal/**", Level: "L1"}}, "cmd/start.go", false},
+	}
+	for _, tc := range cases {
+		if got := riskCovered(tc.paths, tc.file); got != tc.want {
+			t.Errorf("%s: riskCovered(%s) = %v, want %v", tc.name, tc.file, got, tc.want)
+		}
+	}
 }
 
 // riskCategoryOK reports whether a `why` starts with an allowed category and
@@ -87,14 +120,44 @@ func riskCategoryOK(why string) bool {
 	return false
 }
 
+// riskWhyOK reports whether an entry's `why` fits its level: an L1 or L2 entry,
+// and an entry with no level (which counts as L1), must start its `why` with a
+// category of core's risk-paths spec and a colon; L3 and L4 take free text.
+func riskWhyOK(p riskPath) bool {
+	if p.Level == "L3" || p.Level == "L4" {
+		return true
+	}
+	return riskCategoryOK(p.Why)
+}
+
 func TestRiskPathCategories(t *testing.T) {
 	paths := readRiskPaths(t)
 	for _, p := range paths {
-		if !riskCategoryOK(p.Why) {
-			t.Errorf("%s: why %q must start with 1 of the risk-paths spec categories and a colon: %s", p.Glob, p.Why, strings.Join(riskCategories, ", "))
+		if !riskWhyOK(p) {
+			t.Errorf("%s (%s): why %q must start with 1 of the risk-paths spec categories and a colon: %s", p.Glob, p.Level, p.Why, strings.Join(riskCategories, ", "))
 		}
 	}
 	t.Logf("checked %d risk-path categories", len(paths))
+}
+
+func TestRiskWhyOK(t *testing.T) {
+	cases := []struct {
+		name string
+		path riskPath
+		want bool
+	}{
+		{"L3 takes free text", riskPath{Glob: "docs/**", Level: "L3", Why: "needs a careful read"}, true},
+		{"L1 with a category", riskPath{Glob: "main.go", Level: "L1", Why: "auth: the root helper"}, true},
+		{"L1 without a category", riskPath{Glob: "main.go", Level: "L1", Why: "the root helper"}, false},
+		{"no level without a category", riskPath{Glob: "main.go", Why: "the root helper"}, false},
+		{"L2 with a category", riskPath{Glob: ".github/workflows/**", Level: "L2", Why: "governance: CI and token permissions"}, true},
+		{"L2 without a category", riskPath{Glob: ".github/workflows/**", Level: "L2", Why: "the workflows"}, false},
+	}
+	for _, tc := range cases {
+		if got := riskWhyOK(tc.path); got != tc.want {
+			t.Errorf("%s: riskWhyOK(%q at %s) = %v, want %v", tc.name, tc.path.Why, tc.path.Level, got, tc.want)
+		}
+	}
 }
 
 func TestRiskCategoryOK(t *testing.T) {
@@ -198,7 +261,7 @@ func TestRiskPathsCoverPrivilegedFiles(t *testing.T) {
 		}
 		seen[file] = true
 		if !riskCovered(paths, file) {
-			t.Errorf("%s runs sudo, installs or removes host privilege files, or is a script, but no glob in .github/risk-paths.json matches it", file)
+			t.Errorf("%s runs sudo, installs or removes host privilege files, or is a script, but no glob at L1 or L2 in .github/risk-paths.json matches it", file)
 		}
 	}
 	t.Logf("checked %d privileged files against %d risk paths", len(seen), len(paths))

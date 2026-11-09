@@ -1,140 +1,175 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "default_level": "L3",
   "paths": [
     {
       "glob": ".github/risk-paths.json",
+      "level": "L2",
       "why": "governance: the high-risk path list"
     },
     {
       "glob": ".github/workflows/**",
+      "level": "L2",
       "why": "governance: CI, the risk-paths caller and token permissions"
     },
     {
       "glob": "Makefile",
+      "level": "L2",
       "why": "governance: the verify gate"
     },
     {
       "glob": "scripts/check-template.mjs",
+      "level": "L2",
       "why": "governance: the template verification gate"
     },
     {
       "glob": "scripts/check-corrections.mjs",
+      "level": "L2",
       "why": "governance: the corrections validation gate"
     },
     {
       "glob": "scripts/lib/**",
+      "level": "L2",
       "why": "governance: the vendored risk-path validator and matcher"
     },
     {
       "glob": "mise.toml",
+      "level": "L1",
       "why": "update verification: the tool pins that CI installs, checked against mise.lock"
     },
     {
       "glob": "mise.lock",
+      "level": "L1",
       "why": "update verification: the checksums of the tools that CI installs"
     },
     {
       "glob": ".svu.yml",
+      "level": "L1",
       "why": "publication: the version configuration for release tags"
     },
     {
       "glob": ".goreleaser.yaml",
+      "level": "L1",
       "why": "publication: the build, signing and package definitions GoReleaser runs"
     },
     {
       "glob": "internal/nshelper/**",
+      "level": "L1",
       "why": "auth: the root nsenter-exec and machine-exec helpers"
     },
     {
       "glob": "internal/sudoers/**",
+      "level": "L1",
       "why": "auth: installs the helpers, their config and the host sudoers rule"
     },
     {
       "glob": "internal/sudo/**",
+      "level": "L1",
       "why": "auth: runs host commands through sudo"
     },
     {
       "glob": "internal/nspawn/**",
+      "level": "L1",
       "why": "auth: boots the machine and enters it through the helper"
     },
     {
       "glob": "internal/provision/**",
+      "level": "L1",
       "why": "auth: writes host polkit rules and the container session and privilege files as root"
     },
     {
       "glob": "internal/udev/**",
+      "level": "L1",
       "why": "auth: host udev rules and the hotplug script that udev runs as root"
     },
     {
       "glob": "polkit/**",
+      "level": "L1",
       "why": "auth: the host polkit rule"
     },
     {
       "glob": "cmd/extension/*.policy",
+      "level": "L1",
       "why": "auth: the polkit action of the GNOME extension"
     },
     {
       "glob": "ubuntu-intune/**",
+      "level": "L1",
       "why": "auth: the container image, with its sudoers, polkit and PAM files"
     },
     {
       "glob": "scripts/fix-selinux.sh",
+      "level": "L1",
       "why": "auth: changes the host SELinux policy as root"
     },
     {
       "glob": "cmd/extension.go",
+      "level": "L1",
       "why": "auth: installs the extension's polkit action with sudo"
     },
     {
       "glob": "cmd/start.go",
+      "level": "L1",
       "why": "auth: refreshes the helpers, sudoers and polkit files with sudo before boot"
     },
     {
       "glob": "cmd/destroy.go",
+      "level": "L1",
       "why": "destructive operations: deletes the rootfs, the polkit files and the sudoers rule with sudo"
     },
     {
       "glob": "cmd/recreate.go",
+      "level": "L1",
       "why": "destructive operations: deletes and replaces the rootfs with sudo"
     },
     {
       "glob": "ubuntu-intune/cosign.pub",
+      "level": "L1",
       "why": "signing and keys: the cosign key that verifies the container image"
     },
     {
       "glob": "scripts/install-desktop-items.sh",
+      "level": "L1",
       "why": "destructive operations: installs desktop entries and, with --uninstall, deletes them"
     },
     {
       "glob": "scripts/completions.sh",
+      "level": "L1",
       "why": "publication: a GoReleaser hook that builds release assets"
     },
     {
       "glob": "scripts/manpages.sh",
+      "level": "L1",
       "why": "publication: a GoReleaser hook that builds release assets"
     },
     {
       "glob": "internal/nvidia/**",
+      "level": "L1",
       "why": "auth: enters the container mount namespace as root to set up the Nvidia libraries"
     },
     {
       "glob": "internal/puller/**",
+      "level": "L1",
       "why": "auth: pulls the container image and extracts the rootfs as root"
     },
     {
       "glob": "main.go",
+      "level": "L1",
       "why": "auth: dispatches the nsenter-exec and machine-exec helpers, which run as root"
     },
     {
       "glob": "cmd/init.go",
+      "level": "L1",
       "why": "auth: installs the helpers, the sudoers rule and the SELinux policy with sudo"
     },
     {
       "glob": "cmd/udev.go",
+      "level": "L1",
       "why": "auth: installs and removes the host udev rules and the root-run hotplug script"
     },
     {
       "glob": "cmd/stop.go",
+      "level": "L1",
       "why": "destructive operations: removes the host udev rules and powers off the machine"
     }
   ]
