@@ -5,9 +5,11 @@
 //                   .claude/skills to .agents/skills (ADR-0002).
 //   docs-index      every doc under docs/ (not TEMPLATE.md) is linked from
 //                   docs/README.md, and every relative link there resolves.
-//   risk-paths      .github/risk-paths.json passes core's validator, and rule C:
-//                   the list and the caller are listed (frostyard/core
-//                   docs/specs/risk-paths.md).
+//   risk-paths      .github/risk-paths.json passes core's validator at schema
+//                   version 2 with a level in each entry, and rule C: the list
+//                   and the caller are listed, both at L1 or L2. The caller
+//                   runs frostyard/core's pr-triage.yml at a full commit SHA
+//                   in the job pr-triage (frostyard/core docs/specs/risk-paths.md).
 //   corrections     .memory/corrections.jsonl passes core's line rules
 //                   (frostyard/core ADR-0018 schema), via scripts/check-corrections.mjs.
 //   vendored        the 2 files copied from frostyard/core match their sha256 pins.
@@ -193,7 +195,33 @@ function checkDocsIndex() {
   }
 }
 
-// c. Strict risk-path list and Rule C required entries.
+// c. Strict risk-path list at schema version 2, the caller pin, and rule C.
+const CALLER_PATH = ".github/workflows/risk-paths.yml";
+const CALLER_PIN = /^[ \t]*uses:[ \t]*frostyard\/core\/\.github\/workflows\/pr-triage\.yml@[0-9a-f]{40}(?:[ \t]+#.*)?[ \t]*$/m;
+const CALLER_JOB = /^ {2}pr-triage:[ \t]*$/m;
+
+// The caller file: core's reusable pr-triage workflow, at a full SHA, in the
+// job pr-triage (frostyard/core docs/specs/risk-paths.md, rule E).
+function checkCaller(caller) {
+  let text;
+  try {
+    text = readFileSync(join(root, caller), "utf8");
+  } catch {
+    failCheck("risk-paths", caller, "caller file does not exist");
+    return;
+  }
+  if (!CALLER_PIN.test(text)) {
+    failCheck(
+      "risk-paths",
+      caller,
+      "must call frostyard/core/.github/workflows/pr-triage.yml pinned to a full 40-character commit SHA (core ADR-0021)",
+    );
+  }
+  if (!CALLER_JOB.test(text)) {
+    failCheck("risk-paths", caller, "must run the reusable workflow in the job pr-triage");
+  }
+}
+
 function checkRiskPaths() {
   const relative = ".github/risk-paths.json";
   const absolute = join(root, relative);
@@ -215,18 +243,20 @@ function checkRiskPaths() {
     for (const error of validation.errors) {
       failCheck("risk-paths", relative, error);
     }
-  } else {
-    const caller = ".github/workflows/risk-paths.yml";
-    const callerAbsolute = join(root, caller);
-    if (!existsSync(callerAbsolute)) {
-      failCheck("risk-paths", caller, "caller file does not exist");
-    }
-    counts.riskEntries = list.paths.length;
-    // Rule C (core docs/specs/risk-paths.md): each required path matches a
-    // glob, and in a version 2 list each such glob is L1 or L2.
-    for (const error of checkRequiredPaths(list, [relative, caller])) {
-      failCheck("risk-paths", relative, error);
-    }
+    return;
+  }
+
+  // A repository made from this template starts on list version 2, so a
+  // version 1 list fails here. The validator accepts 1 and 2; for version 2 it
+  // already requires default_level and the level of each entry.
+  if (list.schema_version !== 2) {
+    failCheck("risk-paths", relative, `schema_version: must be 2 in this template, not ${JSON.stringify(list.schema_version)}`);
+  }
+
+  checkCaller(CALLER_PATH);
+  counts.riskEntries = list.paths.length;
+  for (const error of checkRequiredPaths(list, [relative, CALLER_PATH])) {
+    failCheck("risk-paths", relative, error);
   }
 }
 
@@ -299,6 +329,6 @@ if (failures.length > 0) {
 
 console.log("ok   agent-symlinks: 5 symlinks resolve to AGENTS.md and .agents/skills");
 console.log(`ok   docs-index: ${counts.docs} docs indexed, ${counts.links} index links resolve`);
-console.log(`ok   risk-paths: ${counts.riskEntries} entries, list and caller listed`);
+console.log(`ok   risk-paths: ${counts.riskEntries} entries at schema version 2, list and caller listed`);
 console.log(`ok   corrections: ${counts.corrections}`);
 console.log("ok   vendored: 2 pinned core copies match");
