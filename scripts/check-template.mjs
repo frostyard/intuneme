@@ -23,7 +23,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { matchGlob, parseStrictJson, validateRiskPaths } from "./lib/risk-paths.mjs";
+import { checkRequiredPaths, parseStrictJson, validateRiskPaths } from "./lib/risk-paths.mjs";
 
 const scriptDir = resolve(dirname(fileURLToPath(import.meta.url)));
 const usage = "Usage: node scripts/check-template.mjs [--root DIR]";
@@ -222,10 +222,10 @@ function checkRiskPaths() {
       failCheck("risk-paths", caller, "caller file does not exist");
     }
     counts.riskEntries = list.paths.length;
-    for (const required of [relative, caller]) {
-      if (!list.paths.some((entry) => matchGlob(entry.glob, required))) {
-        failCheck("risk-paths", relative, `no glob matches the required path ${required}`);
-      }
+    // Rule C (core docs/specs/risk-paths.md): each required path matches a
+    // glob, and in a version 2 list each such glob is L1 or L2.
+    for (const error of checkRequiredPaths(list, [relative, caller])) {
+      failCheck("risk-paths", relative, error);
     }
   }
 }
@@ -263,8 +263,8 @@ function checkVendored() {
   const vendored = [
     {
       path: "scripts/lib/risk-paths.mjs",
-      source: "frostyard/core@1b02a129026329cef2b46d1fbd0465a863c1cd81:scripts/lib/risk-paths.mjs",
-      sha256: "81a4e51e29b6ae754fdb9cbdf5edc712c47c893e7eadc3bbd17102749e051ba0",
+      source: "frostyard/core@c996ea3fb54bcf1a3c621113522213702a7673e2:scripts/lib/risk-paths.mjs",
+      sha256: "6df0af009ff385467214f8df56aa5c5c92ac19ad26689b3344bb4d2654cdfa43",
     },
     {
       path: "scripts/check-corrections.mjs",

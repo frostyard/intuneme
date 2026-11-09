@@ -1,18 +1,24 @@
-# Risk paths (ADR-0068, docs/specs/risk-paths.md): this caller runs on
-# pull_request_target so the base risk list and trusted caller execute. It does
-# not run a PR branch. It checks out nothing. It is not a required check. The
-# repository must have the risk:high label, or this job fails.
-name: Risk paths caller
+# PR triage caller (frostyard/core ADR-0068, ADR-0077, ADR-0078; core
+# docs/specs/pr-triage.md): runs core's reusable PR triage workflow on every
+# pull request. It adds the level label (level:L1 to level:L4, from
+# .github/risk-paths.json at the base) and risk:high for L1 and L2, removes
+# ready-for-human when the head moves or CI is not green when the label comes,
+# and writes the Dependabot shadow comment. pull_request_target runs the base
+# list and this trusted caller; it checks out nothing and runs no PR code.
+# The job id must stay pr-triage: the readiness step leaves out check runs
+# whose name starts with pr-triage. It is not a required check and has no
+# merge_group trigger.
+name: PR triage
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, labeled]
 
 permissions: {}
 
 jobs:
-  risk-paths:
+  pr-triage:
     permissions:
       contents: read
       pull-requests: write
-    uses: frostyard/core/.github/workflows/risk-paths.yml@1b02a129026329cef2b46d1fbd0465a863c1cd81 # frostyard/core main, 2026-11-04 (core has no release tags)
+    uses: frostyard/core/.github/workflows/pr-triage.yml@c996ea3fb54bcf1a3c621113522213702a7673e2 # core#225 (frostyard/core main, 2026-11-09; core has no release tags)
