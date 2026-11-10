@@ -10,6 +10,8 @@ intuneme init
 
 This pulls the Ubuntu 24.04 container image, which already contains Microsoft Edge and Intune Portal, from GHCR, extracts the rootfs, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can open an interactive shell in the container without repeated password prompts; host shells and broad machine management are not granted.
 
+If image preparation fails, `init` removes a new rootfs directory, or a previously empty rootfs directory owned by your user, so you can retry without `--force`. It accepts an empty directory owned by another user but never changes its mode before extraction or removes it on failure. A partial extraction needs sudo for cleanup. If cleanup fails, a warning shows the error. A pre-existing non-empty rootfs is never removed on init failure and still requires `--force` to extract over it. The rootfs directory mode is explicitly `0755` and its owner is `root:root`, even with a restrictive host umask.
+
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
 
 !!! tip "Fedora / tmpfs systems"
@@ -33,6 +35,8 @@ intuneme start
 ```
 
 This boots the container (systemd as PID 1), mounts host display/audio/GPU resources into it, configures Nvidia GPU forwarding if detected, and installs udev rules for device hotplug (YubiKey, webcam). The container is ready when `intuneme status` shows it as running.
+
+Every non-dry-run start also repairs the rootfs directory owner and mode for older installations, even when the container is already running. Start enables the container user's session services with a 30-second retry budget. A D-Bus attempt already in progress can run past this deadline (about 25 seconds per blocked call), for a worst-case wait of about 55 seconds. An app launch has a separate 30-second user-bus wait, which can end first in that degraded case. A final failure includes the command output.
 
 ## 3. Open a shell inside the container
 

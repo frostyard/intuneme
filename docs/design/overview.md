@@ -48,6 +48,37 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ## Key Patterns
 
+### Rootfs Preparation and Upgrade Repair
+
+`cmd.prepareInitRootfs` creates the extraction target, explicitly sets mode
+`0755` without relying on the umask, extracts through a `puller.Puller`, and
+checks `puller.VerifyRootOwned` before reconciling the directory itself.
+`puller.ReconcileRootfs` resolves a symlinked path, checks the resolved
+directory with `Lstat`, and runs `sudo chown -h 0:0 -- <path>` and
+`sudo chmod 0755 -- <path>` only when ownership or mode differs. Container
+services such as `messagebus` must traverse `/`; a rootfs created under umask
+`077` otherwise leaves `/` inaccessible and the system bus cannot start.
+`recreate` also explicitly sets the initial mode and reconciles after extraction.
+
+Preparation keeps the initial `Lstat` metadata. Only an absent target or an
+empty directory owned by the running UID counts as its own: init applies the
+initial user `chmod` and removes that target if preparation fails. An empty
+directory of another owner is accepted, but init never applies the initial
+user `chmod` or removes it; reconciliation repairs its metadata after extraction.
+Cleanup first uses `os.Remove`. Only `ENOTEMPTY` or `EEXIST` permits the
+`sudo rm -rf` fallback for a partial extraction. Other removal errors only
+warn; all cleanup errors preserve the original failure. A pre-existing
+non-empty rootfs or symlink requires `--force`; extraction still runs over it,
+and failure never removes it. A directory that cannot be read because of
+permissions counts as an existing installation, so `--force` can proceed.
+A custom rootfs has the same rules. Verification is injectable for tests;
+production uses `VerifyRootOwned`.
+
+On every non-dry-run `start`, the same reconciliation follows
+`refreshStartSecurity` and precedes `IsRunning`, so both cold boots and the
+already-running return repair old directory metadata. Failure is fatal without
+a problem record: setup and sudo errors are not internal failures.
+
 ### Command Execution Inside the Container
 
 `nspawn.Exec()` enters the container's namespaces and runs commands as the user via a single root-owned helper, `/usr/local/libexec/intuneme/nsenter-exec <script>`, invoked through passwordless `sudo`. The helper is a copy of the intuneme binary dispatched by `argv[0]` (`internal/nshelper`). Its machine, user, UID, home, and rootfs are baked into a root-owned TOML config (`nsenter-exec.toml`) at install time; **the caller supplies only the script**.
@@ -277,8 +308,12 @@ login session (`broker.LoginSessionArgs`).
 
 Linger runs right after the machine registers, before the Nvidia, udev, group,
 YubiKey and video steps. At that moment the container's system bus and logind
-may not answer yet, so `enableUserLinger` retries for up to 30 seconds and a
-final failure is fatal. It uses `systemd-run --wait` because that returns the
+may not answer yet, so `enableUserLinger` uses a 30-second total budget for
+starting attempts, including command time and 1-second retry delays. It starts
+no retry at or after the deadline. An in-flight attempt can finish after the
+deadline because a D-Bus call can block for about 25 seconds. The degraded
+worst case is therefore about 55 seconds: the 30-second budget plus 1 blocked
+attempt. A final failure is fatal. It uses `systemd-run --wait` because that returns the
 exit status of the inner `loginctl`; `machinectl shell` does not report it, so
 an inner failure would look like success. The error text carries the command
 output.
@@ -287,8 +322,9 @@ The launch prologue in `buildSessionEnvScript` also waits, bounded, for the user
 session bus: `userBusWaitScript` polls `$XDG_RUNTIME_DIR/bus` for up to 30
 seconds before it runs `intuneme-session-setup`. The GNOME extension can launch
 an app while `start` is still enabling linger, or while `user@<uid>` is still
-starting after boot, so the wait outlasts the linger retry window in
-`cmd/start.go`. If the bus never appears the launch **fails**: the prologue
+starting after boot. In the degraded 55-second linger case, this 30-second
+user-bus wait can end first and fail the launch even if linger later succeeds.
+This separate wait does not extend the linger retry budget in `cmd/start.go`. If the bus never appears the launch **fails**: the prologue
 writes one line to stderr and exits 1, rather than start an app or an MCP server
 without a session bus, where the broker cannot authenticate and the keyring
 stays locked. `Exec` returns that line in its error, so `intuneme open` shows it.

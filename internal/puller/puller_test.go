@@ -229,3 +229,57 @@ func TestVerifyRootOwnedRejectsEmptyRootfs(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestReconcileRootfsMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{}
+	if err := ReconcileRootfs(r, path); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(r.commands, "\n"), "sudo chmod 0755 -- "+path) {
+		t.Fatalf("missing chmod: %v", r.commands)
+	}
+}
+
+func TestReconcileRootfsResolvesSymlink(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "real")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{}
+	if err := ReconcileRootfs(r, path); err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(r.commands, "\n")
+	if !strings.Contains(all, "sudo chmod 0755 -- "+resolved) {
+		t.Fatalf("chmod did not target the resolved directory: %v", r.commands)
+	}
+	if strings.Contains(all, " "+path) {
+		t.Fatalf("command changed the symlink path: %v", r.commands)
+	}
+}
+
+func TestReconcileRootfsRejectsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &mockRunner{}
+	if err := ReconcileRootfs(r, path); err == nil {
+		t.Fatal("file accepted")
+	}
+	if len(r.commands) != 0 {
+		t.Fatalf("file changed: %v", r.commands)
+	}
+}

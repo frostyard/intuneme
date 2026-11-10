@@ -13,6 +13,8 @@ The repository has two main components:
 
 **Rule of thumb:** The Go CLI starts and stops things. The container image defines what's inside the container. If something is static and doesn't depend on the host (packages, service overrides, config files), it belongs in `ubuntu-intune/`. If it depends on the host user/UID/hostname, it stays in `internal/provision/`.
 
+`init` and `recreate` explicitly set the new rootfs directory mode to `0755`, then reconcile its owner to `0:0` and mode to `0755` after extraction and ownership verification; never rely on the umask. `start` runs the same reconciliation after the security refresh and before its already-running check, except in dry run; failures are fatal and produce no problem record. Reconciliation resolves a symlinked rootfs path and changes only the resolved directory. Init initially chmods and cleans up only an absent rootfs or an empty rootfs directory owned by the running UID. Linger retries use a 30-second total time budget, not an attempt count; an in-flight attempt can finish after the deadline.
+
 The optional `product_name` key is validated only at use in `start`, before sudo; never validate it in `config.Load`. Its bind source path must be absolute and must never contain `:` or `\` (nspawn splits at `:` and reads `\` as an escape), and the host DMI target must exist before sudo and boot.
 
 ## Executing commands inside the container

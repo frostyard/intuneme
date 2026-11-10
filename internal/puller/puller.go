@@ -43,6 +43,40 @@ func VerifyRootOwned(rootfsPath string) error {
 	return nil
 }
 
+// ReconcileRootfs makes the container's / traversable by unprivileged services.
+// tar extraction does not repair the owner or mode of an existing directory.
+// A symlinked rootfs path (for example to another disk) is resolved first, so
+// the commands change the directory that nspawn boots, never the link itself.
+func ReconcileRootfs(r runner.Runner, rootfsPath string) error {
+	resolved, err := filepath.EvalSymlinks(rootfsPath)
+	if err != nil {
+		return fmt.Errorf("inspect rootfs directory: %w", err)
+	}
+	rootfsPath = resolved
+	fi, err := os.Lstat(rootfsPath)
+	if err != nil {
+		return fmt.Errorf("inspect rootfs directory: %w", err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("rootfs must be a directory: %s", rootfsPath)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot inspect rootfs ownership: %s", rootfsPath)
+	}
+	if st.Uid != 0 || st.Gid != 0 {
+		if out, err := r.Run("sudo", "chown", "-h", "0:0", "--", rootfsPath); err != nil {
+			return fmt.Errorf("set rootfs owner: %w: %s", err, out)
+		}
+	}
+	if fi.Mode().Perm() != 0o755 || fi.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+		if out, err := r.Run("sudo", "chmod", "0755", "--", rootfsPath); err != nil {
+			return fmt.Errorf("set rootfs mode: %w: %s", err, out)
+		}
+	}
+	return nil
+}
+
 // Puller pulls a container image from a registry and extracts it to a rootfs directory.
 type Puller interface {
 	// Name returns a human-readable name for the backend (e.g. "podman").
