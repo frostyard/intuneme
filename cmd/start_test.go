@@ -6,8 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/nspawn"
+	"github.com/frostyard/intuneme/internal/problemrec/problemrectest"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
 )
@@ -276,6 +279,131 @@ func TestStartMigrationDryRun(t *testing.T) {
 	if strings.Contains(strings.Join(r.commands, "\n"), "sudo ") {
 		t.Fatal("dry run changed security configuration")
 	}
+}
+
+func mockProductNameHost(t *testing.T) {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "host_product_name")
+	if err := os.WriteFile(file, []byte("Host Model\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(nspawn.OverrideHostProductNamePath(file))
+}
+
+func TestStartColdBootProductName(t *testing.T) {
+	for _, name := range []string{"", "Test Model"} {
+		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
+			mockLaunchInstall(t)
+			mockProductNameHost(t)
+			root := startRoot(t, fmt.Sprintf("product_name = %q\n", name))
+			r := &coldBootRunner{}
+			if err := runStart(r, root); err != nil {
+				t.Fatal(err)
+			}
+			file := filepath.Join(root, "dmi", "product_name")
+			var boot string
+			for _, command := range r.commands {
+				if strings.Contains(command, "systemd-nspawn") {
+					boot = command
+				}
+			}
+			if boot == "" {
+				t.Fatal("container did not boot")
+			}
+			if name == "" {
+				if strings.Contains(boot, nspawn.ProductNamePath) {
+					t.Fatalf("unset key adds DMI mount: %s", boot)
+				}
+				if _, err := os.Stat(file); !os.IsNotExist(err) {
+					t.Fatalf("unset key wrote product name file: %v", err)
+				}
+				return
+			}
+			want := "--bind-ro=" + file + ":" + nspawn.ProductNamePath
+			if !strings.Contains(boot, want) {
+				t.Fatalf("boot lacks %q: %s", want, boot)
+			}
+			data, err := os.ReadFile(file)
+			if err != nil || string(data) != name+"\n" {
+				t.Fatalf("product name = %q, %v", data, err)
+			}
+			info, err := os.Stat(file)
+			if err != nil || info.Mode().Perm() != 0o644 {
+				t.Fatalf("product name file mode: %v, %v", info, err)
+			}
+		})
+	}
+}
+
+// --root can be relative, but systemd-nspawn needs an absolute bind source.
+func TestStartProductNameRelativeRoot(t *testing.T) {
+	mockLaunchInstall(t)
+	mockProductNameHost(t)
+	root := startRoot(t, "product_name = \"Test Model\"\n")
+	t.Chdir(filepath.Dir(root))
+	r := &coldBootRunner{}
+	if err := runStart(r, filepath.Base(root)); err != nil {
+		t.Fatal(err)
+	}
+	want := "--bind-ro=" + filepath.Join(root, "dmi", "product_name") + ":" + nspawn.ProductNamePath
+	if !strings.Contains(strings.Join(r.commands, "\n"), want) {
+		t.Fatalf("boot lacks %q: %v", want, r.commands)
+	}
+}
+
+func TestStartInvalidProductNameBeforeSudo(t *testing.T) {
+	for _, name := range []string{"bad\nname", strings.Repeat("x", 65)} {
+		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
+			mockProductNameHost(t)
+			s := problemrectest.Use(t, recordVersion)
+			root := identityRoot(t, fmt.Sprintf("product_name = %q\n", name))
+			r := &coldBootRunner{}
+			err := runStart(r, root)
+			if err == nil || !strings.Contains(err.Error(), "invalid product_name in config.toml") {
+				t.Fatalf("error = %v", err)
+			}
+			if len(r.commands) != 0 {
+				t.Fatalf("invalid value ran commands: %v", r.commands)
+			}
+			s.ExpectNone(50 * time.Millisecond)
+		})
+	}
+}
+
+func TestStartProductNameDryRun(t *testing.T) {
+	mockProductNameHost(t)
+	old := clix.DryRun
+	clix.DryRun = true
+	t.Cleanup(func() { clix.DryRun = old })
+	root := startRoot(t, "product_name = \"Test Model\"\n")
+	r := &coldBootRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "dmi")); !os.IsNotExist(err) {
+		t.Fatalf("dry run created DMI directory: %v", err)
+	}
+	for _, command := range r.commands {
+		if strings.HasPrefix(command, "sudo ") || strings.Contains(command, "systemd-nspawn") {
+			t.Fatalf("dry run changed container: %s", command)
+		}
+	}
+}
+
+func TestStartProductNamePreparationFailureIsNotRecorded(t *testing.T) {
+	mockLaunchInstall(t)
+	s := problemrectest.Use(t, recordVersion)
+	root := identityRoot(t, "product_name = \"Test Model\"\n")
+	t.Cleanup(nspawn.OverrideHostProductNamePath(filepath.Join(t.TempDir(), "missing")))
+	r := &coldBootRunner{}
+	err := runStart(r, root)
+	if err == nil || !strings.Contains(err.Error(), "remove product_name") {
+		t.Fatalf("error = %v", err)
+	}
+	if r.booted {
+		t.Fatal("container booted without required DMI target")
+	}
+	s.ExpectNone(50 * time.Millisecond)
 }
 
 func mockLaunchInstall(t *testing.T) {

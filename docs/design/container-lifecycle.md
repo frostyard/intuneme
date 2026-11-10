@@ -62,11 +62,12 @@ Boots the container and sets up runtime environment.
 
 **Flow:**
 
-1. **Load config** — Read `config.toml`, verify rootfs exists
-2. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
-3. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
+1. **Load config** — Read `config.toml`, verify rootfs exists, then validate the optional `product_name` with `cfg.ContainerProductName()` before sudo, including in dry run. User config errors produce no problem record.
+2. **Validate sudo and reconcile security** — Prompt for password if needed (`nspawn.ValidateSudo()`), then run `refreshStartSecurity` unless dry run. If already running, enable linger and return; a set `product_name` prints a next-boot message.
+3. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
 4. **Prepare runtime bind mount** (if the broker, notify or screencast proxy is enabled) — Create runtime directory, add bind mount
-5. **Validate sudo** — Prompt for password if needed (`nspawn.ValidateSudo()`)
+5. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
+5b. **Prepare product name** (if set) — After the dry-run return, write `<root>/dmi/product_name` using `nspawn.WriteProductNameFile` and append its read-only bind at `/sys/class/dmi/id/product_name`. Preparation failures stop before boot without a problem record. Dry run only prints the model; an empty key writes no file and adds no mount.
 6. **Write display marker** — Write host `$DISPLAY` to `rootfs/etc/intuneme-host-display` (read by `intuneme-session-setup` on login and on every app launch)
 7. **Override X11 tmpfiles rule** — `provision.OverrideX11Tmpfiles()` writes `/etc/tmpfiles.d/x11.conf` into the rootfs: the vendor `x11.conf` minus its `/tmp/.X11-unix` directive. That directory is bind-mounted from the host, and the vendor `D!` type would empty it on every container boot, costing the host its Xwayland socket. Fails the start if it cannot be written. See [overview.md](overview.md) → "The X11 Socket Directory Is the Host's"
 8. **Boot container** — `systemd-nspawn` with all bind mounts, DRI device binds plus explicit `DeviceAllow=<dev> rwm` rules, Nvidia device binds with explicit `DeviceAllow`, `--boot` flag

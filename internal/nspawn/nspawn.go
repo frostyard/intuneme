@@ -28,6 +28,62 @@ type BindMount struct {
 	ReadOnly  bool
 }
 
+// ProductNamePath is the DMI product name file read by the container's Intune portal.
+const ProductNamePath = "/sys/class/dmi/id/product_name"
+
+var hostProductNamePath = ProductNamePath
+
+// OverrideHostProductNamePath is a test hook that replaces the host DMI probe.
+// Tests must call restore and must not use this hook concurrently.
+func OverrideHostProductNamePath(path string) (restore func()) {
+	old := hostProductNamePath
+	hostProductNamePath = path
+	return func() { hostProductNamePath = old }
+}
+
+// WriteProductNameFile atomically prepares the file for a read-only DMI bind.
+// The private directory protects the source; the file is readable by container users.
+func WriteProductNameFile(stateDir, name string) (string, error) {
+	file := filepath.Join(stateDir, "dmi", "product_name")
+	if strings.Contains(file, ":") || !filepath.IsAbs(file) {
+		return "", fmt.Errorf("product name file path %q must be absolute and must not contain ':'", file)
+	}
+	if _, err := os.Stat(hostProductNamePath); err != nil {
+		return "", fmt.Errorf("host DMI product name is unavailable; remove product_name from config.toml: %w", err)
+	}
+	dir := filepath.Dir(file)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create product name directory: %w", err)
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", fmt.Errorf("set product name directory mode: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".product_name-*")
+	if err != nil {
+		return "", fmt.Errorf("create product name temp file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.WriteString(name + "\n"); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("write product name: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("close product name file: %w", err)
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return "", fmt.Errorf("set product name file mode: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), file); err != nil {
+		return "", fmt.Errorf("replace product name file: %w", err)
+	}
+	return file, nil
+}
+
+// ProductNameMount presents file as the container's read-only DMI product name.
+func ProductNameMount(file string) BindMount {
+	return BindMount{Host: file, Container: ProductNamePath, ReadOnly: true}
+}
+
 // xauthorityPatterns are searched in XDG_RUNTIME_DIR when $XAUTHORITY is unset.
 var xauthorityPatterns = []string{
 	".mutter-Xwaylandauth.*",

@@ -210,6 +210,12 @@ The optional `hostname` key in `config.toml` overrides that default. `config.Con
 
 Intune shows the container host name as the device name, so `recreate` reads the old `<rootfs>/etc/hostname` early, before the dry-run return and long before deleting the rootfs (`containerHostnameFromRootfs`, `warnIfHostnameChanges`), and prints a warning when the value differs from the new name: the tenant can show the device as renamed or new.
 
+### Product Name
+
+The optional `product_name` key controls the PC model that Intune reads from `/sys/class/dmi/id/product_name` ([issue #156](https://github.com/frostyard/intuneme/issues/156)). It is off by default because the presented model is a tenant policy matter. `config.ContainerProductName` accepts an empty key unchanged, or validates 1 to 64 bytes of printable ASCII (0x20..0x7E), without leading or trailing spaces. `runStart` validates after the rootfs check and before sudo, even in dry run; `config.Load` never validates it. A bad value and file preparation errors produce no problem record.
+
+On a cold boot, `nspawn.WriteProductNameFile` writes `<root>/dmi/product_name` with the value plus a newline. The directory is explicitly 0700 and the file 0644 so container processes can read it. A temporary file plus rename replaces a final-path symlink without following it. The source path must be absolute and must not contain `:`, the nspawn bind separator. The host DMI file must exist: nspawn cannot create the target in read-only sysfs. A missing target fails with an instruction to remove `product_name`. `ProductNameMount` adds `--bind-ro=<root>/dmi/product_name:/sys/class/dmi/id/product_name` through the existing sockets list. No key means no file or extra boot argument; dry run prints the model without writing a file. An already-running container gets a next-boot message instead of a changed mount.
+
 ### Container User Groups
 
 The container user is added to: `adm,sudo,video,audio` (plus `render` if a render group exists matching the host's render GID). The container-side sudoers rule at `/etc/sudoers.d/intuneme` contains only a comment; broker restart is authorized by the container polkit policy. Interactive `sudo` still requires the container password set by `init`. Do not broaden this to `NOPASSWD: ALL`: the host-side helper runs user commands outside nspawn, so unrestricted container sudo is effectively unrestricted host root.
@@ -410,6 +416,7 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `screencast_proxy` | bool | Forward the container's ScreenCast portal to the host |
 | `insiders` | bool | Use insiders channel image |
 | `hostname` | string | Container host name; unset means `<host hostname>LXC` (validated by `config.ValidateHostname`, RFC 1123, max 64 characters; used by `init` and `recreate` only) |
+| `product_name` | string | Optional PC model override; unset changes nothing. Printable ASCII, 1–64 bytes, no surrounding spaces; validated at use by `start`, applied at cold boot through a read-only DMI bind |
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
 
