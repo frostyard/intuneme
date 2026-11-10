@@ -52,8 +52,14 @@ func runStart(r runner.Runner, root string) error {
 	if err != nil {
 		return err
 	}
+	if productName != "" {
+		if err := nspawn.CheckHostProductName(); err != nil {
+			return err
+		}
+	}
 
-	// Problem records: the config load, product name validation, the rootfs check, sudo -v and
+	// Problem records: the config load, the rootfs check, the product_name
+	// checks, sudo -v and
 	// refreshStartSecurity are never recorded, because they fail for user
 	// setup (a bad config identity, an untrusted helper source) and for
 	// authentication. The boot, linger and proxy records below run only after

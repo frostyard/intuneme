@@ -81,9 +81,9 @@ Set `product_name` to choose the PC model that the Intune portal reads from `/sy
 product_name = "ThinkPad X1 Carbon Gen 11"
 ```
 
-The value must be 1 to 64 bytes of printable ASCII (0x20 through 0x7E), with no leading or trailing space. Control characters, newlines, tabs, DEL and non-ASCII characters are not allowed. An invalid value stops `intuneme start` before sudo or container changes, including in dry run.
+The value must be 1 to 64 bytes of printable ASCII (0x20 through 0x7E), with no leading or trailing space. Control characters, newlines, tabs, DEL and non-ASCII characters are not allowed. An invalid value stops `intuneme start` before sudo or container changes, including in dry run. The key changes only `/sys/class/dmi/id/product_name`: other DMI sources in the container, such as `/sys/class/dmi/id/sys_vendor`, `/sys/class/dmi/id/modalias` and `/sys/firmware/dmi/tables/DMI`, still show the host values.
 
-The override takes effect at each `intuneme start` that cold-boots the container. If it is already running, run `intuneme stop`, then `intuneme start`. An empty or unset key changes nothing on the next boot: the container sees the real host model. The host must expose `/sys/class/dmi/id/product_name`; otherwise start fails and asks you to remove the key. The host file itself is never changed.
+The override takes effect at each `intuneme start` that cold-boots the container. If it is already running, run `intuneme stop`, then `intuneme start`. An empty or unset key changes nothing on the next boot: the container sees the real host model. A file from an earlier boot stays in `<root>/dmi/` and is not used. The host must expose `/sys/class/dmi/id/product_name`; otherwise start fails before it asks for your password, and asks you to remove the key. The host file itself is never changed.
 
 !!! warning "Tenant policy"
     The model your tenant sees is a tenant policy matter. Ask your Intune administrator before you present a model other than the real hardware.

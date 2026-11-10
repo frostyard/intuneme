@@ -400,10 +400,30 @@ func TestStartProductNamePreparationFailureIsNotRecorded(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "remove product_name") {
 		t.Fatalf("error = %v", err)
 	}
-	if r.booted {
-		t.Fatal("container booted without required DMI target")
+	// The host DMI check runs before sudo: no password prompt, no host change.
+	if len(r.commands) != 0 {
+		t.Fatalf("missing DMI target ran commands: %v", r.commands)
 	}
 	s.ExpectNone(50 * time.Millisecond)
+}
+
+// A running container keeps its boot mounts: start only prints a note.
+func TestStartProductNameRunningContainer(t *testing.T) {
+	mockLaunchInstall(t)
+	mockProductNameHost(t)
+	root := startRoot(t, "product_name = \"Test Model\"\n")
+	r := &startSecurityRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "dmi")); !os.IsNotExist(err) {
+		t.Fatalf("running container wrote the DMI directory: %v", err)
+	}
+	for _, command := range r.commands {
+		if strings.Contains(command, "systemd-nspawn") {
+			t.Fatalf("running container was rebooted: %s", command)
+		}
+	}
 }
 
 func mockLaunchInstall(t *testing.T) {

@@ -41,19 +41,37 @@ func OverrideHostProductNamePath(path string) (restore func()) {
 	return func() { hostProductNamePath = old }
 }
 
+// CheckHostProductName reports whether the host exposes the DMI product name
+// file. systemd-nspawn cannot create a missing bind target in the read-only
+// sysfs, so a product_name override needs it to exist before boot.
+func CheckHostProductName() error {
+	if _, err := os.Stat(hostProductNamePath); err != nil {
+		return fmt.Errorf("host DMI product name is unavailable; remove product_name from config.toml: %w", err)
+	}
+	return nil
+}
+
 // WriteProductNameFile atomically prepares the file for a read-only DMI bind.
 // The private directory protects the source; the file is readable by container users.
 func WriteProductNameFile(stateDir, name string) (string, error) {
 	file := filepath.Join(stateDir, "dmi", "product_name")
-	if strings.Contains(file, ":") || !filepath.IsAbs(file) {
-		return "", fmt.Errorf("product name file path %q must be absolute and must not contain ':'", file)
+	// systemd-nspawn splits a bind spec at ':' and reads '\\' as an escape, so
+	// either character would make it read a different source path.
+	if strings.ContainsAny(file, ":\\") || !filepath.IsAbs(file) {
+		return "", fmt.Errorf("product name file path %q must be absolute and must not contain ':' or '\\'", file)
 	}
-	if _, err := os.Stat(hostProductNamePath); err != nil {
-		return "", fmt.Errorf("host DMI product name is unavailable; remove product_name from config.toml: %w", err)
+	if err := CheckHostProductName(); err != nil {
+		return "", err
 	}
 	dir := filepath.Dir(file)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create product name directory: %w", err)
+	}
+	// MkdirAll and Chmod follow a symlink; refuse one so the file stays in the state root.
+	if info, err := os.Lstat(dir); err != nil {
+		return "", fmt.Errorf("check product name directory: %w", err)
+	} else if !info.IsDir() {
+		return "", fmt.Errorf("product name directory %q is not a directory", dir)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", fmt.Errorf("set product name directory mode: %w", err)

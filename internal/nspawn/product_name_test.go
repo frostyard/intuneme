@@ -95,7 +95,7 @@ func TestWriteProductNameFileReplacesSymlink(t *testing.T) {
 }
 
 func TestWriteProductNameFileRejectsPaths(t *testing.T) {
-	for _, name := range []string{"colon", "relative", "missing DMI"} {
+	for _, name := range []string{"colon", "backslash", "relative", "missing DMI"} {
 		t.Run(name, func(t *testing.T) {
 			mockHostProductName(t)
 			parent := t.TempDir()
@@ -103,6 +103,8 @@ func TestWriteProductNameFileRejectsPaths(t *testing.T) {
 			switch name {
 			case "colon":
 				root += ":bad"
+			case "backslash":
+				root += `\bad`
 			case "relative":
 				t.Chdir(parent)
 				root = "state"
@@ -121,6 +123,30 @@ func TestWriteProductNameFileRejectsPaths(t *testing.T) {
 				t.Fatalf("refused path wrote files: %v, %v", entries, err)
 			}
 		})
+	}
+}
+
+// MkdirAll and Chmod follow a symlink, so a symlinked dmi directory is refused.
+func TestWriteProductNameFileRejectsSymlinkDir(t *testing.T) {
+	mockHostProductName(t)
+	root := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.Chmod(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(root, "dmi")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteProductNameFile(root, "Test Model"); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("error = %v", err)
+	}
+	info, err := os.Stat(elsewhere)
+	if err != nil || info.Mode().Perm() != 0o755 {
+		t.Fatalf("symlink target changed: %v, %v", info, err)
+	}
+	entries, err := os.ReadDir(elsewhere)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("symlink target got files: %v, %v", entries, err)
 	}
 }
 

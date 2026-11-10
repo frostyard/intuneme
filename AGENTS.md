@@ -13,7 +13,7 @@ The repository has two main components:
 
 **Rule of thumb:** The Go CLI starts and stops things. The container image defines what's inside the container. If something is static and doesn't depend on the host (packages, service overrides, config files), it belongs in `ubuntu-intune/`. If it depends on the host user/UID/hostname, it stays in `internal/provision/`.
 
-The optional `product_name` key is validated only at use in `start`, before sudo; never validate it in `config.Load`. Its bind source path must be absolute and must never contain `:`, and the host DMI target must exist before boot.
+The optional `product_name` key is validated only at use in `start`, before sudo; never validate it in `config.Load`. Its bind source path must be absolute and must never contain `:` or `\` (nspawn splits at `:` and reads `\` as an escape), and the host DMI target must exist before sudo and boot.
 
 ## Executing commands inside the container
 
