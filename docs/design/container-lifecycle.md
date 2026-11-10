@@ -63,7 +63,14 @@ Boots the container and sets up runtime environment.
 **Flow:**
 
 1. **Load config** — Read `config.toml`, verify rootfs exists, then validate the optional `product_name` with `cfg.ContainerProductName()` and, when it is set, check the host DMI file with `nspawn.CheckHostProductName()`, before sudo, including in dry run. User config errors produce no problem record.
-2. **Validate sudo and reconcile security** — Prompt for password if needed (`nspawn.ValidateSudo()`), then run `refreshStartSecurity` unless dry run. If already running, enable linger and return; a set `product_name` prints a next-boot message.
+2. **Validate sudo and reconcile security** — On every start except dry run, prompt for password if needed (`nspawn.ValidateSudo()`), then run `refreshStartSecurity`. It runs before boot and before the already-running return, in this order:
+    - Install the host polkit rule (`provision.InstallPolkitRule`) first, to revoke the old broad shell grant before changing helpers.
+    - Unconditionally reinstall both root-owned helpers (`nsenter-exec` and `machine-exec`), their baked TOML config, and `/etc/sudoers.d/intuneme-exec` (`installLaunchHelpers` → `sudoers.Install`). On failure, call `sudoers.Remove` and return an error that says to install intuneme in a root-owned path.
+    - Reinstall the container broker restart policy (`49-intuneme-broker.rules`), Edge command-line flag managed policy, `/usr/local/bin/intuneme-session-setup`, and `/etc/profile.d/intuneme.sh` (`provision.InstallSessionScripts`). CLI upgrades reach existing containers without a `recreate`.
+    - Rewrite the comment-only `/etc/sudoers.d/intuneme` (`provision.EnsureContainerSudoers`), removing legacy passwordless sudo grants.
+    - Any reconciliation error stops `start` with "security migration failed".
+
+    Then, if the machine is already running, enable linger (not in dry run) and return; a set `product_name` prints a next-boot message.
 3. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
 4. **Prepare runtime bind mount** (if the broker, notify or screencast proxy is enabled) — Create runtime directory, add bind mount
 5. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
@@ -76,16 +83,13 @@ Boots the container and sets up runtime environment.
 12. **Clean stale Nvidia symlinks** — Always runs (even on non-Nvidia boots) to remove symlinks from previous sessions
 13. **Setup Nvidia libraries** (if detected) — Create symlinks in container's `/usr/lib/x86_64-linux-gnu/` → `/run/host-nvidia/<index>/`, then run `ldconfig`
 14. **Install udev rules** — YubiKey (`70-intuneme-yubikey.rules`) and video (`70-intuneme-video.rules`) hotplug rules + helper script (`/usr/local/lib/intuneme/usb-hotplug`)
-15. **Ensure sudoers**: Reinstall sudoers rule and nsenter helper if either is missing (handles upgrades from the old wildcard-only rule; `IsInstalled` requires both)
-16. **Ensure session scripts** — Unconditionally reinstall `/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` (`provision.InstallSessionScripts`, idempotent), so the rootfs copy always matches the embedded one and CLI upgrades reach existing containers without a `recreate`
-Before boot or the already-running return, authenticate and reconcile session scripts and broker policy, then rewrite `/etc/sudoers.d/intuneme` (`provision.EnsureContainerSudoers`) on every start, so existing containers lose all passwordless sudo grants without a `recreate`. Reconciliation failure is fatal
-17. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
-18. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
-19. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
-20. **Open the container session bus** (if the broker, notify or screencast proxy is enabled) — Linger is already enabled (step 11); this step adds the runtime directory bind mount at boot and the login session:
+15. **Reconcile user groups** — `provision.EnsureUserGroups()` reads the container user's groups via `id -nG` (run as root inside the container's mount namespace via nsenter) and runs `usermod -aG <group> <user>` for any missing group in `requiredRuntimeGroups()` (currently just `plugdev`, required for pcscd access per issue #146). Idempotent; warns and continues on failure.
+16. **Forward existing YubiKeys** — Scan sysfs for Yubico vendor ID `1050`, forward USB device nodes + associated hidraw devices
+17. **Forward existing video devices** — Glob `/dev/video*` and `/dev/media*`, forward each with `0660 root:video` permissions
+18. **Open the container session bus** (if the broker, notify or screencast proxy is enabled) — Linger is already enabled (step 11); this step adds the runtime directory bind mount at boot and the login session:
     - Create login session via `machinectl`
     - Wait for session bus socket to appear
-21. **Start proxies** (each if enabled) — `startProxy()` launches `intuneme broker-proxy`, `intuneme notify-proxy` and `intuneme screencast-proxy` as background processes with `setsid`, then polls each PID file (up to 5 seconds). The notify and screencast proxies must own their names before Edge starts, because Chromium looks for a notification server and checks the portal only at browser startup
+19. **Start proxies** (each if enabled) — `startProxy()` launches `intuneme broker-proxy`, `intuneme notify-proxy` and `intuneme screencast-proxy` as background processes with `setsid`, then polls each PID file (up to 5 seconds). The notify and screencast proxies must own their names before Edge starts, because Chromium looks for a notification server and checks the portal only at browser startup
 
 ## `intuneme stop`
 
@@ -109,7 +113,7 @@ Removes container and host modifications. By default preserves user files in `~/
 2. **Stop container** if running — `nspawn.StopAndWait()`
 3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
 4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
-5. **Remove sudoers rule + helper**: Delete `/etc/sudoers.d/intuneme-exec`, `/usr/local/libexec/intuneme/nsenter-exec`, and `nsenter-exec.toml`
+5. **Remove sudoers rule + helpers**: Delete `/etc/sudoers.d/intuneme-exec`, `/usr/local/libexec/intuneme/nsenter-exec`, `machine-exec`, and `nsenter-exec.toml` (`sudoers.Remove`)
 6. **Delete rootfs** — `sudo rm -rf` the rootfs directory
 7. **Remove config** — Delete `config.toml`
 8. **Clean enrollment state** from `~/Intune`:
@@ -263,10 +267,12 @@ Generates markdown CLI reference pages for the MkDocs documentation site.
 
 ### Security migration before lifecycle operations
 
-`start` authenticates and runs `refreshStartSecurity` before either booting or
-returning "already running". Both helper binaries, their baked config, host
-shell authorization, container broker authorization, session scripts and the
-comment-only container sudoers file are reconciled. An error stops the command.
+On every start except dry run, `start` authenticates and runs
+`refreshStartSecurity` before either booting or returning "already running".
+It reconciles host shell authorization first, then both helper binaries, their
+baked config and host sudoers rule, then container broker authorization, the
+Edge managed policy and session scripts, then the comment-only container
+sudoers file. An error stops the command.
 A user-owned executable is not an acceptable helper refresh source.
 
 `StopAndWait`, used by stop/destroy/recreate, authenticates and falls back to
