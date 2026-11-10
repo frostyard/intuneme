@@ -113,7 +113,7 @@ Removes container and host modifications. By default preserves user files in `~/
 2. **Stop container** if running — `nspawn.StopAndWait()`
 3. **Remove udev rules** — Delete hotplug rules and helper script via `udev.Remove()` (graceful, handles missing files)
 4. **Remove polkit rule** — Delete `/etc/polkit-1/rules.d/50-intuneme.rules`
-5. **Remove sudoers rule + helper**: Delete `/etc/sudoers.d/intuneme-exec`, `/usr/local/libexec/intuneme/nsenter-exec`, and `nsenter-exec.toml`
+5. **Remove sudoers rule + helpers**: Delete `/etc/sudoers.d/intuneme-exec`, `/usr/local/libexec/intuneme/nsenter-exec`, `machine-exec`, and `nsenter-exec.toml` (`sudoers.Remove`)
 6. **Delete rootfs** — `sudo rm -rf` the rootfs directory
 7. **Remove config** — Delete `config.toml`
 8. **Clean enrollment state** from `~/Intune`:
