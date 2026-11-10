@@ -38,6 +38,11 @@ type Config struct {
 	// name; the value is validated only by ContainerHostname, never by Load,
 	// so unrelated commands keep working with a bad value.
 	Hostname string `toml:"hostname,omitempty"`
+	// ProductName is the PC model presented through the container's DMI sysfs
+	// file to Intune. Empty leaves the host model unchanged. Only
+	// ContainerProductName validates it, never Load, so unrelated commands
+	// keep working with a bad value.
+	ProductName string `toml:"product_name,omitempty"`
 }
 
 // hostnameMaxLen is the Linux HOST_NAME_MAX (64 bytes, without the trailing
@@ -97,6 +102,36 @@ func (c *Config) ContainerHostname(hostHostname string) (string, error) {
 		return "", fmt.Errorf("invalid hostname in config.toml: %w", err)
 	}
 	return c.Hostname, nil
+}
+
+const productNameMaxLen = 64
+
+// ValidateProductName accepts 1 to 64 bytes of printable ASCII without leading
+// or trailing spaces. The kernel strips trailing spaces from DMI strings.
+func ValidateProductName(name string) error {
+	if len(name) == 0 || len(name) > productNameMaxLen {
+		return fmt.Errorf("product name %q must be 1 to %d bytes long", name, productNameMaxLen)
+	}
+	for i := range len(name) {
+		if name[i] < 0x20 || name[i] > 0x7e {
+			return fmt.Errorf("product name %q must contain only printable ASCII (0x20..0x7E)", name)
+		}
+	}
+	if strings.HasPrefix(name, " ") || strings.HasSuffix(name, " ") {
+		return fmt.Errorf("product name %q must not have leading or trailing spaces", name)
+	}
+	return nil
+}
+
+// ContainerProductName returns the validated override, or empty when unset.
+func (c *Config) ContainerProductName() (string, error) {
+	if c.ProductName == "" {
+		return "", nil
+	}
+	if err := ValidateProductName(c.ProductName); err != nil {
+		return "", fmt.Errorf("invalid product_name in config.toml: %w", err)
+	}
+	return c.ProductName, nil
 }
 
 func DefaultRoot() (string, error) {

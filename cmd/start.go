@@ -48,7 +48,18 @@ func runStart(r runner.Runner, root string) error {
 		return fmt.Errorf("not initialized — run 'intuneme init' first")
 	}
 
-	// Problem records: the config load, the rootfs check, sudo -v and
+	productName, err := cfg.ContainerProductName()
+	if err != nil {
+		return err
+	}
+	if productName != "" {
+		if err := nspawn.CheckHostProductName(); err != nil {
+			return err
+		}
+	}
+
+	// Problem records: the config load, the rootfs check, the product_name
+	// checks, sudo -v and
 	// refreshStartSecurity are never recorded, because they fail for user
 	// setup (a bad config identity, an untrusted helper source) and for
 	// authentication. The boot, linger and proxy records below run only after
@@ -76,6 +87,9 @@ func runStart(r runner.Runner, root string) error {
 		}
 		rep.Message("Container %s is already running.", cfg.MachineName)
 		rep.Message("Use 'intuneme shell' to connect.")
+		if productName != "" {
+			rep.Message("product_name takes effect at the next container boot ('intuneme stop', then 'intuneme start').")
+		}
 		return nil
 	}
 
@@ -124,6 +138,9 @@ func runStart(r runner.Runner, root string) error {
 
 	if clix.DryRun {
 		rep.Message("[dry-run] Would boot container %s", cfg.MachineName)
+		if productName != "" {
+			rep.Message("[dry-run] Would present product name %q to the container", productName)
+		}
 		if nvidiaEnabled {
 			rep.Message("[dry-run] Would configure Nvidia GPU with %d libraries", len(nvidiaLibs))
 		}
@@ -141,6 +158,19 @@ func runStart(r runner.Runner, root string) error {
 			rep.Message("[dry-run] Would start screencast proxy")
 		}
 		return nil
+	}
+
+	if productName != "" {
+		// systemd-nspawn needs an absolute bind source; --root can be relative.
+		stateDir, err := filepath.Abs(root)
+		if err != nil {
+			return fmt.Errorf("resolve intuneme root: %w", err)
+		}
+		file, err := nspawn.WriteProductNameFile(stateDir, productName)
+		if err != nil {
+			return fmt.Errorf("prepare product name override: %w", err)
+		}
+		sockets = append(sockets, nspawn.ProductNameMount(file))
 	}
 
 	display := nspawn.HostDisplay()

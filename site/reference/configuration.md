@@ -25,6 +25,7 @@ The location can be overridden with the `--root` flag on any command. If you use
 | `mcp_binary` | string | _(unset)_ | Host path to a self-contained MCP server binary that `intuneme mcp` runs inside the container. Any MCP server works; there is no built-in default. The binary's directory is bind-mounted into the container at runtime, so it stays out of the rootfs and survives `recreate`. Override per-invocation with `intuneme mcp --binary`. See [MCP Servers](../user-guide/mcp-servers.md). |
 | `mcp_args` | array of strings | _(empty)_ | Default arguments passed to the MCP server binary by `intuneme mcp`. For a server whose stdio mode is a subcommand, set e.g. `mcp_args = ["mcp"]` so the VS Code config can be just `["mcp"]`. Trailing `intuneme mcp -- args...` override these. |
 | `hostname` | string | `<host hostname>LXC` | Container host name written to the container's `/etc/hostname` by `intuneme init` and `intuneme recreate`. It becomes the device name in Intune. The value must be a valid RFC 1123 host name of at most 64 characters. Leave it unset for the default. See [Container hostname](#container-hostname). |
+| `product_name` | string | _(unset)_ | PC model presented to Intune through `/sys/class/dmi/id/product_name`. Optional; applied at cold boot only. See [Product name](#product-name). |
 
 ## Example
 
@@ -71,6 +72,21 @@ The value is written to the container's `/etc/hostname` and `/etc/hosts`, and In
 
 !!! warning
     Set `hostname` before enrollment. A change after enrollment, by `intuneme recreate` or a new `intuneme init`, can show in the Intune tenant as a renamed or new device. `intuneme recreate` prints a warning when the host name changes.
+
+## Product name
+
+Set `product_name` to choose the PC model that the Intune portal reads from `/sys/class/dmi/id/product_name`:
+
+```toml
+product_name = "ThinkPad X1 Carbon Gen 11"
+```
+
+The value must be 1 to 64 bytes of printable ASCII (0x20 through 0x7E), with no leading or trailing space. Control characters, newlines, tabs, DEL and non-ASCII characters are not allowed. An invalid value stops `intuneme start` before sudo or container changes, including in dry run. The key changes only `/sys/class/dmi/id/product_name`: other DMI sources in the container, such as `/sys/class/dmi/id/sys_vendor`, `/sys/class/dmi/id/modalias` and `/sys/firmware/dmi/tables/DMI`, still show the host values.
+
+The override takes effect at each `intuneme start` that cold-boots the container. If it is already running, run `intuneme stop`, then `intuneme start`. An empty or unset key changes nothing on the next boot: the container sees the real host model. A file from an earlier boot stays in `<root>/dmi/` and is not used. The host must expose `/sys/class/dmi/id/product_name`; otherwise start fails before it asks for your password, and asks you to remove the key. The host file itself is never changed.
+
+!!! warning "Tenant policy"
+    The model your tenant sees is a tenant policy matter. Ask your Intune administrator before you present a model other than the real hardware.
 
 ## Error handling
 
