@@ -48,6 +48,31 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ## Key Patterns
 
+### Rootfs Preparation and Upgrade Repair
+
+`cmd.prepareInitRootfs` creates the extraction target, explicitly sets mode
+`0755` without relying on the umask, extracts through a `puller.Puller`, and
+checks `puller.VerifyRootOwned` before reconciling the directory itself.
+`puller.ReconcileRootfs` resolves a symlinked path, checks the resolved
+directory with `Lstat`, and runs `sudo chown
+0:0` and `sudo chmod 0755` only when ownership or mode differs. Container
+services such as `messagebus` must traverse `/`; a rootfs created under umask
+`077` otherwise leaves `/` inaccessible and the system bus cannot start.
+`recreate` also explicitly sets the initial mode and reconciles after extraction.
+
+If preparation fails, init removes only its new extraction target, with
+`os.Remove` for an empty directory or `sudo rm -rf` for a partial extraction.
+Cleanup errors warn and preserve the original failure. An empty directory
+left by an older failed init is accepted and counts as a new target for
+cleanup. A pre-existing non-empty rootfs requires `--force`; extraction still
+runs over it, and failure never removes it. A custom rootfs has the same rules.
+Verification is injectable for tests; production uses `VerifyRootOwned`.
+
+On every non-dry-run `start`, the same reconciliation follows
+`refreshStartSecurity` and precedes `IsRunning`, so both cold boots and the
+already-running return repair old directory metadata. Failure is fatal without
+a problem record: setup and sudo errors are not internal failures.
+
 ### Command Execution Inside the Container
 
 `nspawn.Exec()` enters the container's namespaces and runs commands as the user via a single root-owned helper, `/usr/local/libexec/intuneme/nsenter-exec <script>`, invoked through passwordless `sudo`. The helper is a copy of the intuneme binary dispatched by `argv[0]` (`internal/nshelper`). Its machine, user, UID, home, and rootfs are baked into a root-owned TOML config (`nsenter-exec.toml`) at install time; **the caller supplies only the script**.
@@ -277,8 +302,11 @@ login session (`broker.LoginSessionArgs`).
 
 Linger runs right after the machine registers, before the Nvidia, udev, group,
 YubiKey and video steps. At that moment the container's system bus and logind
-may not answer yet, so `enableUserLinger` retries for up to 30 seconds and a
-final failure is fatal. It uses `systemd-run --wait` because that returns the
+may not answer yet, so `enableUserLinger` uses a 30-second total budget for
+starting attempts, including command time and 1-second retry delays. It starts
+no retry at or after the deadline. An in-flight attempt can finish after the
+deadline because a D-Bus call can block for about 25 seconds. A final failure
+is fatal. It uses `systemd-run --wait` because that returns the
 exit status of the inner `loginctl`; `machinectl shell` does not report it, so
 an inner failure would look like success. The error text carries the command
 output.
@@ -287,8 +315,8 @@ The launch prologue in `buildSessionEnvScript` also waits, bounded, for the user
 session bus: `userBusWaitScript` polls `$XDG_RUNTIME_DIR/bus` for up to 30
 seconds before it runs `intuneme-session-setup`. The GNOME extension can launch
 an app while `start` is still enabling linger, or while `user@<uid>` is still
-starting after boot, so the wait outlasts the linger retry window in
-`cmd/start.go`. If the bus never appears the launch **fails**: the prologue
+starting after boot. This separate wait does not extend the linger retry
+budget in `cmd/start.go`. If the bus never appears the launch **fails**: the prologue
 writes one line to stderr and exits 1, rather than start an app or an MCP server
 without a session bus, where the broker cannot authenticate and the keyring
 stays locked. `Exec` returns that line in its error, so `intuneme open` shows it.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/problemrec/problemrectest"
 	"github.com/frostyard/intuneme/internal/runner"
@@ -122,9 +123,11 @@ func TestStartLingerRetriesTransientFailure(t *testing.T) {
 
 func shortLingerRetries(t *testing.T) {
 	t.Helper()
-	oldAttempts, oldDelay := lingerAttempts, lingerRetryDelay
-	lingerAttempts, lingerRetryDelay = 2, 0
-	t.Cleanup(func() { lingerAttempts, lingerRetryDelay = oldAttempts, oldDelay })
+	oldNow, oldSleep := lingerNow, lingerSleep
+	now := time.Unix(0, 0)
+	lingerNow = func() time.Time { return now }
+	lingerSleep = func(time.Duration) { now = now.Add(20 * time.Second) }
+	t.Cleanup(func() { lingerNow, lingerSleep = oldNow, oldSleep })
 }
 
 func TestStartMigrationFailsClosed(t *testing.T) {
@@ -468,4 +471,77 @@ func TestStartProxyFailsWithoutPIDFile(t *testing.T) {
 	if err := startProxy(r, t.TempDir(), "notify-proxy"); err == nil {
 		t.Fatal("startProxy succeeded without a PID file")
 	}
+}
+
+type timedLingerRunner struct {
+	startSecurityRunner
+	now *time.Time
+}
+
+func (r *timedLingerRunner) Run(name string, args ...string) ([]byte, error) {
+	*r.now = r.now.Add(20 * time.Second)
+	return r.startSecurityRunner.Run(name, args...)
+}
+
+func TestLingerTotalBudget(t *testing.T) {
+	oldNow, oldSleep := lingerNow, lingerSleep
+	now := time.Unix(0, 0)
+	lingerNow = func() time.Time { return now }
+	lingerSleep = func(d time.Duration) { now = now.Add(d) }
+	t.Cleanup(func() { lingerNow, lingerSleep = oldNow, oldSleep })
+	r := &timedLingerRunner{startSecurityRunner: startSecurityRunner{fail: "enable-linger", failOutput: "last D-Bus output"}, now: &now}
+	err := enableUserLinger(r, &config.Config{HostUser: "user", MachineName: "intuneme"})
+	if len(r.commands) != 2 {
+		t.Fatalf("attempts = %d, want 2", len(r.commands))
+	}
+	if err == nil || !strings.Contains(err.Error(), "last D-Bus output") {
+		t.Fatalf("error lost last output: %v", err)
+	}
+}
+
+func TestStartReconcilesRootfs(t *testing.T) {
+	for _, cold := range []bool{false, true} {
+		t.Run(fmt.Sprint(cold), func(t *testing.T) {
+			mockLaunchInstall(t)
+			root := t.TempDir()
+			path := filepath.Join(root, "rootfs")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			r := &coldBootRunner{}
+			r.booted = !cold
+			if err := runStart(r, root); err != nil {
+				t.Fatal(err)
+			}
+			all := strings.Join(r.commands, "\n")
+			want := "sudo chmod 0755 " + path
+			if !strings.Contains(all, want) {
+				t.Fatalf("missing reconciliation: %v", r.commands)
+			}
+			if strings.Index(all, want) > strings.Index(all, "machinectl show") {
+				t.Fatal("reconciliation followed IsRunning")
+			}
+			if strings.Index(all, want) < strings.Index(all, "sudoers.d/intuneme") {
+				t.Fatal("reconciliation preceded security refresh")
+			}
+		})
+	}
+}
+
+func TestStartRootfsReconcileFailureNotRecorded(t *testing.T) {
+	mockLaunchInstall(t)
+	s := problemrectest.Use(t, recordVersion)
+	root := identityRoot(t, "")
+	if err := os.Chmod(filepath.Join(root, "rootfs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := &startSecurityRunner{fail: "sudo chmod 0755", failOutput: "permission denied"}
+	err := runStart(r, root)
+	if err == nil || !strings.Contains(err.Error(), "rootfs reconciliation failed") {
+		t.Fatalf("error = %v", err)
+	}
+	if strings.Contains(strings.Join(r.commands, "\n"), "machinectl show") {
+		t.Fatal("continued after failed reconciliation")
+	}
+	s.ExpectNone(50 * time.Millisecond)
 }

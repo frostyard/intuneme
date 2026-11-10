@@ -154,10 +154,16 @@ var recreateCmd = &cobra.Command{
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
+		if err := os.Chmod(cfg.RootfsPath, 0o755); err != nil {
+			return fmt.Errorf("set initial rootfs mode: %w", err)
+		}
 		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirRecreate); err != nil {
 			return err
 		}
 		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
+			return err
+		}
+		if err := puller.ReconcileRootfs(r, cfg.RootfsPath); err != nil {
 			return err
 		}
 

@@ -14,6 +14,7 @@ import (
 	"github.com/frostyard/intuneme/internal/nvidia"
 	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/provision"
+	"github.com/frostyard/intuneme/internal/puller"
 	"github.com/frostyard/intuneme/internal/runner"
 	"github.com/frostyard/intuneme/internal/sudoers"
 	"github.com/frostyard/intuneme/internal/udev"
@@ -59,8 +60,8 @@ func runStart(r runner.Runner, root string) error {
 	}
 
 	// Problem records: the config load, the rootfs check, the product_name
-	// checks, sudo -v and
-	// refreshStartSecurity are never recorded, because they fail for user
+	// checks, sudo -v, refreshStartSecurity and rootfs reconciliation are
+	// never recorded, because they fail for user
 	// setup (a bad config identity, an untrusted helper source) and for
 	// authentication. The boot, linger and proxy records below run only after
 	// these steps passed, so the identity is validated and sudo is
@@ -74,6 +75,9 @@ func runStart(r runner.Runner, root string) error {
 		}
 		if err := refreshStartSecurity(r, cfg); err != nil {
 			return fmt.Errorf("security migration failed: %w", err)
+		}
+		if err := puller.ReconcileRootfs(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("rootfs reconciliation failed: %w", err)
 		}
 	}
 
@@ -355,8 +359,10 @@ func runStart(r runner.Runner, root string) error {
 // logind may not answer yet, so enableUserLinger retries. Tests shorten the
 // wait.
 var (
-	lingerAttempts   = 30
+	lingerTimeout    = 30 * time.Second
 	lingerRetryDelay = time.Second
+	lingerNow        = time.Now
+	lingerSleep      = time.Sleep
 )
 
 // enableUserLinger makes the container start the user's systemd manager (and
@@ -366,22 +372,28 @@ var (
 // bus: the D-Bus activation environment can't be set and the keyring can't be
 // unlocked. Idempotent; linger persists in the rootfs.
 //
-// It retries lingerAttempts times, lingerRetryDelay apart (30 attempts over
-// about 30 s by default), because it runs as soon as the machine registers and
-// the container's system bus and logind may not answer yet. The exit status is
+// It starts retries only within lingerTimeout (30 s), lingerRetryDelay apart,
+// because the container's system bus and logind may not answer yet. An attempt
+// started before the deadline can finish after it: a D-Bus call can block for
+// about 25 s. The exit status is
 // the exit status of the inner loginctl (`systemd-run --wait`), so an inner
 // failure is reported with the command output, not lost.
 func enableUserLinger(r runner.Runner, cfg *config.Config) error {
 	var err error
 	var out []byte
 	args := broker.EnableLingerArgs(cfg.MachineName, cfg.HostUser)
-	for attempt := range lingerAttempts {
-		if attempt > 0 {
-			time.Sleep(lingerRetryDelay)
-		}
+	deadline := lingerNow().Add(lingerTimeout)
+	for {
 		out, err = r.Run("sudo", args...)
 		if err == nil {
 			return nil
+		}
+		if !lingerNow().Add(lingerRetryDelay).Before(deadline) {
+			break
+		}
+		lingerSleep(lingerRetryDelay)
+		if !lingerNow().Before(deadline) {
+			break
 		}
 	}
 	if msg := strings.TrimSpace(string(out)); msg != "" {

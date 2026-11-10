@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -91,8 +93,8 @@ var initCmd = &cobra.Command{
 		}
 
 		// Check if already initialized
-		if _, err := os.Stat(cfg.RootfsPath); err == nil && !forceInit {
-			return fmt.Errorf("already initialized at %s — use --force to reinitialize", root)
+		if err := checkInitRootfs(root, cfg.RootfsPath, forceInit); err != nil {
+			return err
 		}
 
 		cfg.Insiders = insidersInit
@@ -104,13 +106,7 @@ var initCmd = &cobra.Command{
 		}
 
 		rep.Message("Pulling and extracting OCI image %s (via %s)...", image, p.Name())
-		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
-			return fmt.Errorf("create rootfs dir: %w", err)
-		}
-		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirInit); err != nil {
-			return err
-		}
-		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
+		if err := prepareInitRootfs(r, p, image, cfg.RootfsPath, tmpDirInit, nil); err != nil {
 			return err
 		}
 
@@ -146,6 +142,91 @@ var initCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// reusableInitRootfs accepts an absent or empty directory, including an empty
+// directory left by an older failed init. A symlink is never reusable: init
+// treats it as an existing installation (--force extracts through it), and
+// the failure cleanup never removes it.
+func reusableInitRootfs(path string) (bool, error) {
+	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+	if !fi.IsDir() {
+		return false, fmt.Errorf("rootfs must be a directory, not a symlink or other file: %s", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = f.Readdirnames(1)
+	if errors.Is(err, io.EOF) {
+		return true, nil
+	}
+	return false, err
+}
+
+func checkInitRootfs(root, path string, force bool) error {
+	reusable, err := reusableInitRootfs(path)
+	if err != nil {
+		return err
+	}
+	if !reusable && !force {
+		if _, err := os.Stat(filepath.Join(root, "config.toml")); os.IsNotExist(err) {
+			return fmt.Errorf("incomplete installation at %s: %s exists but config.toml does not — use --force to reinitialize", root, path)
+		}
+		return fmt.Errorf("already initialized at %s — use --force to reinitialize", root)
+	}
+	return nil
+}
+
+// prepareInitRootfs removes only a new extraction target on failure. An empty
+// leftover counts as new; a populated --force target must survive every error.
+// A nil verify selects the production ownership check.
+func prepareInitRootfs(r runner.Runner, p puller.Puller, image, path, tmpDir string, verify func(string) error) (err error) {
+	cleanup, err := reusableInitRootfs(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return fmt.Errorf("create rootfs dir: %w", err)
+	}
+	defer func() {
+		if err == nil || !cleanup {
+			return
+		}
+		// Empty failed pulls need no sudo. Partial extractions can contain
+		// root-owned files, so use the same removal path as destroy.
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			if out, removeErr := r.Run("sudo", "rm", "-rf", path); removeErr != nil {
+				rep.Warning("remove failed init rootfs %s: %v: %s", path, removeErr, out)
+			}
+		}
+	}()
+	if cleanup {
+		// MkdirAll's mode is filtered by the caller's umask.
+		if err := os.Chmod(path, 0o755); err != nil {
+			return fmt.Errorf("set initial rootfs mode: %w", err)
+		}
+	}
+	if err := p.PullAndExtract(r, image, path, tmpDir); err != nil {
+		return err
+	}
+	if verify == nil {
+		verify = puller.VerifyRootOwned
+	}
+	if err := verify(path); err != nil {
+		return err
+	}
+	return puller.ReconcileRootfs(r, path)
 }
 
 // initCompletionDeps are the SELinux dependencies of finishInit. A nil field
