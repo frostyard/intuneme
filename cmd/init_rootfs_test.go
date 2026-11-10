@@ -56,7 +56,7 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 	}
 	wantChown := fi.Sys().(*syscall.Stat_t).Uid != 0 || fi.Sys().(*syscall.Stat_t).Gid != 0
 	all := strings.Join(r.commands, "\n")
-	if strings.Contains(all, "sudo chown 0:0 "+path) != wantChown {
+	if strings.Contains(all, "sudo chown -h 0:0 -- "+path) != wantChown {
 		t.Fatalf("ownership commands = %v", r.commands)
 	}
 	if strings.Contains(all, "sudo chmod") {
@@ -202,6 +202,107 @@ func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
 	}
 	if len(r.commands) != 0 {
 		t.Fatalf("cleanup ran commands: %v", r.commands)
+	}
+}
+
+func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldUID := initUID
+	initUID = func() int { return os.Getuid() + 1 }
+	t.Cleanup(func() { initUID = oldUID })
+	if err := checkInitRootfs("root", path, false); err != nil {
+		t.Fatalf("empty directory blocked init: %v", err)
+	}
+	failure := errors.New("pull failed")
+	var extractionMode os.FileMode
+	p := initPuller{func(path string) error {
+		fi, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		extractionMode = fi.Mode().Perm()
+		return failure
+	}}
+	r := &startSecurityRunner{}
+	if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != failure {
+		t.Errorf("error = %v, want original failure", err)
+	}
+	if extractionMode != 0o700 {
+		t.Errorf("mode at extraction = %o, want 700", extractionMode)
+	}
+	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("existing directory removed or changed: %v, %v", fi, err)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("existing directory cleanup ran commands: %v", r.commands)
+	}
+}
+
+func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can read mode 0000 directories")
+	}
+	path := filepath.Join(t.TempDir(), "rootfs")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "keep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(path, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	if reusable, err := reusableInitRootfs(path); err != nil || reusable {
+		t.Errorf("unreadable rootfs reusable = %v, error = %v", reusable, err)
+	}
+	if err := checkInitRootfs("root", path, true); err != nil {
+		t.Errorf("--force blocked by unreadable rootfs: %v", err)
+	}
+	failure := errors.New("pull failed")
+	r := &startSecurityRunner{}
+	if err := prepareInitRootfs(r, initPuller{func(string) error { return failure }}, "image", path, "", skipRootOwned); err != failure {
+		t.Errorf("error = %v, want original failure", err)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("unreadable existing directory cleanup ran commands: %v", r.commands)
+	}
+}
+
+func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can remove entries from mode 0500 directories")
+	}
+	parent := t.TempDir()
+	path := filepath.Join(parent, "rootfs")
+	t.Cleanup(func() {
+		if err := os.Chmod(parent, 0o700); err != nil {
+			t.Error(err)
+		}
+	})
+	failure := errors.New("pull failed")
+	p := initPuller{func(string) error {
+		if err := os.Chmod(parent, 0o500); err != nil {
+			return err
+		}
+		return failure
+	}}
+	r := &startSecurityRunner{}
+	if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != failure {
+		t.Errorf("error = %v, want original failure", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("directory missing after permission error: %v", err)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("permission error escalated to sudo cleanup: %v", r.commands)
 	}
 }
 

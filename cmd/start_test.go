@@ -514,7 +514,7 @@ func TestStartReconcilesRootfs(t *testing.T) {
 				t.Fatal(err)
 			}
 			all := strings.Join(r.commands, "\n")
-			want := "sudo chmod 0755 " + path
+			want := "sudo chmod 0755 -- " + path
 			if !strings.Contains(all, want) {
 				t.Fatalf("missing reconciliation: %v", r.commands)
 			}
@@ -535,7 +535,7 @@ func TestStartRootfsReconcileFailureNotRecorded(t *testing.T) {
 	if err := os.Chmod(filepath.Join(root, "rootfs"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	r := &startSecurityRunner{fail: "sudo chmod 0755", failOutput: "permission denied"}
+	r := &startSecurityRunner{fail: "sudo chmod 0755 --", failOutput: "permission denied"}
 	err := runStart(r, root)
 	if err == nil || !strings.Contains(err.Error(), "rootfs reconciliation failed") {
 		t.Fatalf("error = %v", err)

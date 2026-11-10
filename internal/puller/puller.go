@@ -65,12 +65,12 @@ func ReconcileRootfs(r runner.Runner, rootfsPath string) error {
 		return fmt.Errorf("cannot inspect rootfs ownership: %s", rootfsPath)
 	}
 	if st.Uid != 0 || st.Gid != 0 {
-		if out, err := r.Run("sudo", "chown", "0:0", rootfsPath); err != nil {
+		if out, err := r.Run("sudo", "chown", "-h", "0:0", "--", rootfsPath); err != nil {
 			return fmt.Errorf("set rootfs owner: %w: %s", err, out)
 		}
 	}
 	if fi.Mode().Perm() != 0o755 || fi.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
-		if out, err := r.Run("sudo", "chmod", "0755", rootfsPath); err != nil {
+		if out, err := r.Run("sudo", "chmod", "0755", "--", rootfsPath); err != nil {
 			return fmt.Errorf("set rootfs mode: %w: %s", err, out)
 		}
 	}

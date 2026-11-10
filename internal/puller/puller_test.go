@@ -239,7 +239,7 @@ func TestReconcileRootfsMode(t *testing.T) {
 	if err := ReconcileRootfs(r, path); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(r.commands, "\n"), "sudo chmod 0755 "+path) {
+	if !strings.Contains(strings.Join(r.commands, "\n"), "sudo chmod 0755 -- "+path) {
 		t.Fatalf("missing chmod: %v", r.commands)
 	}
 }
@@ -262,7 +262,7 @@ func TestReconcileRootfsResolvesSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := strings.Join(r.commands, "\n")
-	if !strings.Contains(all, "sudo chmod 0755 "+resolved) {
+	if !strings.Contains(all, "sudo chmod 0755 -- "+resolved) {
 		t.Fatalf("chmod did not target the resolved directory: %v", r.commands)
 	}
 	if strings.Contains(all, " "+path) {

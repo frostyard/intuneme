@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode"
 
 	"github.com/charmbracelet/x/term"
@@ -26,6 +28,8 @@ var forceInit bool
 var passwordFile string
 var insidersInit bool
 var tmpDirInit string
+
+var initUID = os.Getuid
 
 var initCmd = &cobra.Command{
 	Use:   "init",
@@ -149,29 +153,42 @@ var initCmd = &cobra.Command{
 // treats it as an existing installation (--force extracts through it), and
 // the failure cleanup never removes it.
 func reusableInitRootfs(path string) (bool, error) {
+	_, reusable, err := inspectInitRootfs(path)
+	return reusable, err
+}
+
+// inspectInitRootfs keeps the original metadata so preparation can distinguish
+// a user-owned empty leftover from a directory supplied by an administrator.
+func inspectInitRootfs(path string) (os.FileInfo, bool, error) {
 	fi, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		return true, nil
+		return nil, true, nil
 	}
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return false, nil
+		return fi, false, nil
 	}
 	if !fi.IsDir() {
-		return false, fmt.Errorf("rootfs must be a directory, not a symlink or other file: %s", path)
+		return fi, false, fmt.Errorf("rootfs must be a directory, not a symlink or other file: %s", path)
 	}
 	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrPermission) {
+		return fi, false, nil
+	}
 	if err != nil {
-		return false, err
+		return fi, false, err
 	}
 	defer func() { _ = f.Close() }()
 	_, err = f.Readdirnames(1)
 	if errors.Is(err, io.EOF) {
-		return true, nil
+		return fi, true, nil
 	}
-	return false, err
+	if errors.Is(err, fs.ErrPermission) {
+		return fi, false, nil
+	}
+	return fi, false, err
 }
 
 func checkInitRootfs(root, path string, force bool) error {
@@ -188,13 +205,19 @@ func checkInitRootfs(root, path string, force bool) error {
 	return nil
 }
 
-// prepareInitRootfs removes only a new extraction target on failure. An empty
-// leftover counts as new; a populated --force target must survive every error.
+// prepareInitRootfs owns only an absent target or a user-owned empty leftover.
+// An empty directory of another owner is accepted but never chmodded or removed.
+// A populated --force target must survive every error.
 // A nil verify selects the production ownership check.
 func prepareInitRootfs(r runner.Runner, p puller.Puller, image, path, tmpDir string, verify func(string) error) (err error) {
-	cleanup, err := reusableInitRootfs(path)
+	fi, reusable, err := inspectInitRootfs(path)
 	if err != nil {
 		return err
+	}
+	cleanup := fi == nil
+	if fi != nil && reusable {
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		cleanup = ok && uint64(st.Uid) == uint64(initUID())
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return fmt.Errorf("create rootfs dir: %w", err)
@@ -205,10 +228,16 @@ func prepareInitRootfs(r runner.Runner, p puller.Puller, image, path, tmpDir str
 		}
 		// Empty failed pulls need no sudo. Partial extractions can contain
 		// root-owned files, so use the same removal path as destroy.
-		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
-			if out, removeErr := r.Run("sudo", "rm", "-rf", path); removeErr != nil {
-				rep.Warning("remove failed init rootfs %s: %v: %s", path, removeErr, out)
-			}
+		removeErr := os.Remove(path)
+		if removeErr == nil || os.IsNotExist(removeErr) {
+			return
+		}
+		if !errors.Is(removeErr, syscall.ENOTEMPTY) && !errors.Is(removeErr, syscall.EEXIST) {
+			rep.Warning("remove failed init rootfs %s: %v", path, removeErr)
+			return
+		}
+		if out, removeErr := r.Run("sudo", "rm", "-rf", path); removeErr != nil {
+			rep.Warning("remove failed init rootfs %s: %v: %s", path, removeErr, out)
 		}
 	}()
 	if cleanup {
