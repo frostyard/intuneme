@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -303,8 +304,9 @@ func TestStopByPIDFile_StopsLiveProcess(t *testing.T) {
 	if !errors.As(err, &exitErr) {
 		t.Fatalf("expected a signal exit from the child, got %v", err)
 	}
-	if exitErr.ExitCode() != -1 {
-		t.Errorf("expected a signal exit, got exit code %d", exitErr.ExitCode())
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() || ws.Signal() != syscall.SIGINT {
+		t.Errorf("expected the child to end by SIGINT, got %v", err)
 	}
 	if _, err := os.Stat(pidPath); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("pid file must be removed, Stat gave: %v", err)
