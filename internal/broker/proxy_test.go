@@ -14,29 +14,6 @@ import (
 	"github.com/frostyard/intuneme/internal/config"
 )
 
-func TestBrokerMethods(t *testing.T) {
-	methods := BrokerMethods()
-	if len(methods) != 8 {
-		t.Fatalf("expected 8 methods, got %d", len(methods))
-	}
-
-	expected := []string{
-		"acquireTokenInteractively",
-		"acquireTokenSilently",
-		"getAccounts",
-		"removeAccount",
-		"acquirePrtSsoCookie",
-		"generateSignedHttpRequest",
-		"cancelInteractiveFlow",
-		"getLinuxBrokerVersion",
-	}
-	for _, e := range expected {
-		if !slices.Contains(methods, e) {
-			t.Errorf("missing method %q in BrokerMethods()", e)
-		}
-	}
-}
-
 func TestContainerBusAddress(t *testing.T) {
 	addr := ContainerBusAddress("/tmp/intuneme")
 	want := "unix:path=/tmp/intuneme/runtime/bus"
@@ -220,20 +197,6 @@ func TestAlreadyOwnedErrorFallback(t *testing.T) {
 				t.Errorf("error = %q, want %q", got, want)
 			}
 		})
-	}
-}
-
-func TestIsProxyProcess(t *testing.T) {
-	fakeProc(t, 42, "intuneme", "/usr/bin/intuneme\x00broker-proxy\x00--root\x00/x\x00")
-	if !IsProxyProcess(42) {
-		t.Error("expected broker-proxy process")
-	}
-	if IsProxyProcess(43) {
-		t.Error("missing process must not match")
-	}
-	fakeProc(t, 44, "microsoft-ident", "/opt/microsoft/identity-broker/bin/microsoft-identity-broker\x00")
-	if IsProxyProcess(44) {
-		t.Error("foreign broker must not match")
 	}
 }
 

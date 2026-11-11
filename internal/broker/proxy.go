@@ -79,20 +79,6 @@ const introspectXML = `<node>
   ` + introspect.IntrospectDataString + `
 </node>`
 
-// BrokerMethods returns the 8 method names of the Broker1 D-Bus interface.
-func BrokerMethods() []string {
-	return []string{
-		"acquireTokenInteractively",
-		"acquireTokenSilently",
-		"getAccounts",
-		"removeAccount",
-		"acquirePrtSsoCookie",
-		"generateSignedHttpRequest",
-		"cancelInteractiveFlow",
-		"getLinuxBrokerVersion",
-	}
-}
-
 // ContainerBusAddress returns the D-Bus address for the container's session bus,
 // accessible from the host via the bind-mounted runtime directory.
 func ContainerBusAddress(root string) string {
@@ -227,13 +213,6 @@ func ProcessName(pid int) string {
 	return strings.TrimSpace(string(data))
 }
 
-// IsProxyProcess reports whether the process is an "intuneme broker-proxy"
-// instance, judged from /proc/<pid>/cmdline.
-func IsProxyProcess(pid int) bool {
-	_, isProxy := ProxyRoot(pid)
-	return isProxy
-}
-
 // ProxyRoot returns the --root value from an "intuneme broker-proxy" command
 // line. isProxy is false when the process is not an intuneme broker-proxy.
 // root is empty when the proxy was started without --root; callers must then
@@ -352,15 +331,25 @@ func DBusServiceFilePath() string {
 	return filepath.Join(home, ".local", "share", "dbus-1", "services", BusName+".service")
 }
 
-// IsRunningByPIDFile reads a PID from the file and checks if the process is alive
-// via signal 0. Returns (0, false) if the file cannot be read or parsed.
-func IsRunningByPIDFile(pidPath string) (int, bool) {
-	data, err := os.ReadFile(pidPath)
+// readPIDFile reads a PID from path. ok is false when the file cannot be read
+// or does not hold a number.
+func readPIDFile(path string) (pid int, ok bool) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, false
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
+		return 0, false
+	}
+	return pid, true
+}
+
+// IsRunningByPIDFile reads a PID from the file and checks if the process is alive
+// via signal 0. Returns (0, false) if the file cannot be read or parsed.
+func IsRunningByPIDFile(pidPath string) (int, bool) {
+	pid, ok := readPIDFile(pidPath)
+	if !ok {
 		return 0, false
 	}
 	proc, err := os.FindProcess(pid)
@@ -374,12 +363,8 @@ func IsRunningByPIDFile(pidPath string) (int, bool) {
 // StopByPIDFile reads a PID from the file, sends SIGINT, waits briefly for exit,
 // and removes the file. Best-effort: errors are silently ignored.
 func StopByPIDFile(pidPath string) {
-	data, err := os.ReadFile(pidPath)
-	if err != nil {
-		return
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
+	pid, ok := readPIDFile(pidPath)
+	if !ok {
 		return
 	}
 	proc, err := os.FindProcess(pid)
