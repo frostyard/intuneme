@@ -76,6 +76,7 @@ The `start` command automatically launches the proxy if the flag is set.
 - The PID file is written only after the proxy owns the bus name, so `start` polling it waits for a working proxy
 - A second instance refuses to start when the PID file names a live `broker-proxy` process. On exit, a proxy removes the PID file only if it holds its own PID. These rules come from `runBusProxy()` in `cmd/proxy_run.go`, shared with the notify and screencast proxies
 - Stopped gracefully by `stop` command before container poweroff
+- Every PID file reader parses the file with `busproxy.ParsePID`, which accepts only an integer in 1..2147483647. `kill(2)` reads 0 as the caller's process group and -1 as every process the user can signal, and `pid_t` is 32 bits, so a larger value is truncated (4294967296 becomes 0). Such a value names no process: `broker.StopByPIDFile` sends no signal and removes the file as stale, `broker.IsRunningByPIDFile` returns `(0, false)`, and `busproxy.CheckNotRunning` treats the proxy as not running. `proxy_test.go` replaces the `findProcess` variable so the tests never signal a real process
 - `status` command reports proxy running state (see below)
 
 ## Diagnostics: who owns the bus name?

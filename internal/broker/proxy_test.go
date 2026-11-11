@@ -339,3 +339,108 @@ func TestFindNameOwnerAbsoluteRootIgnoresCwd(t *testing.T) {
 		t.Errorf("FindNameOwner() = %+v, want resolved ProxyRoot %q", owner, "/srv/b/enrolled")
 	}
 }
+
+// fakeSignaler records the signals that StopByPIDFile and IsRunningByPIDFile
+// send, so a test never signals a real process.
+type fakeSignaler struct {
+	pid   int
+	calls *[]string
+	alive bool
+}
+
+func (f fakeSignaler) Signal(sig os.Signal) error {
+	*f.calls = append(*f.calls, strconv.Itoa(f.pid)+":"+sig.String())
+	if f.alive {
+		return nil
+	}
+	return os.ErrProcessDone
+}
+
+// useFakeProcesses replaces findProcess for the test. Every lookup and signal
+// goes to calls; alive sets the reply to signal 0.
+func useFakeProcesses(t *testing.T, alive bool) *[]string {
+	t.Helper()
+	calls := &[]string{}
+	orig := findProcess
+	findProcess = func(pid int) (signaler, error) {
+		*calls = append(*calls, "find:"+strconv.Itoa(pid))
+		return fakeSignaler{pid: pid, calls: calls, alive: alive}, nil
+	}
+	t.Cleanup(func() { findProcess = orig })
+	return calls
+}
+
+// invalidPIDContents are PID file contents that name no process. kill(2)
+// reads 0 as the caller's process group, -1 as every process the user can
+// signal, and another negative value as a process group. pid_t is 32 bits, so
+// a value above 2147483647 is truncated: 4294967296 becomes 0 and 4294967295
+// becomes -1.
+var invalidPIDContents = map[string]string{
+	"zero":                "0",
+	"minus one":           "-1",
+	"negative":            "-4242",
+	"minus one with ws":   " -1\n",
+	"not a number":        "not-a-pid",
+	"empty":               "",
+	"overflowing integer": "99999999999999999999999",
+	"above int32":         "2147483648",
+	"truncates to -1":     "4294967295",
+	"truncates to 0":      "4294967296",
+}
+
+func TestIsRunningByPIDFile_InvalidPIDSignalsNothing(t *testing.T) {
+	for name, content := range invalidPIDContents {
+		t.Run(name, func(t *testing.T) {
+			calls := useFakeProcesses(t, true)
+			pidPath := filepath.Join(t.TempDir(), "proxy.pid")
+			if err := os.WriteFile(pidPath, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			pid, alive := IsRunningByPIDFile(pidPath)
+			if pid != 0 || alive {
+				t.Errorf("IsRunningByPIDFile(%q) = (%d, %t), want (0, false)", content, pid, alive)
+			}
+			if len(*calls) != 0 {
+				t.Errorf("IsRunningByPIDFile(%q) looked up or signaled a process: %v", content, *calls)
+			}
+		})
+	}
+}
+
+func TestStopByPIDFile_InvalidPIDSignalsNothingAndRemovesFile(t *testing.T) {
+	for name, content := range invalidPIDContents {
+		t.Run(name, func(t *testing.T) {
+			calls := useFakeProcesses(t, true)
+			pidPath := filepath.Join(t.TempDir(), "proxy.pid")
+			if err := os.WriteFile(pidPath, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			StopByPIDFile(pidPath)
+			if len(*calls) != 0 {
+				t.Errorf("StopByPIDFile(%q) looked up or signaled a process: %v", content, *calls)
+			}
+			if _, err := os.Stat(pidPath); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("StopByPIDFile(%q) kept the stale PID file: stat err = %v", content, err)
+			}
+		})
+	}
+}
+
+func TestStopByPIDFile_ValidPIDGetsSIGINT(t *testing.T) {
+	calls := useFakeProcesses(t, false)
+	pidPath := filepath.Join(t.TempDir(), "proxy.pid")
+	if err := os.WriteFile(pidPath, []byte("4242\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	StopByPIDFile(pidPath)
+	want := []string{"find:4242", "4242:interrupt", "4242:signal 0"}
+	if !slices.Equal(*calls, want) {
+		t.Errorf("calls = %v, want %v", *calls, want)
+	}
+	if _, err := os.Stat(pidPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("PID file not removed: stat err = %v", err)
+	}
+}
