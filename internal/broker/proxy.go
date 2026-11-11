@@ -80,20 +80,6 @@ const introspectXML = `<node>
   ` + introspect.IntrospectDataString + `
 </node>`
 
-// BrokerMethods returns the 8 method names of the Broker1 D-Bus interface.
-func BrokerMethods() []string {
-	return []string{
-		"acquireTokenInteractively",
-		"acquireTokenSilently",
-		"getAccounts",
-		"removeAccount",
-		"acquirePrtSsoCookie",
-		"generateSignedHttpRequest",
-		"cancelInteractiveFlow",
-		"getLinuxBrokerVersion",
-	}
-}
-
 // ContainerBusAddress returns the D-Bus address for the container's session bus,
 // accessible from the host via the bind-mounted runtime directory.
 func ContainerBusAddress(root string) string {
@@ -226,13 +212,6 @@ func ProcessName(pid int) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-// IsProxyProcess reports whether the process is an "intuneme broker-proxy"
-// instance, judged from /proc/<pid>/cmdline.
-func IsProxyProcess(pid int) bool {
-	_, isProxy := ProxyRoot(pid)
-	return isProxy
 }
 
 // ProxyRoot returns the --root value from an "intuneme broker-proxy" command
