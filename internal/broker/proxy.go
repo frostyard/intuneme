@@ -15,6 +15,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
 
+	"github.com/frostyard/intuneme/internal/busproxy"
 	"github.com/frostyard/intuneme/internal/config"
 )
 
@@ -331,28 +332,27 @@ func DBusServiceFilePath() string {
 	return filepath.Join(home, ".local", "share", "dbus-1", "services", BusName+".service")
 }
 
-// readPIDFile reads a PID from path. ok is false when the file cannot be read
-// or does not hold a number.
-func readPIDFile(path string) (pid int, ok bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return 0, false
-	}
-	pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, false
-	}
-	return pid, true
+// signaler is the part of *os.Process that the PID file functions use.
+type signaler interface {
+	Signal(sig os.Signal) error
+}
+
+// findProcess looks up a process by PID. Tests replace it so that they can
+// check which PIDs get a signal without signaling a real process.
+var findProcess = func(pid int) (signaler, error) {
+	return os.FindProcess(pid)
 }
 
 // IsRunningByPIDFile reads a PID from the file and checks if the process is alive
-// via signal 0. Returns (0, false) if the file cannot be read or parsed.
+// via signal 0. Returns (0, false) if the file cannot be read or parsed, or if
+// it holds a PID of 0 or less (see busproxy.ParsePID): kill(2) reads such a value
+// as a process group, so it never names the proxy process.
 func IsRunningByPIDFile(pidPath string) (int, bool) {
-	pid, ok := readPIDFile(pidPath)
+	pid, ok := busproxy.ReadPID(pidPath)
 	if !ok {
 		return 0, false
 	}
-	proc, err := os.FindProcess(pid)
+	proc, err := findProcess(pid)
 	if err != nil {
 		return pid, false
 	}
@@ -361,13 +361,22 @@ func IsRunningByPIDFile(pidPath string) (int, bool) {
 }
 
 // StopByPIDFile reads a PID from the file, sends SIGINT, waits briefly for exit,
-// and removes the file. Best-effort: errors are silently ignored.
+// and removes the file. Best-effort: errors are silently ignored. A file that
+// cannot be parsed, or that holds a PID of 0 or less, names no process: it is
+// removed as stale and nothing gets a signal. kill(2) would send a signal to
+// the caller's process group for 0 and to every process the user can signal
+// for -1.
 func StopByPIDFile(pidPath string) {
-	pid, ok := readPIDFile(pidPath)
-	if !ok {
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
 		return
 	}
-	proc, err := os.FindProcess(pid)
+	pid, ok := busproxy.ParsePID(data)
+	if !ok {
+		_ = os.Remove(pidPath)
+		return
+	}
+	proc, err := findProcess(pid)
 	if err == nil {
 		_ = proc.Signal(syscall.SIGINT)
 		// Wait up to 5 seconds for the process to exit.
