@@ -65,13 +65,9 @@ open a site as a standalone Edge app window:
   intuneme open edge -- --app=https://outlook.office.com`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r := &runner.SystemRunner{}
-			root := rootDir
-			if root == "" {
-				var err error
-				root, err = config.DefaultRoot()
-				if err != nil {
-					return err
-				}
+			root, err := resolveRoot()
+			if err != nil {
+				return err
 			}
 			return runOpen(r, root, command, args)
 		},

@@ -15,13 +15,9 @@ import (
 // file on exit only if it still holds this PID.
 func runBusProxy(ctx context.Context, subcommand string, enabled func(*config.Config) bool,
 	run func(ctx context.Context, root string, ready func() error) error) error {
-	root := rootDir
-	if root == "" {
-		var err error
-		root, err = config.DefaultRoot()
-		if err != nil {
-			return err
-		}
+	root, err := resolveRoot()
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.Load(root)

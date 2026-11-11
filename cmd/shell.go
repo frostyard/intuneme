@@ -15,13 +15,9 @@ var shellCmd = &cobra.Command{
 	Short: "Open a shell in the running container",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return err
 		}
 
 		cfg, err := config.Load(root)

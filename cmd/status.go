@@ -18,13 +18,9 @@ var statusCmd = &cobra.Command{
 	Short: "Show container and intune-portal status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return err
 		}
 
 		cfg, err := config.Load(root)
@@ -105,13 +101,6 @@ var statusCmd = &cobra.Command{
 // findNameOwner is replaced in tests so they need no session bus.
 var findNameOwner = broker.FindNameOwner
 
-// brokerProxyStatus describes the broker proxy. It checks the PID file first.
-// When the PID file shows no running proxy, it asks the host session bus who
-// owns the broker bus name, so a D-Bus activated proxy or a foreign broker
-// shows in the status. A proxy that serves another root is a conflicting
-// instance, not this root's proxy, so it does not count as running.
-// Callers must check cfg.BrokerProxy first: this function connects to the
-// session bus.
 // pidProxyStatus reports a proxy that "intuneme start" launches, from its
 // PID file.
 func pidProxyStatus(root, subcommand string) string {
@@ -121,6 +110,13 @@ func pidProxyStatus(root, subcommand string) string {
 	return "not running"
 }
 
+// brokerProxyStatus describes the broker proxy. It checks the PID file first.
+// When the PID file shows no running proxy, it asks the host session bus who
+// owns the broker bus name, so a D-Bus activated proxy or a foreign broker
+// shows in the status. A proxy that serves another root is a conflicting
+// instance, not this root's proxy, so it does not count as running.
+// Callers must check cfg.BrokerProxy first: this function connects to the
+// session bus.
 func brokerProxyStatus(root string) string {
 	pidPath := filepath.Join(root, "broker-proxy.pid")
 	if pid, running := broker.IsRunningByPIDFile(pidPath); running {

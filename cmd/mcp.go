@@ -124,13 +124,9 @@ live in mcp_args.`,
 	SilenceErrors: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return err
 		}
 		return runMCP(r, root, mcpBinaryFlag, args)
 	},
