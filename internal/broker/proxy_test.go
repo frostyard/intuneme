@@ -3,11 +3,13 @@ package broker
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/frostyard/intuneme/internal/config"
 )
@@ -291,6 +293,88 @@ func TestIsRunningByPIDFile_DeadProcess(t *testing.T) {
 func TestStopByPIDFile_MissingFile(t *testing.T) {
 	// Should not panic on missing file
 	StopByPIDFile("/nonexistent/path/test.pid")
+}
+
+// TestStopByPIDFile_UnparseableKeepsFile pins that a PID file without a number
+// makes StopByPIDFile return early: the file is not removed.
+func TestStopByPIDFile_UnparseableKeepsFile(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "garbage.pid")
+	if err := os.WriteFile(pidPath, []byte("garbage\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	StopByPIDFile(pidPath)
+
+	if _, err := os.Stat(pidPath); err != nil {
+		t.Errorf("pid file must stay after an unparseable read: %v", err)
+	}
+}
+
+// TestStopByPIDFile_StopsLiveProcess pins that a live child gets SIGINT, exits
+// and its PID file is removed.
+func TestStopByPIDFile_StopsLiveProcess(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("could not start sleep: %v", err)
+	}
+	// Reap the child at once, so StopByPIDFile does not see a zombie and
+	// wait its full 5 seconds.
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	pidPath := filepath.Join(t.TempDir(), "live.pid")
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	StopByPIDFile(pidPath)
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("child did not exit after StopByPIDFile")
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected a signal exit from the child, got %v", err)
+	}
+	if exitErr.ExitCode() != -1 {
+		t.Errorf("expected a signal exit, got exit code %d", exitErr.ExitCode())
+	}
+	if _, err := os.Stat(pidPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("pid file must be removed, Stat gave: %v", err)
+	}
+}
+
+// TestStopByPIDFile_DeadProcessRemovesFile pins that a stale PID file of a
+// dead process is removed.
+func TestStopByPIDFile_DeadProcessRemovesFile(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "dead.pid")
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(999999999)), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	StopByPIDFile(pidPath)
+
+	if _, err := os.Stat(pidPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("pid file must be removed, Stat gave: %v", err)
+	}
+}
+
+// TestIsRunningByPIDFile_Unparseable pins (0, false) for a PID file without a
+// number.
+func TestIsRunningByPIDFile_Unparseable(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "garbage.pid")
+	if err := os.WriteFile(pidPath, []byte("garbage\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	pid, alive := IsRunningByPIDFile(pidPath)
+	if pid != 0 || alive {
+		t.Errorf("expected (0, false) for an unparseable file, got (%d, %t)", pid, alive)
+	}
 }
 
 // fakeCwd points /proc/<pid>/cwd of the fake proc tree at dir.
