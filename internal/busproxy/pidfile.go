@@ -20,16 +20,18 @@ func ReadPID(pidPath string) (int, bool) {
 }
 
 // ParsePID parses the content of a PID file. The bool is false when the
-// content is not an integer or is 0 or less. kill(2) reads 0 as the caller's
+// content is not an integer in 1..2147483647. kill(2) reads 0 as the caller's
 // process group and a negative value as a process group (or, for -1, every
 // process the user can signal), so such a value never names 1 process and a
-// caller must treat it as no process.
+// caller must treat it as no process. pid_t is a signed 32-bit integer, so a
+// larger value is truncated at the syscall boundary (4294967296 becomes 0,
+// 4294967295 becomes -1) and is rejected too.
 func ParsePID(data []byte) (int, bool) {
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	pid, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 32)
 	if err != nil || pid <= 0 {
 		return 0, false
 	}
-	return pid, true
+	return int(pid), true
 }
 
 // CheckNotRunning returns an error when pidPath names a live process whose

@@ -372,7 +372,9 @@ func useFakeProcesses(t *testing.T, alive bool) *[]string {
 
 // invalidPIDContents are PID file contents that name no process. kill(2)
 // reads 0 as the caller's process group, -1 as every process the user can
-// signal, and another negative value as a process group.
+// signal, and another negative value as a process group. pid_t is 32 bits, so
+// a value above 2147483647 is truncated: 4294967296 becomes 0 and 4294967295
+// becomes -1.
 var invalidPIDContents = map[string]string{
 	"zero":                "0",
 	"minus one":           "-1",
@@ -381,6 +383,9 @@ var invalidPIDContents = map[string]string{
 	"not a number":        "not-a-pid",
 	"empty":               "",
 	"overflowing integer": "99999999999999999999999",
+	"above int32":         "2147483648",
+	"truncates to -1":     "4294967295",
+	"truncates to 0":      "4294967296",
 }
 
 func TestIsRunningByPIDFile_InvalidPIDSignalsNothing(t *testing.T) {

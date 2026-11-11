@@ -87,6 +87,10 @@ func TestParsePID(t *testing.T) {
 		{"", 0, false},
 		{"pid", 0, false},
 		{"99999999999999999999999", 0, false},
+		{"2147483647", 2147483647, true},
+		{"2147483648", 0, false},
+		{"4294967295", 0, false},
+		{"4294967296", 0, false},
 	}
 	for _, tt := range tests {
 		pid, ok := ParsePID([]byte(tt.in))
