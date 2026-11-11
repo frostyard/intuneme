@@ -9,12 +9,22 @@ import (
 	"syscall"
 )
 
-// readPID returns the PID stored in pidPath.
-func readPID(pidPath string) (int, bool) {
+// ReadPID returns the PID stored in pidPath. The bool is false when the file
+// cannot be read or ParsePID rejects its content.
+func ReadPID(pidPath string) (int, bool) {
 	data, err := os.ReadFile(pidPath)
 	if err != nil {
 		return 0, false
 	}
+	return ParsePID(data)
+}
+
+// ParsePID parses the content of a PID file. The bool is false when the
+// content is not an integer or is 0 or less. kill(2) reads 0 as the caller's
+// process group and a negative value as a process group (or, for -1, every
+// process the user can signal), so such a value never names 1 process and a
+// caller must treat it as no process.
+func ParsePID(data []byte) (int, bool) {
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 0 {
 		return 0, false
@@ -26,7 +36,7 @@ func readPID(pidPath string) (int, bool) {
 // command line contains subcommand. A stale file, or one whose PID was reused
 // by another program, does not count.
 func CheckNotRunning(pidPath, subcommand string) error {
-	pid, ok := readPID(pidPath)
+	pid, ok := ReadPID(pidPath)
 	if !ok || syscall.Kill(pid, 0) != nil {
 		return nil
 	}
@@ -50,7 +60,7 @@ func WritePID(pidPath string) error {
 // RemoveOwnPID removes pidPath only when it holds the current process's PID,
 // so an exiting second instance does not remove the file of a running one.
 func RemoveOwnPID(pidPath string) {
-	if pid, ok := readPID(pidPath); ok && pid == os.Getpid() {
+	if pid, ok := ReadPID(pidPath); ok && pid == os.Getpid() {
 		_ = os.Remove(pidPath)
 	}
 }

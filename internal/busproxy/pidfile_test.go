@@ -71,3 +71,27 @@ func TestRemoveOwnPID(t *testing.T) {
 		t.Errorf("own PID file not removed: %v", err)
 	}
 }
+
+func TestParsePID(t *testing.T) {
+	tests := []struct {
+		in   string
+		pid  int
+		isOK bool
+	}{
+		{"1234", 1234, true},
+		{" 1234\n", 1234, true},
+		{"1", 1, true},
+		{"0", 0, false},
+		{"-1", 0, false},
+		{"-4242", 0, false},
+		{"", 0, false},
+		{"pid", 0, false},
+		{"99999999999999999999999", 0, false},
+	}
+	for _, tt := range tests {
+		pid, ok := ParsePID([]byte(tt.in))
+		if pid != tt.pid || ok != tt.isOK {
+			t.Errorf("ParsePID(%q) = (%d, %t), want (%d, %t)", tt.in, pid, ok, tt.pid, tt.isOK)
+		}
+	}
+}
