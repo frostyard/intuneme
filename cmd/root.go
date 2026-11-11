@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/std/reporter"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,14 @@ var rootCmd = &cobra.Command{
 
 func RootCmd() *cobra.Command {
 	return rootCmd
+}
+
+// resolveRoot returns the --root value, or the default root when it is empty.
+func resolveRoot() (string, error) {
+	if rootDir != "" {
+		return rootDir, nil
+	}
+	return config.DefaultRoot()
 }
 
 func init() {

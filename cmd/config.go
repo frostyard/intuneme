@@ -37,13 +37,9 @@ var brokerProxyEnableCmd = &cobra.Command{
 	Use:   "enable",
 	Short: "Enable the host-side broker proxy",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return err
 		}
 
 		cfg, err := config.Load(root)
@@ -85,13 +81,9 @@ var brokerProxyDisableCmd = &cobra.Command{
 	Use:   "disable",
 	Short: "Disable the host-side broker proxy",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return err
 		}
 
 		cfg, err := config.Load(root)
@@ -124,13 +116,9 @@ var brokerProxyDisableCmd = &cobra.Command{
 func containerBusProxyConfigCmd(subcommand, label, short, enableShort, disableShort string,
 	set func(cfg *config.Config, enabled bool)) *cobra.Command {
 	setEnabled := func(enabled bool) (string, error) {
-		root := rootDir
-		if root == "" {
-			var err error
-			root, err = config.DefaultRoot()
-			if err != nil {
-				return "", err
-			}
+		root, err := resolveRoot()
+		if err != nil {
+			return "", err
 		}
 		cfg, err := config.Load(root)
 		if err != nil {

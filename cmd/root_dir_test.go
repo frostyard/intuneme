@@ -106,3 +106,36 @@ func TestNotifyProxyEnableDefaultRootError(t *testing.T) {
 		t.Errorf("error %q does not contain %q", err, "cannot determine home directory")
 	}
 }
+
+func TestResolveRootKeepsExplicitRoot(t *testing.T) {
+	for _, root := range []string{"/srv/in", "./x"} {
+		useRootDir(t, root)
+		got, err := resolveRoot()
+		if err != nil {
+			t.Fatalf("resolveRoot(%q): %v", root, err)
+		}
+		if got != root {
+			t.Errorf("resolveRoot with rootDir %q returned %q, want it unchanged", root, got)
+		}
+	}
+}
+
+func TestResolveRootUsesDefaultRootWhenEmpty(t *testing.T) {
+	home := setDefaultRootEnv(t)
+	useRootDir(t, "")
+
+	want, err := config.DefaultRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("resolveRoot returned %q, want %q", got, want)
+	}
+	if got != filepath.Join(home, ".local", "share", "intuneme") {
+		t.Errorf("resolveRoot returned %q, want it under the temp HOME", got)
+	}
+}
