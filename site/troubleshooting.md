@@ -305,6 +305,26 @@ Common issues and solutions. Click an item to expand it.
 
     The output should list `/dev/hidraw*` and `/dev/bus/usb/...` entries. If it doesn't, the node exists but every `open()` fails with `Operation not permitted`. Run `intuneme stop && intuneme start` to re-forward the key on the correct scope unit (older intuneme releases guessed the unit name, which changed to `<machine>.scope` on systemd 256+).
 
+??? question "Himmelblau browser SSO fails after reboot instead of showing a PIN dialog"
+    Saved enrollment does not mean the PIN-protected credential is unlocked.
+    A reboot clears Himmelblau's in-memory PRT cache. The user broker needs a
+    graphical display to request your Hello PIN.
+
+    An older `intuneme start` skipped session setup for already-running
+    containers, leaving the broker without display variables. The Linux
+    Entra SSO extension could then report `Failed to fetch prt sso cookie`
+    even though status showed enrolled and the proxy was running.
+    Cold startup could also mistake the previous boot's stale bus socket
+    for a ready session bus, causing display imports to fail with
+    `Connection refused`. Current startup waits for a real D-Bus reply.
+
+    Update the CLI, install it in a root-owned path, and run `intuneme start`
+    from your graphical session. Current start initializes enrolled
+    Himmelblau sessions on every non-dry-run call and refreshes an active
+    user broker to inherit the display. Retry the browser request and enter
+    your existing Hello PIN in the dialog. No image recreation or new
+    enrollment is required.
+
 ??? question "Edge or the Company Portal asks you to sign in again after a reboot"
     Your credentials live in the container's gnome-keyring, and the keyring has to be unlocked once per boot. Older versions could skip that unlock for the whole boot: if the first launch after `intuneme start` came from the GNOME extension, the container user's session was not running yet, the unlock failed, and the keyring stayed locked. The broker then found no saved account.
 

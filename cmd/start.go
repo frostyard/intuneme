@@ -105,6 +105,9 @@ func runStart(r runner.Runner, root string) error {
 				recordInternal(cfg, problemrec.CodeLingerFailed, err)
 				return err
 			}
+			if err := initializeHimmelblauSession(r, cfg); err != nil {
+				return err
+			}
 		}
 		rep.Message("Container %s is already running.", cfg.MachineName)
 		rep.Message("Use 'intuneme shell' to connect.")
@@ -275,10 +278,8 @@ func runStart(r runner.Runner, root string) error {
 		recordInternal(cfg, problemrec.CodeLingerFailed, err)
 		return err
 	}
-	if cfg.Himmelblau && cfg.HimmelblauUPN != "" {
-		if err := nspawn.Exec(r, cfg.HostUID, ":"); err != nil {
-			return fmt.Errorf("initialize Himmelblau session environment: %w", err)
-		}
+	if err := initializeHimmelblauSession(r, cfg); err != nil {
+		return err
 	}
 
 	// Clean stale Nvidia symlinks from previous boots (rootfs persists).
@@ -415,6 +416,17 @@ func runStart(r runner.Runner, root string) error {
 	}
 	rep.Message("Container is running. Use 'intuneme shell' to connect.")
 
+	return nil
+}
+
+func initializeHimmelblauSession(r runner.Runner, cfg *config.Config) error {
+	if !cfg.Himmelblau || cfg.HimmelblauUPN == "" {
+		return nil
+	}
+	// A running D-Bus broker keeps its old environment until it is restarted.
+	if err := nspawn.ExecForeground(r, cfg.HostUID, "/usr/bin/systemctl --user try-restart himmelblau-broker.service"); err != nil {
+		return fmt.Errorf("initialize Himmelblau session environment: %w", err)
+	}
 	return nil
 }
 

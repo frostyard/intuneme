@@ -3,6 +3,7 @@ package nspawn
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/frostyard/intuneme/internal/busproxy/busproxytest"
 	"github.com/frostyard/intuneme/internal/nshelper"
 )
 
@@ -757,9 +759,49 @@ func TestUserBusWaitTimesOut(t *testing.T) {
 	}
 }
 
+func TestUserBusWaitRejectsUnresponsiveSocket(t *testing.T) {
+	for _, binary := range []string{"timeout", "busctl"} {
+		if _, err := exec.LookPath(binary); err != nil {
+			t.Skipf("%s not available", binary)
+		}
+	}
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stale=%t", stale), func(t *testing.T) {
+			dir, err := os.MkdirTemp("", "ibw")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(dir) })
+			listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(dir, "bus"), Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			listener.SetUnlinkOnClose(false)
+			t.Cleanup(func() { _ = listener.Close() })
+			if stale {
+				if err := listener.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			started := time.Now()
+			stdout, stderr, err := runShell(t, userBusWaitScript(3)+"\necho launched", dir, nil)
+			if err == nil || stdout != "" || !strings.Contains(stderr, "session bus") {
+				t.Fatalf("unresponsive socket allowed launch: stdout=%q stderr=%q error=%v", stdout, stderr, err)
+			}
+			if elapsed := time.Since(started); elapsed < 500*time.Millisecond || elapsed > 2*time.Second {
+				t.Fatalf("bus wait did not respect its 600ms budget: %v", elapsed)
+			}
+		})
+	}
+}
+
 // Linger setup or user@<uid> can finish while the launch is waiting: a bus that
 // appears during the wait must let the launch continue.
 func TestUserBusWaitSeesLateBus(t *testing.T) {
+	if _, err := exec.LookPath("busctl"); err != nil {
+		t.Skip("busctl not available")
+	}
+	socket, _ := busproxytest.StartBus(t)
 	dir, err := os.MkdirTemp("", "ibw")
 	if err != nil {
 		t.Fatal(err)
@@ -768,12 +810,9 @@ func TestUserBusWaitSeesLateBus(t *testing.T) {
 
 	stdout, stderr, err := runShell(t, userBusWaitScript(50)+"\necho launched", dir, func() {
 		time.Sleep(300 * time.Millisecond)
-		l, lerr := net.Listen("unix", filepath.Join(dir, "bus"))
-		if lerr != nil {
-			t.Errorf("listen: %v", lerr)
-			return
+		if err := os.Symlink(socket, filepath.Join(dir, "bus")); err != nil {
+			t.Errorf("expose private session bus: %v", err)
 		}
-		t.Cleanup(func() { _ = l.Close() })
 	})
 	if err != nil {
 		t.Fatalf("late bus did not unblock the launch: %v, stderr %q", err, stderr)
