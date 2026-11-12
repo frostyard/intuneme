@@ -21,6 +21,7 @@ is a separate change.
 Outside this tree: [`AGENTS.md`](../AGENTS.md) holds the rules for agents,
 and [`.memory/README.md`](../.memory/README.md) describes the corrections inbox,
 1 file for each record in `.memory/corrections/`.
+The root [GLOSSARY](../GLOSSARY.md) defines domain terms.
 
 ## Index
 
@@ -31,6 +32,7 @@ and [`.memory/README.md`](../.memory/README.md) describes the corrections inbox,
 - [0003 — Record problems with std/problems](adr/0003-record-problems-with-std-problems.md)
 - [0004 — Adopt the frostyard repository baseline](adr/0004-adopt-the-repository-baseline.md)
 - [0005 — Verify the container image signature before extraction](adr/0005-verify-the-container-image-signature-before-extraction.md)
+- [0005 — Bind the filtered BlueZ directory at boot](adr/0005-bind-bluez-at-boot.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
@@ -54,8 +56,9 @@ and [`.memory/README.md`](../.memory/README.md) describes the corrections inbox,
 ### Specs
 
 - [Container Image](specs/container-image.md) — exact contents of the
-  `ghcr.io/frostyard/ubuntu-intune` image: build stages, package set, static
-  config, tag scheme
+  Microsoft `ubuntu-intune` image and experimental `ubuntu-himmelblau`
+  alternatives (including terminal-passkey variant): build stages, package
+  sets, static config, tag scheme
 
 ### Plans
 
