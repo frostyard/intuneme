@@ -148,6 +148,8 @@ release:
 
     ### Container image
 
+    `intuneme` checks this signature itself: `init` and `recreate` verify the image against `ubuntu-intune/cosign.pub` and pull the verified digest. To check it yourself:
+
     ```bash
     cosign verify --key ubuntu-intune/cosign.pub ghcr.io/frostyard/ubuntu-intune:<version>
     ```

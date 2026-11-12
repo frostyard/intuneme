@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,14 +9,38 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/imagesig"
 	"github.com/frostyard/intuneme/internal/runner"
 )
 
 type initPuller struct{ extract func(string) error }
 
-func (p initPuller) Name() string                                            { return "fake" }
+func (p initPuller) Name() string { return "fake" }
+
 func (p initPuller) PullAndExtract(_ runner.Runner, _, path, _ string) error { return p.extract(path) }
-func skipRootOwned(string) error                                             { return nil }
+
+func skipRootOwned(string) error { return nil }
+
+// verifiedDigestRef is the reference the fake signature check returns. The pull
+// must receive exactly this, never the tag.
+const verifiedDigestRef = "ghcr.io/frostyard/ubuntu-intune@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// useSignatureCheck replaces the image signature check for 1 test. The real
+// check needs the network, so every test installs its own answer.
+func useSignatureCheck(t *testing.T, fn func(context.Context, string) (string, error)) {
+	t.Helper()
+	orig := checkImageSignature
+	checkImageSignature = fn
+	t.Cleanup(func() { checkImageSignature = orig })
+}
+
+// usePassingSignatureCheck lets a test that exercises extraction skip the real
+// check.
+func usePassingSignatureCheck(t *testing.T) {
+	t.Helper()
+	useSignatureCheck(t, func(context.Context, string) (string, error) { return verifiedDigestRef, nil })
+}
 
 func passwdPuller(t *testing.T) initPuller {
 	t.Helper()
@@ -28,6 +53,7 @@ func passwdPuller(t *testing.T) initPuller {
 }
 
 func TestPrepareInitRootfsUmask(t *testing.T) {
+	usePassingSignatureCheck(t)
 	old := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(old) })
 	path := filepath.Join(t.TempDir(), "rootfs")
@@ -44,7 +70,7 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 		}
 		return extract(path)
 	}
-	if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(path)
@@ -65,10 +91,11 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 }
 
 func TestPrepareInitRootfsFailedPullRetry(t *testing.T) {
+	usePassingSignatureCheck(t)
 	path := filepath.Join(t.TempDir(), "rootfs")
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	err := prepareInitRootfs(r, initPuller{func(string) error { return failure }}, "image", path, "", skipRootOwned)
+	err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned)
 	if err != failure {
 		t.Fatalf("error = %v, want original failure", err)
 	}
@@ -78,12 +105,13 @@ func TestPrepareInitRootfsFailedPullRetry(t *testing.T) {
 	if len(r.commands) != 0 {
 		t.Fatalf("empty cleanup used sudo: %v", r.commands)
 	}
-	if err := prepareInitRootfs(r, passwdPuller(t), "image", path, "", skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), r, passwdPuller(t), "image", path, "", false, skipRootOwned); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 }
 
 func TestPrepareInitRootfsPartialFailure(t *testing.T) {
+	usePassingSignatureCheck(t)
 	for _, existing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "new", true: "force"}[existing], func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "rootfs")
@@ -106,7 +134,7 @@ func TestPrepareInitRootfsPartialFailure(t *testing.T) {
 				return failure
 			}}
 			r := &startSecurityRunner{}
-			if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != failure {
+			if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
 				t.Fatalf("error = %v", err)
 			}
 			got := strings.Contains(strings.Join(r.commands, "\n"), "sudo rm -rf "+path)
@@ -123,6 +151,7 @@ func TestPrepareInitRootfsPartialFailure(t *testing.T) {
 }
 
 func TestInitEmptyLeftover(t *testing.T) {
+	usePassingSignatureCheck(t)
 	path := filepath.Join(t.TempDir(), "rootfs")
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
@@ -131,7 +160,7 @@ func TestInitEmptyLeftover(t *testing.T) {
 		t.Fatalf("empty leftover blocked init: %v", err)
 	}
 	failure := errors.New("pull failed")
-	if err := prepareInitRootfs(&startSecurityRunner{}, initPuller{func(string) error { return failure }}, "image", path, "", skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -149,6 +178,7 @@ func TestInitEmptyLeftover(t *testing.T) {
 }
 
 func TestPrepareInitRootfsPostExtractionFailure(t *testing.T) {
+	usePassingSignatureCheck(t)
 	for _, step := range []string{"verify", "reconcile"} {
 		t.Run(step, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "rootfs")
@@ -162,7 +192,7 @@ func TestPrepareInitRootfsPostExtractionFailure(t *testing.T) {
 			}
 			// Extraction changes the mode so reconciliation also runs for a root test user.
 			p := initPuller{func(path string) error { return os.Chmod(path, 0o700) }}
-			err := prepareInitRootfs(r, p, "image", path, "", verify)
+			err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, verify)
 			if err == nil {
 				t.Fatal("failure reported as success")
 			}
@@ -177,6 +207,7 @@ func TestPrepareInitRootfsPostExtractionFailure(t *testing.T) {
 }
 
 func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
+	usePassingSignatureCheck(t)
 	target := filepath.Join(t.TempDir(), "real")
 	if err := os.Mkdir(target, 0o755); err != nil {
 		t.Fatal(err)
@@ -191,7 +222,7 @@ func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
 	}
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(r, initPuller{func(string) error { return failure }}, "image", path, "", skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
 		t.Fatalf("error = %v", err)
 	}
 	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -206,6 +237,7 @@ func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
 }
 
 func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
+	usePassingSignatureCheck(t)
 	path := filepath.Join(t.TempDir(), "rootfs")
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
@@ -227,7 +259,7 @@ func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
 		return failure
 	}}
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if extractionMode != 0o700 {
@@ -242,6 +274,7 @@ func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
 }
 
 func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
+	usePassingSignatureCheck(t)
 	if os.Getuid() == 0 {
 		t.Skip("root can read mode 0000 directories")
 	}
@@ -268,7 +301,7 @@ func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
 	}
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(r, initPuller{func(string) error { return failure }}, "image", path, "", skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if len(r.commands) != 0 {
@@ -277,6 +310,7 @@ func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
 }
 
 func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
+	usePassingSignatureCheck(t)
 	if os.Getuid() == 0 {
 		t.Skip("root can remove entries from mode 0500 directories")
 	}
@@ -295,7 +329,7 @@ func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
 		return failure
 	}}
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(r, p, "image", path, "", skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -303,6 +337,88 @@ func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
 	}
 	if len(r.commands) != 0 {
 		t.Errorf("permission error escalated to sudo cleanup: %v", r.commands)
+	}
+}
+
+// digestPuller records the reference the pull was given.
+type digestPuller struct{ ref string }
+
+func (p *digestPuller) Name() string { return "fake" }
+
+func (p *digestPuller) PullAndExtract(_ runner.Runner, image, _, _ string) error {
+	p.ref = image
+	return nil
+}
+
+// TestPrepareInitRootfsBadSignatureWritesNothing is the guard: a rejected image
+// must stop init before it creates the rootfs directory or extracts anything.
+func TestPrepareInitRootfsBadSignatureWritesNothing(t *testing.T) {
+	for _, wantErr := range []error{imagesig.ErrInvalidSignature, imagesig.ErrUnsigned} {
+		t.Run(wantErr.Error(), func(t *testing.T) {
+			useSignatureCheck(t, func(context.Context, string) (string, error) { return "", wantErr })
+			path := filepath.Join(t.TempDir(), "rootfs")
+			pulled := false
+			p := initPuller{func(string) error {
+				pulled = true
+				return nil
+			}}
+			err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, "ghcr.io/frostyard/ubuntu-intune:v1.2.3", path, "", false, skipRootOwned)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("error = %v, want %v", err, wantErr)
+			}
+			if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+				t.Errorf("rootfs exists after a failed check: %v", statErr)
+			}
+			if pulled {
+				t.Error("the image was pulled after a failed check")
+			}
+		})
+	}
+}
+
+// TestPrepareInitRootfsPullsVerifiedDigest proves the pull uses the reference
+// the check returned, never the tag the user named.
+func TestPrepareInitRootfsPullsVerifiedDigest(t *testing.T) {
+	const image = "ghcr.io/frostyard/ubuntu-intune:v1.2.3"
+	useSignatureCheck(t, func(_ context.Context, ref string) (string, error) {
+		if ref != image {
+			t.Errorf("the check received %q, want %q", ref, image)
+		}
+		return verifiedDigestRef, nil
+	})
+	path := filepath.Join(t.TempDir(), "rootfs")
+	p := &digestPuller{}
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, image, path, "", false, skipRootOwned); err != nil {
+		t.Fatal(err)
+	}
+	if p.ref != verifiedDigestRef {
+		t.Errorf("the pull received %q, want %q", p.ref, verifiedDigestRef)
+	}
+}
+
+// TestPrepareInitRootfsSkipChecksNothing proves the override skips the check,
+// pulls the tag and warns that the image was not verified.
+func TestPrepareInitRootfsSkipChecksNothing(t *testing.T) {
+	rec := useInitTestReporter(t)
+	checked := false
+	useSignatureCheck(t, func(context.Context, string) (string, error) {
+		checked = true
+		return verifiedDigestRef, nil
+	})
+	const image = "ghcr.io/frostyard/ubuntu-intune:v1.2.3"
+	path := filepath.Join(t.TempDir(), "rootfs")
+	p := &digestPuller{}
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, image, path, "", true, skipRootOwned); err != nil {
+		t.Fatal(err)
+	}
+	if checked {
+		t.Error("the signature check ran although it was skipped")
+	}
+	if p.ref != image {
+		t.Errorf("the pull received %q, want the tag %q", p.ref, image)
+	}
+	if len(rec.warnings) != 1 || !strings.Contains(rec.warnings[0], "NOT verified") {
+		t.Errorf("warnings = %q, want 1 warning that the image is not verified", rec.warnings)
 	}
 }
 
@@ -322,5 +438,83 @@ func TestInitIncompleteInstallMessage(t *testing.T) {
 	err = checkInitRootfs(root, path, false)
 	if err == nil || !strings.Contains(err.Error(), "already initialized") {
 		t.Fatalf("error with config.toml = %v", err)
+	}
+}
+
+// initRunner records every command. init must run none of them when the image
+// signature does not verify.
+type initRunner struct {
+	commands []string
+}
+
+func (r *initRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return nil, errors.New("injected failure")
+}
+
+func (r *initRunner) RunAttached(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+func (r *initRunner) RunBackground(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+// LookPath answers every tool that prereq.Check and puller.Detect ask for.
+func (r *initRunner) LookPath(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+// usePasswordFile points init at a password file for 1 test.
+func usePasswordFile(t *testing.T, password string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "password")
+	if err := os.WriteFile(path, []byte(password+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := passwordFile
+	passwordFile = path
+	t.Cleanup(func() { passwordFile = orig })
+}
+
+// TestInitBadSignatureChangesNothing is the guard: a rejected image must leave a
+// fresh host untouched, including ~/Intune, the rootfs and config.toml.
+func TestInitBadSignatureChangesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	useRootDir(t, root)
+	useInitTestReporter(t)
+	useSignatureCheck(t, func(context.Context, string) (string, error) {
+		return "", imagesig.ErrInvalidSignature
+	})
+	usePasswordFile(t, "Correct3Horse!")
+
+	origForce, origSkip, origInsiders, origDryRun := forceInit, skipSignatureInit, insidersInit, clix.DryRun
+	forceInit, skipSignatureInit, insidersInit = false, false, false
+	clix.DryRun = false
+	t.Cleanup(func() {
+		forceInit, skipSignatureInit, insidersInit, clix.DryRun = origForce, origSkip, origInsiders, origDryRun
+	})
+	r := &initRunner{}
+	origRunner := newInitRunner
+	newInitRunner = func() runner.Runner { return r }
+	t.Cleanup(func() { newInitRunner = origRunner })
+
+	err := initCmd.RunE(initCmd, nil)
+	if !errors.Is(err, imagesig.ErrInvalidSignature) {
+		t.Fatalf("error = %v, want the signature error", err)
+	}
+	for _, path := range []string{
+		filepath.Join(home, "Intune"),
+		filepath.Join(root, "rootfs"),
+		filepath.Join(root, "config.toml"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Errorf("%s exists after a failed check: %v", path, statErr)
+		}
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("init ran host commands after a failed check: %v", r.commands)
 	}
 }

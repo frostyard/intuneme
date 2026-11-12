@@ -248,3 +248,31 @@ Common issues and solutions. Click an item to expand it.
     Quit Edge and the Company Portal completely before the relaunch. Close every window, then check in `intuneme shell` that `pgrep -a 'msedge|intune-portal'` prints nothing; if it prints processes, run `pkill 'msedge|intune-portal'`. Edge keeps background processes alive after its last window closes, and a running Edge keeps the old sign-in state.
 
     Then relaunch Edge or the Company Portal.
+
+## Image signature check failed
+
+`intuneme init` and `intuneme recreate` check the image's cosign signature before they extract it. The check reads the signature of the image tag from `ghcr.io` and verifies it against the key in the intuneme release. When it fails, the command stops and changes nothing: no image is pulled, no rootfs is written, and on `recreate` a running container keeps running with its enrollment.
+
+Common causes:
+
+- **No network to `https://ghcr.io`.** A proxy or a registry mirror can answer the manifest request but block the token endpoint. `curl -sS -o /dev/null -w '%{http_code}\n' https://ghcr.io/v2/` must answer `401`, which this check can work with; a timeout or a `403` means the network or proxy refuses the check.
+- **A new image that is not signed yet.** The build publishes the tag and signs it a few moments later. Wait a few minutes and run the command again.
+- **A real problem with the image.** An image that does not verify with the key from the release, or that names another repository, is not the image intuneme publishes. Do not extract it.
+
+To check the image by hand:
+
+```bash
+cosign verify --key https://raw.githubusercontent.com/frostyard/intuneme/main/ubuntu-intune/cosign.pub \
+  ghcr.io/frostyard/ubuntu-intune:<tag>
+```
+
+When the image is valid, the command lists the checks it performed and prints the signature payload, so the problem is local (a proxy, a firewall, or a clock that is far off). An error that no signature matches means the tag is not the image intuneme publishes.
+
+!!! warning
+    `--insecure-skip-signature-check` skips the check and pulls the tag. The image is then extracted as root with nothing verifying it. Use it only for an image you built and trust yourself, and never on an image from a mirror you do not control:
+
+    ```bash
+    intuneme recreate --insecure-skip-signature-check
+    ```
+
+    The command warns that the image is not verified. Run `intuneme recreate` again without the flag once the check can pass, so the rootfs is replaced with a verified image.

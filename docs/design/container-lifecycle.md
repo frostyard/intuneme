@@ -6,14 +6,14 @@ Detailed flows for each lifecycle command. All commands share the `--root` flag 
 
 One-time provisioning that creates the container from scratch.
 
-**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use insiders channel), `--tmp-dir` (temp directory for image extraction)
+**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use insiders channel), `--tmp-dir` (temp directory for image extraction), `--insecure-skip-signature-check` (skip the cosign signature check, not recommended)
 
 **Steps:**
 
 1. **Check prerequisites** — Verify `systemd-nspawn` and `machinectl` are available (`prereq.Check()`)
-2. **Create home bind mount** — `mkdir ~/Intune`
-3. **Pull OCI image** — Auto-detect puller (podman → skopeo+umoci → docker), pull from `ghcr.io/frostyard/ubuntu-intune:<tag>`
-4. **Prepare and extract rootfs** — `prepareInitRootfs` creates `~/.local/share/intuneme/rootfs/` and explicitly sets its mode to `0755`, independent of the caller's umask. Initial `Lstat` metadata determines ownership of preparation: an absent target or an empty directory owned by the running UID gets the initial user `chmod` and counts as new for failure cleanup. An empty directory of another owner is accepted but gets no initial user `chmod` and is never removed; post-extraction reconciliation fixes its metadata. A non-empty directory or a symlink still requires `--force`, which extracts over it. A directory that cannot be read because of permissions counts as an existing installation, so `--force` can proceed. When `config.toml` is missing, the error calls the installation incomplete. After extraction, assert with `puller.VerifyRootOwned()` that `rootfs/etc/passwd` is owned by `0:0`, then call `puller.ReconcileRootfs()` to set the directory itself to owner `0:0` and mode `0755`. Reconciliation resolves a symlinked path, `Lstat`s the resolved directory, and runs `sudo chown` or `sudo chmod` only when needed. If directory setup, extraction, verification or reconciliation fails, remove only a directory absent before this run or an accepted empty leftover owned by the running UID, never a symlink or a pre-existing directory of another owner. Try `os.Remove` first; only `ENOTEMPTY` or `EEXIST` permits the `sudo rm -rf` fallback for a partial extraction. Any other removal error only warns. Never remove a pre-existing non-empty `--force` or custom rootfs target. A cleanup failure warns without replacing the original error.
+2. **Check the image signature** — The first step of `prepareInitRootfs` (below), taken before the rootfs directory is inspected or created: `cmd.resolvePullRef` calls `imagesig.Verify`, which checks the cosign signature of `ghcr.io/frostyard/ubuntu-intune:<tag>` against the key embedded from `ubuntu-intune/cosign.pub` and returns `ghcr.io/frostyard/ubuntu-intune@sha256:<hex>`. A failed check stops `init` with an error that says nothing was pulled, extracted or changed, and no directory is created. `--insecure-skip-signature-check` returns the tag unchanged and warns that the image is not verified. The dry run prints the step and does no network work. See [ADR-0005](../adr/0005-verify-the-container-image-signature-before-extraction.md).
+3. **Prepare and extract rootfs** — `prepareInitRootfs` creates `~/.local/share/intuneme/rootfs/` and explicitly sets its mode to `0755`, independent of the caller's umask. It pulls the verified digest from step 2, never the tag, through the auto-detected puller (podman → skopeo+umoci → docker). Initial `Lstat` metadata determines ownership of preparation: an absent target or an empty directory owned by the running UID gets the initial user `chmod` and counts as new for failure cleanup. An empty directory of another owner is accepted but gets no initial user `chmod` and is never removed; post-extraction reconciliation fixes its metadata. A non-empty directory or a symlink still requires `--force`, which extracts over it. A directory that cannot be read because of permissions counts as an existing installation, so `--force` can proceed. When `config.toml` is missing, the error calls the installation incomplete. After extraction, assert with `puller.VerifyRootOwned()` that `rootfs/etc/passwd` is owned by `0:0`, then call `puller.ReconcileRootfs()` to set the directory itself to owner `0:0` and mode `0755`. Reconciliation resolves a symlinked path, `Lstat`s the resolved directory, and runs `sudo chown` or `sudo chmod` only when needed. If directory setup, extraction, verification or reconciliation fails, remove only a directory absent before this run or an accepted empty leftover owned by the running UID, never a symlink or a pre-existing directory of another owner. Try `os.Remove` first; only `ENOTEMPTY` or `EEXIST` permits the `sudo rm -rf` fallback for a partial extraction. Any other removal error only warns. Never remove a pre-existing non-empty `--force` or custom rootfs target. A cleanup failure warns without replacing the original error.
+4. **Create home bind mount** — `mkdir ~/Intune`, only after the signature check and the extraction succeeded, so a rejected image leaves a fresh host without a new directory
 5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
 7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
@@ -138,22 +138,23 @@ Removes container and host modifications. By default preserves user files in `~/
 
 Updates the container image while preserving enrollment. Can switch channels.
 
-**Flags:** `--insiders` (switch to insiders channel), `--tmp-dir` (temp directory for image extraction)
+**Flags:** `--insiders` (switch to insiders channel), `--tmp-dir` (temp directory for image extraction), `--insecure-skip-signature-check` (skip the cosign signature check, not recommended)
 
 **Flow:**
 
-1. **Early validation** — Resolve and validate the container host name (`cfg.ContainerHostname`, before the dry-run return, sudo, stop and the rootfs delete, so a bad `hostname` key cannot delete the old rootfs), verify initialized, warn (also in dry-run) when `<rootfs>/etc/hostname` differs from the new name (Intune can then show the device as renamed or new), validate sudo access
-2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
-3. **Backup state:**
+1. **Early validation** — Resolve and validate the container host name (`cfg.ContainerHostname`, before the dry-run return, sudo, stop and the rootfs delete, so a bad `hostname` key cannot delete the old rootfs), verify initialized, warn (also in dry-run) when `<rootfs>/etc/hostname` differs from the new name (Intune can then show the device as renamed or new)
+2. **Check the image signature** — Right after the dry-run return, before sudo, before the stop, before the backups and before the delete: resolve the channel (`cfg.Insiders`, or `--insiders` when the flag is set) to an image tag, then `cmd.resolvePullRef` verifies it with `imagesig.Verify` and returns the verified digest. A failed check stops `recreate` with the error and changes nothing: the container keeps running and the rootfs and enrollment are untouched. The pull later uses that digest, never the tag. `--insecure-skip-signature-check` pulls the tag instead and warns. The puller is detected here too, before sudo.
+3. **Validate sudo access**, then **stop the container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
+4. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
    - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` to temp dir (`provision.BackupDeviceBrokerState()`)
-4. **Delete old rootfs** — `sudo rm -rf`
-5. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag)
-6. **Re-provision** — GPU render group, user creation, host name (default `<host>LXC`, or the `hostname` key value), fixups, polkit rule
-7. **Restore state:**
+5. **Delete old rootfs** — `sudo rm -rf`
+6. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag), by the verified digest
+7. **Re-provision** — GPU render group, user creation, host name (default `<host>LXC`, or the `hostname` key value), fixups, polkit rule
+8. **Restore state:**
    - Write backed-up password hash into new `rootfs/etc/shadow`
    - Copy backed-up device broker state back into `rootfs/var/lib/microsoft-identity-device-broker`
-8. **Update config** — Save with potentially new insiders flag
+9. **Update config** — Save with potentially new insiders flag
 
 Note: `recreate` reinstalls the host polkit rule but does NOT reinstall the host sudoers rule — `start` handles that idempotently.
 

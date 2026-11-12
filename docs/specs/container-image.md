@@ -91,6 +91,16 @@ Images are published to `ghcr.io/frostyard/ubuntu-intune` with tags:
 Images are signed with cosign. The build is automated via `.github/workflows/build-container.yml`.
 Registry pushes retry transient upload failures so a temporary GHCR error does not fail the scheduled build.
 
+**Signing contract.** Every published tag (stable, `:insiders` and `:latest`) is signed by the build workflow with the key whose public half is `ubuntu-intune/cosign.pub`:
+
+```bash
+cosign sign -y --key env://COSIGN_PRIVATE_KEY --new-bundle-format=false ghcr.io/frostyard/ubuntu-intune:<tag>
+```
+
+- `--new-bundle-format=false` selects the legacy format. The signature is an OCI manifest at tag `sha256-<hex>.sig` in the same repository, where `<hex>` is the hex of the image manifest digest. Its layers have media type `application/vnd.dev.cosign.simplesigning.v1+json` and carry the signature in the `dev.cosignproject.cosign/signature` annotation.
+- The payload's `critical.identity["docker-reference"]` is the repository without tag or digest, `ghcr.io/frostyard/ubuntu-intune`, and `critical.image["docker-manifest-digest"]` is the image manifest digest.
+- `internal/imagesig` reads only this format, with the key embedded from `ubuntu-intune/cosign.pub`, before `init` and `recreate` extract the image. `image_signature_contract_test.go` fails when the signing step changes, so a format, key or identity change needs the verifier change in the same pull request. See [ADR-0005](../adr/0005-verify-the-container-image-signature-before-extraction.md).
+
 ## Profile Script
 
 The container image works in concert with `internal/provision/intuneme-session-setup.sh` (embedded in the Go binary as `/usr/local/bin/intuneme-session-setup`, written to the rootfs by `provision.InstallSessionScripts`, and reinstalled by every `intuneme start`). `/etc/profile.d/intuneme.sh` sources it on a login shell, and `nspawn.Exec()` runs it on the nsenter launch path, so both session entries behave the same. It runs these steps on every session entry:

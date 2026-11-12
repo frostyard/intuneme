@@ -30,6 +30,7 @@ append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
 - [0002 — Pin machine operations and scope shell authorization](adr/0002-pin-machine-operations-and-scope-shell-authorization.md)
 - [0003 — Record problems with std/problems](adr/0003-record-problems-with-std-problems.md)
 - [0004 — Adopt the frostyard repository baseline](adr/0004-adopt-the-repository-baseline.md)
+- [0005 — Verify the container image signature before extraction](adr/0005-verify-the-container-image-signature-before-extraction.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design

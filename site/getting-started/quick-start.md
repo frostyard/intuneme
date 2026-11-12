@@ -10,6 +10,8 @@ intuneme init
 
 This pulls the Ubuntu 24.04 container image, which already contains Microsoft Edge and Intune Portal, from GHCR, extracts the rootfs, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can open an interactive shell in the container without repeated password prompts; host shells and broad machine management are not granted.
 
+Before it extracts anything, `init` checks the image's cosign signature against the key in this intuneme release and then pulls the digest it verified. If the check fails, nothing is written; see [Image signature check failed](../troubleshooting.md#image-signature-check-failed).
+
 If image preparation fails, `init` removes a new rootfs directory, or a previously empty rootfs directory owned by your user, so you can retry without `--force`. It accepts an empty directory owned by another user but never changes its mode before extraction or removes it on failure. A partial extraction needs sudo for cleanup. If cleanup fails, a warning shows the error. A pre-existing non-empty rootfs is never removed on init failure and still requires `--force` to extract over it. The rootfs directory mode is explicitly `0755` and its owner is `root:root`, even with a restrictive host umask.
 
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
