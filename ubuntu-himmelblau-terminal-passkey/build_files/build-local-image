@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_repo=""
+source_ref=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source-repo)
+      if [[ $# -lt 2 ]]; then
+        echo "--source-repo requires an HTTPS Git URL" >&2
+        exit 2
+      fi
+      source_repo="$2"
+      shift 2
+      ;;
+    --source-ref)
+      if [[ $# -lt 2 ]]; then
+        echo "--source-ref requires a Git branch, tag, or commit" >&2
+        exit 2
+      fi
+      source_ref="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: build-local-image [--source-repo HTTPS_URL] [--source-ref REF] localhost/<name>[:tag]" >&2
+  exit 2
+fi
+image="$1"
+if [[ ! "$image" =~ ^localhost/[a-z0-9]+([._/-][a-z0-9]+)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$ ]]; then
+  echo "Invalid local image tag $image; use localhost/<name>[:tag]" >&2
+  exit 2
+fi
+
+build_command=()
+if command -v podman >/dev/null 2>&1; then
+  build_command=(podman build)
+elif command -v buildah >/dev/null 2>&1; then
+  build_command=(buildah bud)
+elif command -v docker >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1; then
+  build_command=(docker buildx build --load)
+else
+  echo "Building the local image requires Podman, Buildah, or Docker Buildx" >&2
+  exit 2
+fi
+if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+  echo "Building the patched Himmelblau packages requires podman or docker" >&2
+  exit 2
+fi
+
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+if [[ -n "$source_repo" ]]; then
+  export HIMMELBLAU_SOURCE_REPO="$source_repo"
+fi
+if [[ -n "$source_ref" ]]; then
+  export HIMMELBLAU_SOURCE_REF="$source_ref"
+fi
+"$repo_root/ubuntu-himmelblau-terminal-passkey/build_files/build-pam-package"
+source_commit="$(tr -d '\r\n' < "$repo_root/ubuntu-himmelblau-terminal-passkey/packages/source-ref")"
+
+"${build_command[@]}" --pull --target builder \
+  --build-arg "HIMMELBLAU_SOURCE_COMMIT=$source_commit" \
+  -f "$repo_root/ubuntu-himmelblau-terminal-passkey/Containerfile" \
+  -t "$image" "$repo_root"
+echo "Built $image from the builder target with ${source_repo:-https://github.com/mPyKen/himmelblau.git}@$source_commit"

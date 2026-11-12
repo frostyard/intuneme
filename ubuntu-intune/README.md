@@ -1,6 +1,9 @@
 # ubuntu-intune
 Container image for simplifying the use of [Intune](https://www.microsoft.com/en-us/security/business/microsoft-intune) on [SNOW Linux](https://github.com/frostyard/snosi) and other Linux distros with secure boot and full disk encryption via [intuneme](https://github.com/frostyard/intuneme).
 
+This is the default Microsoft-backed image. An experimental alternative image
+based on Himmelblau is documented in [`ubuntu-himmelblau/`](../ubuntu-himmelblau/README.md).
+
 This container is based on Ubuntu 24.04 LTS and includes:
 * microsoft-identity-broker
 * microsoft-edge-stable

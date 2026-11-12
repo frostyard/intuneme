@@ -1,0 +1,136 @@
+#!/bin/bash
+set -ouex pipefail
+
+terminal_passkey_deb=""
+terminal_passkey_daemon_deb=""
+terminal_passkey_commit=""
+if [[ $# -gt 0 ]]; then
+  if [[ $# -ne 6 || "$1" != "--terminal-passkey" ]]; then
+    echo "Usage: build [--terminal-passkey himmelblau.deb pam-himmelblau.deb default-ref package-ref source-commit]" >&2
+    exit 2
+  fi
+  terminal_passkey_daemon_deb="$2"
+  terminal_passkey_deb="$3"
+  default_commit="$(tr -d '\r\n' < "$4")"
+  package_commit="$(tr -d '\r\n' < "$5")"
+  requested_commit="$6"
+  if [[ ! "$default_commit" =~ ^[0-9a-f]{40}$ || ! "$package_commit" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "Invalid terminal-passkey source commit metadata" >&2
+    exit 2
+  fi
+  expected_commit="$default_commit"
+  if [[ -n "$requested_commit" ]]; then
+    if [[ ! "$requested_commit" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "Invalid requested terminal-passkey source commit: $requested_commit" >&2
+      exit 2
+    fi
+    expected_commit="$requested_commit"
+  fi
+  if [[ "$package_commit" != "$expected_commit" ]]; then
+    echo "Terminal-passkey package source $package_commit does not match expected commit $expected_commit" >&2
+    exit 2
+  fi
+  terminal_passkey_commit="$package_commit"
+  if [[ "$(dpkg-deb -f "$terminal_passkey_deb" Package)" != "pam-himmelblau" ]]; then
+    echo "Terminal-passkey override must be a pam-himmelblau Debian package" >&2
+    exit 2
+  fi
+  if [[ "$(dpkg-deb -f "$terminal_passkey_daemon_deb" Package)" != "himmelblau" ]]; then
+    echo "Terminal-passkey daemon override must be a himmelblau Debian package" >&2
+    exit 2
+  fi
+fi
+
+apt update -y
+
+apt install -y \
+  ca-certificates \
+  curl \
+  gpg
+
+curl -fsSL https://packages.himmelblau-idm.org/himmelblau.asc | gpg --dearmor > /usr/share/keyrings/himmelblau.gpg
+chmod 0644 /usr/share/keyrings/himmelblau.gpg
+
+tee /etc/apt/sources.list.d/himmelblau.list > /dev/null <<REPOEOF
+deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/himmelblau.gpg] https://packages.himmelblau-idm.org/nightly/latest/deb/ubuntu26.04 ./
+REPOEOF
+
+apt update -y
+apt upgrade -y
+
+apt install -y \
+  apparmor \
+  binutils \
+  gnome-keyring \
+  himmelblau \
+  himmelblau-apparmor \
+  himmelblau-broker \
+  himmelblau-sso \
+  himmelblau-sso-policies \
+  libnss3-tools \
+  libpulse0 \
+  libsecret-tools \
+  mesa-va-drivers \
+  mesa-vulkan-drivers \
+  nss-himmelblau \
+  opensc \
+  openssl \
+  pcsc-tools \
+  pcscd \
+  pipewire-audio-client-libraries \
+  pam-himmelblau \
+  pamtester \
+  sudo \
+  upower \
+  unattended-upgrades \
+  xdg-desktop-portal-gtk \
+  yubikey-manager
+
+if ! command -v strings >/dev/null 2>&1; then
+  echo "binutils strings is required for Intune Secure Boot CA compliance discovery" >&2
+  exit 1
+fi
+
+if [[ -n "$terminal_passkey_deb" ]]; then
+  apt install -y --allow-downgrades "$terminal_passkey_daemon_deb" "$terminal_passkey_deb"
+  install -d -m 0755 /usr/share/intuneme
+  printf '%s\n' "$terminal_passkey_commit" > /usr/share/intuneme/himmelblau-terminal-passkey-source
+fi
+
+if [[ ! -s /usr/lib/himmelblau/himmelblau.conf ]]; then
+  echo "Packaged Himmelblau default configuration was not found" >&2
+  exit 1
+fi
+if [[ ! -x /usr/bin/pamtester ]]; then
+  echo "pamtester is required for intuneme's explicit PAM enrollment check" >&2
+  exit 1
+fi
+
+# Himmelblau authentication needs its daemon, which is not running while init sets the local password.
+if ! grep -q '^Password-Type: Primary$' /usr/share/pam-configs/himmelblau; then
+  echo "Expected Himmelblau PAM password profile was not found" >&2
+  exit 1
+fi
+sed -i '/^Password-Type: Primary$/,/^Session-Type: Additional$/ { /^Session-Type: Additional$/!d; }' /usr/share/pam-configs/himmelblau
+
+# Local password setup must not enforce character-quality rules.
+if ! grep -q 'pam_unix.so obscure' /usr/share/pam-configs/unix; then
+  echo "Expected pam_unix password quality option was not found" >&2
+  exit 1
+fi
+sed -i 's/pam_unix.so obscure/pam_unix.so/' /usr/share/pam-configs/unix
+
+pam-auth-update --enable mkhomedir gnome-keyring himmelblau unix --force
+
+if grep -q 'pam_himmelblau.so' /etc/pam.d/common-password; then
+  echo "Himmelblau PAM must not handle local password changes" >&2
+  exit 1
+fi
+useradd --system --no-create-home intuneme-password-policy-check
+printf '%s\n' 'intuneme-password-policy-check:x' | chpasswd
+userdel intuneme-password-policy-check
+
+apt remove -y \
+  curl \
+  gpg
+apt autoremove -y

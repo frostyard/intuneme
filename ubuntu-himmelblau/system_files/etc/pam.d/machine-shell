@@ -1,0 +1,8 @@
+#%PAM-1.0
+auth sufficient pam_listfile.so item=user sense=allow file=/etc/intuneme-machine-shell-allow onerr=fail
+auth [success=done auth_err=die default=ignore] pam_himmelblau.so ignore_unknown_user set_authtok
+auth required pam_deny.so
+
+@include common-account
+@include common-session
+@include common-session-noninteractive

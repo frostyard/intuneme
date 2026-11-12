@@ -1,0 +1,35 @@
+FROM scratch AS ctx
+COPY ubuntu-himmelblau/build_files/build /build
+COPY ubuntu-intune/build_files/chunk /chunk
+
+FROM docker.io/library/ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/apt \
+    --mount=type=cache,dst=/var/log \
+    --mount=type=cache,dst=/var/lib/apt \
+    --mount=type=cache,dst=/var/lib/dpkg/updates \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build
+
+COPY ubuntu-himmelblau/system_files /
+
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache/apt \
+    --mount=type=cache,dst=/var/log \
+    --mount=type=cache,dst=/var/lib/apt \
+    --mount=type=cache,dst=/var/lib/dpkg/updates \
+    /ctx/chunk
+
+FROM quay.io/coreos/chunkah@sha256:fdff3175bfb41e111089392ef8a41b46a10766c7b2ec454ba1272a0c39ce3bf3 AS chunkah
+
+ARG SOURCE_DATE_EPOCH
+ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
+RUN --mount=from=builder,src=/,target=/chunkah,ro \
+    --mount=type=bind,target=/run/src,rw \
+    chunkah build \
+    --max-layers 64 \
+    > /run/src/out.ociarchive
+
+FROM oci-archive:out.ociarchive

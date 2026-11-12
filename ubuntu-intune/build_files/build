@@ -63,7 +63,6 @@ apt install -y \
   libsecret-tools \
   libpulse0 \
   sudo \
-  cracklib-runtime \
   upower \
   efitools
 
@@ -92,6 +91,13 @@ if [[ -f /etc/default/microsoft-edge ]]; then
   sed -i 's/^repo_reenable_on_distupgrade=true$/repo_reenable_on_distupgrade=false/' /etc/default/microsoft-edge
 fi
 
+# Local password setup must not enforce character-quality rules.
+if ! grep -q 'pam_unix.so obscure' /usr/share/pam-configs/unix; then
+  echo "Expected pam_unix password quality option was not found" >&2
+  exit 1
+fi
+sed -i 's/pam_unix.so obscure/pam_unix.so/' /usr/share/pam-configs/unix
+
 # Intune needs fixes to install properly
 # Download and extract the Intune package
 apt download intune-portal
@@ -105,34 +111,11 @@ dpkg-deb -b /tmp/intune-unpacked/ /tmp/intune-portal-fixed.deb
 # Install patched Intune
 apt-get install -y /tmp/intune-portal-fixed.deb
 
-# Restore custom pwquality PAM profile (package install overwrites the one from system_files)
-tee /usr/share/pam-configs/pwquality > /dev/null << 'PAMEOF'
-Name: Pwquality password strength checking
-Default: yes
-Priority: 1024
-Conflicts: cracklib
-Password-Type: Primary
-Password:
-	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
-Password-Initial:
-	requisite			pam_pwquality.so retry=3 dcredit=-1 ocredit=-1 ucredit=-1 lcredit=-1 minlen=12
-PAMEOF
+pam-auth-update --enable mkhomedir gnome-keyring intune unix --force
 
-# Update password requirements
-tee /etc/security/pwquality.conf > /dev/null << 'EOF'
-# Intune compliance password policy
-minlen = 12
-dcredit = -1
-ucredit = -1
-lcredit = -1
-ocredit = -1
-enforcing = 1
-retry = 3
-dictcheck = 1
-usercheck = 1
-EOF
-
-pam-auth-update --enable pwquality mkhomedir gnome-keyring intune unix --force
+useradd --system --no-create-home intuneme-password-policy-check
+printf '%s\n' 'intuneme-password-policy-check:x' | chpasswd
+userdel intuneme-password-policy-check
 
 # Enable automatic updates for more than security patches
 sed -i '/Unattended-Upgrade::Allowed-Origins\s*{/{

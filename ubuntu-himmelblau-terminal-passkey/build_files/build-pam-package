@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+source_ref_file="$repo_root/internal/version/himmelblau_terminal_passkey_source.txt"
+default_source_ref="$(tr -d '\r\n' < "$source_ref_file")"
+source_repo="${HIMMELBLAU_SOURCE_REPO:-https://github.com/mPyKen/himmelblau.git}"
+requested_ref="${HIMMELBLAU_SOURCE_REF:-$default_source_ref}"
+if [[ ! "$requested_ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+  echo "Invalid Himmelblau source ref: $requested_ref" >&2
+  exit 2
+fi
+if [[ ! "$default_source_ref" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Invalid default Himmelblau source pin in $source_ref_file" >&2
+  exit 2
+fi
+
+if command -v podman >/dev/null 2>&1; then
+  container_tool=podman
+elif command -v docker >/dev/null 2>&1; then
+  container_tool=docker
+else
+  echo "Building the fork PAM package requires podman or docker" >&2
+  exit 2
+fi
+
+run_options=()
+if [[ "$container_tool" == "podman" ]]; then
+  run_options+=(--security-opt label=disable)
+fi
+builder_image=""
+builder_ready=0
+owner="$(id -u):$(id -g)"
+work_dir="$(mktemp -d)"
+container_id=""
+cleanup() {
+  status=$?
+  trap - EXIT
+  if [[ -n "$container_id" ]]; then
+    if ! "$container_tool" rm --force --volumes "$container_id"; then
+      echo "Failed to remove temporary Himmelblau build container $container_id" >&2
+      status=1
+    fi
+  fi
+  if [[ "$builder_ready" == 1 && -d "${source_dir:-}" ]]; then
+    if ! "$container_tool" run --rm "${run_options[@]}" \
+      --volume "$source_dir:/himmelblau" \
+      "$builder_image" chown -R "$owner" /himmelblau; then
+      echo "Failed to restore ownership of temporary Himmelblau source checkout" >&2
+      status=1
+    fi
+  fi
+  if ! rm -rf -- "$work_dir"; then
+    echo "Failed to remove temporary Himmelblau build directory $work_dir" >&2
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+source_dir="$work_dir/himmelblau"
+local_source="${HIMMELBLAU_SOURCE_DIR:-}"
+if [[ -z "$local_source" && -z "${HIMMELBLAU_SOURCE_REPO:-}" && -z "${HIMMELBLAU_SOURCE_REF:-}" ]]; then
+  local_source="$HOME/himmelblau"
+fi
+if [[ -n "$local_source" ]] && git -C "$local_source" rev-parse --git-dir >/dev/null 2>&1; then
+  git clone --shared --no-checkout "$local_source" "$source_dir"
+else
+  if [[ ! "$source_repo" =~ ^https:// ]]; then
+    echo "HIMMELBLAU_SOURCE_REPO must be an HTTPS Git URL" >&2
+    exit 2
+  fi
+  git init "$source_dir"
+fi
+if git -C "$source_dir" cat-file -e "$requested_ref^{commit}" 2>/dev/null; then
+  git -C "$source_dir" checkout --detach "$requested_ref"
+else
+  git -C "$source_dir" fetch --depth 1 "$source_repo" "$requested_ref"
+  git -C "$source_dir" checkout --detach FETCH_HEAD
+fi
+source_ref="$(git -C "$source_dir" rev-parse HEAD)"
+git -C "$source_dir" submodule update --init --recursive
+if ! grep -q "should_render_terminal_qr" "$source_dir/src/pam/src/pam/mod.rs"; then
+  echo "Selected Himmelblau source does not contain terminal PAM QR support" >&2
+  exit 2
+fi
+make -C "$source_dir" dockerfiles
+python3 "$source_dir/src/common/scripts/gen_param_code.py" --gen-man --man-output "$source_dir/man/man5/himmelblau.conf.5"
+make -C "$source_dir" deb-servicefiles
+
+builder_image="intuneme-himmelblau-builder:${source_ref:0:12}"
+"$container_tool" build --pull -t "$builder_image" -f "$source_dir/images/Dockerfile.ubuntu26.04" "$source_dir"
+builder_ready=1
+mkdir -p "$source_dir/target"
+
+"$container_tool" create "${run_options[@]}" \
+  --volume "$source_dir:/himmelblau" \
+  --volume /himmelblau/target \
+  --env DEB_REVISION_APPEND=+intuneme1 \
+  "$builder_image" /bin/sh -c \
+  'cargo deb --features tpm --deb-revision="ubuntu26.04${DEB_REVISION_APPEND}" -p himmelblaud &&
+   daemon_package=$(find target/debian -maxdepth 1 -type f -name "himmelblau_*.deb" -print -quit) &&
+   test -n "$daemon_package" &&
+   test "$(dpkg-deb -f "$daemon_package" Package)" = himmelblau &&
+   cp "$daemon_package" /tmp/intuneme-himmelblau.deb &&
+   cargo deb --multiarch=same --deb-revision="ubuntu26.04${DEB_REVISION_APPEND}" -p pam_himmelblau &&
+   package_file=$(find target/debian -maxdepth 1 -type f -name "pam-himmelblau_*.deb" -print -quit) &&
+   test -n "$package_file" &&
+   test "$(dpkg-deb -f "$package_file" Package)" = pam-himmelblau &&
+   cp "$package_file" /tmp/intuneme-pam-himmelblau.deb' \
+  > "$work_dir/container-id"
+container_id="$(cat "$work_dir/container-id")"
+"$container_tool" start --attach "$container_id"
+"$container_tool" cp "$container_id:/tmp/intuneme-pam-himmelblau.deb" "$work_dir/pam-himmelblau.deb"
+"$container_tool" cp "$container_id:/tmp/intuneme-himmelblau.deb" "$work_dir/himmelblau.deb"
+"$container_tool" rm --force --volumes "$container_id"
+container_id=""
+
+output_dir="$repo_root/ubuntu-himmelblau-terminal-passkey/packages"
+mkdir -p "$output_dir"
+install -m 0644 "$work_dir/pam-himmelblau.deb" "$output_dir/pam-himmelblau.deb"
+install -m 0644 "$work_dir/himmelblau.deb" "$output_dir/himmelblau.deb"
+printf '%s\n' "$source_ref" > "$output_dir/source-ref"
+echo "Built himmelblau daemon and terminal-passkey pam-himmelblau from $source_repo@$source_ref"
