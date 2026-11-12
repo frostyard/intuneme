@@ -22,6 +22,14 @@ func (p initPuller) PullAndExtract(_ runner.Runner, _, path, _ string) error { r
 
 func skipRootOwned(string) error { return nil }
 
+// initRootfsTarget returns the data root and the rootfs path inside it, so a
+// test hands prepareInitRootfs the pair the production caller passes.
+func initRootfsTarget(t *testing.T) (root, path string) {
+	t.Helper()
+	root = t.TempDir()
+	return root, filepath.Join(root, "rootfs")
+}
+
 // verifiedDigestRef is the reference the fake signature check returns. The pull
 // must receive exactly this, never the tag.
 const verifiedDigestRef = "ghcr.io/frostyard/ubuntu-intune@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -56,7 +64,7 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 	usePassingSignatureCheck(t)
 	old := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(old) })
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	r := &startSecurityRunner{}
 	p := passwdPuller(t)
 	extract := p.extract
@@ -70,7 +78,7 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 		}
 		return extract(path)
 	}
-	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), r, p, root, "image", path, "", false, skipRootOwned); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(path)
@@ -92,10 +100,10 @@ func TestPrepareInitRootfsUmask(t *testing.T) {
 
 func TestPrepareInitRootfsFailedPullRetry(t *testing.T) {
 	usePassingSignatureCheck(t)
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned)
+	err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, root, "image", path, "", false, skipRootOwned)
 	if err != failure {
 		t.Fatalf("error = %v, want original failure", err)
 	}
@@ -105,7 +113,7 @@ func TestPrepareInitRootfsFailedPullRetry(t *testing.T) {
 	if len(r.commands) != 0 {
 		t.Fatalf("empty cleanup used sudo: %v", r.commands)
 	}
-	if err := prepareInitRootfs(context.Background(), r, passwdPuller(t), "image", path, "", false, skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), r, passwdPuller(t), root, "image", path, "", false, skipRootOwned); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 }
@@ -114,7 +122,7 @@ func TestPrepareInitRootfsPartialFailure(t *testing.T) {
 	usePassingSignatureCheck(t)
 	for _, existing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "new", true: "force"}[existing], func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "rootfs")
+			root, path := initRootfsTarget(t)
 			if existing {
 				if err := os.Mkdir(path, 0o755); err != nil {
 					t.Fatal(err)
@@ -134,7 +142,7 @@ func TestPrepareInitRootfsPartialFailure(t *testing.T) {
 				return failure
 			}}
 			r := &startSecurityRunner{}
-			if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
+			if err := prepareInitRootfs(context.Background(), r, p, root, "image", path, "", false, skipRootOwned); err != failure {
 				t.Fatalf("error = %v", err)
 			}
 			got := strings.Contains(strings.Join(r.commands, "\n"), "sudo rm -rf "+path)
@@ -152,7 +160,7 @@ func TestPrepareInitRootfsPartialFailure(t *testing.T) {
 
 func TestInitEmptyLeftover(t *testing.T) {
 	usePassingSignatureCheck(t)
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +168,7 @@ func TestInitEmptyLeftover(t *testing.T) {
 		t.Fatalf("empty leftover blocked init: %v", err)
 	}
 	failure := errors.New("pull failed")
-	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, initPuller{func(string) error { return failure }}, root, "image", path, "", false, skipRootOwned); err != failure {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -181,7 +189,7 @@ func TestPrepareInitRootfsPostExtractionFailure(t *testing.T) {
 	usePassingSignatureCheck(t)
 	for _, step := range []string{"verify", "reconcile"} {
 		t.Run(step, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "rootfs")
+			root, path := initRootfsTarget(t)
 			r := &startSecurityRunner{}
 			verify := skipRootOwned
 			failure := errors.New("verify failed")
@@ -192,7 +200,7 @@ func TestPrepareInitRootfsPostExtractionFailure(t *testing.T) {
 			}
 			// Extraction changes the mode so reconciliation also runs for a root test user.
 			p := initPuller{func(path string) error { return os.Chmod(path, 0o700) }}
-			err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, verify)
+			err := prepareInitRootfs(context.Background(), r, p, root, "image", path, "", false, verify)
 			if err == nil {
 				t.Fatal("failure reported as success")
 			}
@@ -222,7 +230,7 @@ func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
 	}
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, root, "image", path, "", false, skipRootOwned); err != failure {
 		t.Fatalf("error = %v", err)
 	}
 	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -238,7 +246,7 @@ func TestInitSymlinkRootfsIsNeverCleaned(t *testing.T) {
 
 func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
 	usePassingSignatureCheck(t)
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +267,7 @@ func TestPrepareInitRootfsOtherOwnerEmptyDirectory(t *testing.T) {
 		return failure
 	}}
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, p, root, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if extractionMode != 0o700 {
@@ -278,7 +286,7 @@ func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can read mode 0000 directories")
 	}
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +309,7 @@ func TestInitUnreadableRootfsAllowsForce(t *testing.T) {
 	}
 	failure := errors.New("pull failed")
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, "image", path, "", false, skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, initPuller{func(string) error { return failure }}, root, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if len(r.commands) != 0 {
@@ -314,7 +322,8 @@ func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can remove entries from mode 0500 directories")
 	}
-	parent := t.TempDir()
+	root := t.TempDir()
+	parent := root
 	path := filepath.Join(parent, "rootfs")
 	t.Cleanup(func() {
 		if err := os.Chmod(parent, 0o700); err != nil {
@@ -329,7 +338,7 @@ func TestPrepareInitRootfsCleanupPermissionFailure(t *testing.T) {
 		return failure
 	}}
 	r := &startSecurityRunner{}
-	if err := prepareInitRootfs(context.Background(), r, p, "image", path, "", false, skipRootOwned); err != failure {
+	if err := prepareInitRootfs(context.Background(), r, p, root, "image", path, "", false, skipRootOwned); err != failure {
 		t.Errorf("error = %v, want original failure", err)
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -356,13 +365,13 @@ func TestPrepareInitRootfsBadSignatureWritesNothing(t *testing.T) {
 	for _, wantErr := range []error{imagesig.ErrInvalidSignature, imagesig.ErrUnsigned} {
 		t.Run(wantErr.Error(), func(t *testing.T) {
 			useSignatureCheck(t, func(context.Context, string) (string, error) { return "", wantErr })
-			path := filepath.Join(t.TempDir(), "rootfs")
+			root, path := initRootfsTarget(t)
 			pulled := false
 			p := initPuller{func(string) error {
 				pulled = true
 				return nil
 			}}
-			err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, "ghcr.io/frostyard/ubuntu-intune:v1.2.3", path, "", false, skipRootOwned)
+			err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, root, "ghcr.io/frostyard/ubuntu-intune:v1.2.3", path, "", false, skipRootOwned)
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("error = %v, want %v", err, wantErr)
 			}
@@ -386,9 +395,9 @@ func TestPrepareInitRootfsPullsVerifiedDigest(t *testing.T) {
 		}
 		return verifiedDigestRef, nil
 	})
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	p := &digestPuller{}
-	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, image, path, "", false, skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, root, image, path, "", false, skipRootOwned); err != nil {
 		t.Fatal(err)
 	}
 	if p.ref != verifiedDigestRef {
@@ -406,9 +415,9 @@ func TestPrepareInitRootfsSkipChecksNothing(t *testing.T) {
 		return verifiedDigestRef, nil
 	})
 	const image = "ghcr.io/frostyard/ubuntu-intune:v1.2.3"
-	path := filepath.Join(t.TempDir(), "rootfs")
+	root, path := initRootfsTarget(t)
 	p := &digestPuller{}
-	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, image, path, "", true, skipRootOwned); err != nil {
+	if err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, root, image, path, "", true, skipRootOwned); err != nil {
 		t.Fatal(err)
 	}
 	if checked {

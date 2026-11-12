@@ -15,7 +15,7 @@ The location can be overridden with the `--root` flag on any command. If you use
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `machine_name` | string | `intuneme` | The systemd-nspawn machine name. Used by `machinectl` and `systemd-machined` to identify the container. |
-| `rootfs_path` | string | `~/.local/share/intuneme/rootfs` | Absolute path to the container root filesystem directory. |
+| `rootfs_path` | string | `~/.local/share/intuneme/rootfs` | Absolute path to the container root filesystem directory. intuneme refuses a value that is not absolute and clean, that is `/` or a top-level directory, or that is or contains the home directory or the data root, also after symlinks in the parent path are resolved. Every command then stops with an error that names the key. See [Error handling](#error-handling). |
 | `host_uid` | int | current user UID | UID of the host user. Used to create the matching container user and set up bind mounts for `/run/user/<uid>`. Set automatically by `intuneme init`. |
 | `host_user` | string | `$USER` | Username of the host user. Set automatically by `intuneme init`. |
 | `broker_proxy` | bool | `false` | Enable the host-side D-Bus broker proxy. When `true`, `intuneme start` sets up the identity broker forwarding so host applications (Edge, VS Code) can use the container's Intune enrollment for SSO. See [Broker Proxy](../user-guide/broker-proxy.md). |
@@ -93,3 +93,14 @@ The override takes effect at each `intuneme start` that cold-boots the container
 If `config.toml` contains invalid TOML syntax, intuneme will report a parse error and refuse to continue. This prevents silent fallback to default values, which could lead to unexpected behavior (e.g., operating on the wrong rootfs path).
 
 If the home directory cannot be determined (e.g., `$HOME` is unset), intuneme reports an error rather than constructing a relative path. This prevents dangerous operations like `sudo rm -rf` on a relative path.
+
+`rootfs_path` gets the same protection. `destroy`, `recreate` and the cleanup of a failed `init` delete the rootfs directory with `sudo rm -rf`, so a wrong value would delete the wrong directory as root. intuneme refuses a `rootfs_path` that:
+
+- is empty or not absolute,
+- is not clean: it holds `.` or `..` elements, or doubled or trailing slashes,
+- is `/` or a top-level directory such as `/home`, `/usr` or `/var`,
+- is, or contains, the home directory or the data root (`~/.local/share/intuneme`).
+
+A symlink in the parent path of `rootfs_path` is resolved first, and the same rules apply to the resolved directory, because `rm -rf` deletes the last element inside the resolved parent. A `rootfs_path` that is itself a symlink is allowed: `rm -rf` removes only the link. A parent path that does not exist skips those resolved checks.
+
+Every command applies these rules when it reads `config.toml`, so it stops with an error that names `rootfs_path` before it changes anything. Every delete then checks the path again right before `sudo rm -rf`.
