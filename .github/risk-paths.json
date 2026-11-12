@@ -98,6 +98,31 @@
       "why": "auth: the container image, with its sudoers, polkit and PAM files"
     },
     {
+      "glob": "ubuntu-himmelblau/**",
+      "level": "L1",
+      "why": "auth: the experimental image installs Himmelblau services and PAM policy"
+    },
+    {
+      "glob": "ubuntu-himmelblau-terminal-passkey/**",
+      "level": "L1",
+      "why": "auth: builds and installs the pinned authentication daemon and PAM module"
+    },
+    {
+      "glob": "internal/bluezproxy/**",
+      "level": "L1",
+      "why": "auth: filters host system-bus access for container passkey authentication"
+    },
+    {
+      "glob": "cmd/enroll.go",
+      "level": "L1",
+      "why": "auth: reconciles privileged helpers and configures mapped PAM enrollment"
+    },
+    {
+      "glob": "cmd/himmelblau_config.go",
+      "level": "L1",
+      "why": "auth: writes the container authentication configuration with sudo"
+    },
+    {
       "glob": "scripts/fix-selinux.sh",
       "level": "L1",
       "why": "auth: changes the host SELinux policy as root"
