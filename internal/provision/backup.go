@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -47,6 +48,386 @@ func RestoreDeviceBrokerState(r runner.Runner, rootfs, backupDir string) error {
 		return fmt.Errorf("restore device broker state: %w", err)
 	}
 	return nil
+}
+
+type himmelblauStatePath struct {
+	source  string
+	restore string
+}
+
+var himmelblauStatePaths = []himmelblauStatePath{
+	{source: "var/lib/himmelblaud", restore: "var/lib/private/himmelblaud"},
+	{source: "var/cache/himmelblaud", restore: "var/cache/private/himmelblaud"},
+	{source: "var/cache/himmelblau-policies", restore: "var/cache/himmelblau-policies"},
+	{source: "var/cache/nss-himmelblau", restore: "var/cache/nss-himmelblau"},
+}
+
+const systemdCredentialKeyPath = "var/lib/systemd/credential.secret"
+const machineIDPath = "etc/machine-id"
+const himmelblauEncryptedPINPath = "var/lib/himmelblaud/hsm-pin-nopcr.enc"
+const privateHimmelblauEncryptedPINPath = "var/lib/private/himmelblaud/hsm-pin-nopcr.enc"
+
+// BackupHimmelblauState copies the daemon, policy, and NSS caches that contain
+// Himmelblau device state. StateDirectory/CacheDirectory paths owned by
+// DynamicUser services are copied from their public paths and restored under
+// /var/lib/private or /var/cache/private with their public symlinks.
+// It also preserves systemd's local credential key and machine ID, required to
+// decrypt Himmelblau's encrypted HSM PIN after recreate. Returns "" when no
+// state has been created yet.
+func BackupHimmelblauState(r runner.Runner, rootfs string) (backupDir string, retErr error) {
+	if err := verifyHimmelblauStateLayout(r, rootfs); err != nil {
+		return "", err
+	}
+	if err := verifyHimmelblauCredentialKey(r, rootfs); err != nil {
+		return "", err
+	}
+	tmpDir, err := os.MkdirTemp("", "intuneme-himmelblau-backup-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+
+	keepBackup := false
+	defer func() {
+		if keepBackup {
+			return
+		}
+		if err := RemoveHimmelblauStateBackup(r, tmpDir); err != nil {
+			if retErr == nil {
+				retErr = err
+			} else {
+				retErr = fmt.Errorf("%w; %v", retErr, err)
+			}
+		}
+	}()
+
+	backedUp := false
+	for _, statePath := range himmelblauStatePaths {
+		sourcePath := statePath.source
+		src := filepath.Join(rootfs, sourcePath)
+		info, err := os.Stat(src)
+		if errors.Is(err, fs.ErrNotExist) && statePath.restore != statePath.source {
+			sourcePath = statePath.restore
+			src = filepath.Join(rootfs, sourcePath)
+			info, err = os.Stat(src)
+		}
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case errors.Is(err, fs.ErrPermission):
+			if _, err := r.Run("sudo", "test", "-d", src); err != nil {
+				return "", fmt.Errorf("check Himmelblau state %s: %w", sourcePath, err)
+			}
+		case err != nil:
+			return "", fmt.Errorf("stat Himmelblau state %s: %w", sourcePath, err)
+		case !info.IsDir():
+			return "", fmt.Errorf("himmelblau state path %s is not a directory", sourcePath)
+		}
+
+		dest := filepath.Join(tmpDir, statePath.source)
+		if err := os.MkdirAll(dest, 0700); err != nil {
+			return "", fmt.Errorf("create backup path %s: %w", statePath.source, err)
+		}
+		out, err := r.Run("sudo", "cp", "-a", src+string(filepath.Separator)+".", dest+string(filepath.Separator))
+		if err != nil {
+			return "", fmt.Errorf("backup Himmelblau state %s: %w\n%s", statePath.source, err, out)
+		}
+		backedUp = true
+	}
+
+	credentialKey := filepath.Join(rootfs, systemdCredentialKeyPath)
+	keyInfo, keyErr := os.Stat(credentialKey)
+	if keyErr != nil && !errors.Is(keyErr, fs.ErrNotExist) {
+		return "", fmt.Errorf("stat systemd credential key: %w", keyErr)
+	}
+	if keyErr == nil {
+		if !keyInfo.Mode().IsRegular() {
+			return "", fmt.Errorf("systemd credential key path %s is not a regular file", systemdCredentialKeyPath)
+		}
+		for _, relPath := range []string{systemdCredentialKeyPath, machineIDPath} {
+			dest := filepath.Join(tmpDir, relPath)
+			if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+				return "", fmt.Errorf("create credential identity backup path: %w", err)
+			}
+			if err := copyHimmelblauIdentityFile(r, filepath.Join(rootfs, relPath), dest, "backup"); err != nil {
+				return "", err
+			}
+		}
+		backedUp = true
+	}
+
+	if err := verifyHimmelblauBackupCredentialKey(tmpDir); err != nil {
+		return "", err
+	}
+
+	if !backedUp {
+		return "", nil
+	}
+	keepBackup = true
+	return tmpDir, nil
+}
+
+func verifyHimmelblauStateLayout(r runner.Runner, rootfs string) error {
+	for _, path := range himmelblauStatePaths {
+		if path.source == path.restore {
+			continue
+		}
+		public := filepath.Join(rootfs, path.source)
+		info, err := os.Lstat(public)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect Himmelblau public state path: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(public)
+			if err != nil {
+				return fmt.Errorf("read Himmelblau public state link: %w", err)
+			}
+			if target != "private/himmelblaud" {
+				return fmt.Errorf("unexpected Himmelblau state link at %s", path.source)
+			}
+			continue
+		}
+		privateExists, err := pathExistsWithPrivilege(r, filepath.Join(rootfs, path.restore))
+		if err != nil {
+			return fmt.Errorf("inspect Himmelblau private state path: %w", err)
+		}
+		if privateExists {
+			return fmt.Errorf("conflicting public and private Himmelblau state at %s and %s; preserve both before repairing the layout or re-enrolling", path.source, path.restore)
+		}
+	}
+	return nil
+}
+
+// RemoveHimmelblauStateBackup removes a staged backup produced by
+// BackupHimmelblauState, retrying with sudo when copied state is protected.
+func RemoveHimmelblauStateBackup(r runner.Runner, backupDir string) error {
+	if backupDir == "" {
+		return nil
+	}
+	cleanPath := filepath.Clean(backupDir)
+	if filepath.Dir(cleanPath) != filepath.Clean(os.TempDir()) ||
+		!strings.HasPrefix(filepath.Base(cleanPath), "intuneme-himmelblau-backup-") {
+		return fmt.Errorf("refusing to remove unexpected Himmelblau backup path %q", backupDir)
+	}
+	if err := os.RemoveAll(cleanPath); err == nil {
+		return nil
+	}
+	out, err := r.Run("sudo", "rm", "-rf", "--", cleanPath)
+	if err != nil {
+		return fmt.Errorf("remove Himmelblau backup %s: %w\n%s", cleanPath, err, out)
+	}
+	if _, err := os.Lstat(cleanPath); err == nil {
+		return fmt.Errorf("himmelblau backup still exists after privileged removal: %s", cleanPath)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("verify Himmelblau backup removal: %w", err)
+	}
+	return nil
+}
+
+func verifyHimmelblauCredentialKey(r runner.Runner, rootfs string) error {
+	hsmPinFound := false
+	for _, relPath := range []string{himmelblauEncryptedPINPath, privateHimmelblauEncryptedPINPath} {
+		found, err := pathExistsWithPrivilege(r, filepath.Join(rootfs, relPath))
+		if err != nil {
+			return fmt.Errorf("inspect Himmelblau HSM PIN credential: %w", err)
+		}
+		if found {
+			hsmPinFound = true
+			break
+		}
+	}
+	keyPath := filepath.Join(rootfs, systemdCredentialKeyPath)
+	keyInfo, err := os.Stat(keyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		if !hsmPinFound {
+			return nil
+		}
+		return fmt.Errorf("himmelblau's encrypted HSM PIN exists but %s is missing; recreate cannot decrypt it safely. Restore the key from a backup or reinitialize an unenrolled container", filepath.Join("/", systemdCredentialKeyPath))
+	}
+	if err != nil {
+		return fmt.Errorf("inspect systemd credential key: %w", err)
+	}
+	if !keyInfo.Mode().IsRegular() {
+		return fmt.Errorf("systemd credential key %s is not a regular file", filepath.Join("/", systemdCredentialKeyPath))
+	}
+	return verifyHimmelblauMachineID(rootfs)
+}
+
+func verifyHimmelblauMachineID(root string) error {
+	path := filepath.Join(root, machineIDPath)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect machine ID required by systemd credential key: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("machine ID required by systemd credential key is not a regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read machine ID required by systemd credential key: %w", err)
+	}
+	id := strings.TrimSpace(string(data))
+	if _, err := hex.DecodeString(id); err != nil || len(id) != 32 || id == strings.Repeat("0", 32) {
+		return fmt.Errorf("invalid machine ID required by systemd credential key; restore the original /etc/machine-id before recreating")
+	}
+	return nil
+}
+
+func copyHimmelblauIdentityFile(r runner.Runner, src, dest, operation string) error {
+	label := "machine ID"
+	if filepath.Base(src) == "credential.secret" {
+		label = "systemd credential key"
+	}
+	if info, err := os.Lstat(dest); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s %s destination is not a regular file", operation, label)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("inspect %s %s destination: %w", operation, label, err)
+	}
+	out, err := r.Run("sudo", "cp", "-a", src, dest)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w\n%s", operation, label, err, out)
+	}
+	info, err := os.Lstat(dest)
+	if err != nil {
+		return fmt.Errorf("verify %s %s: %w", operation, label, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s %s is not a regular file", operation, label)
+	}
+	out, err = r.Run("sudo", "cmp", "-s", src, dest)
+	if err != nil {
+		return fmt.Errorf("verify %s %s contents: %w\n%s", operation, label, err, out)
+	}
+	return nil
+}
+
+func pathExistsWithPrivilege(r runner.Runner, path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if !errors.Is(err, fs.ErrPermission) {
+		return false, err
+	}
+
+	const checkPath = `if [ -e "$1" ] || [ -L "$1" ]; then printf 'present\n'; elif [ -d "${1%/*}" ]; then printf 'missing\n'; else exit 1; fi`
+	out, err := r.Run("sudo", "sh", "-c", checkPath, "intuneme-path-check", path)
+	if err != nil {
+		return false, fmt.Errorf("privileged path check: %w\n%s", err, out)
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "present":
+		return true, nil
+	case "missing":
+		return false, nil
+	default:
+		return false, fmt.Errorf("privileged path check returned unexpected output %q", strings.TrimSpace(string(out)))
+	}
+}
+
+// RestoreHimmelblauState restores the state copied by BackupHimmelblauState.
+func RestoreHimmelblauState(r runner.Runner, rootfs, backupDir string) error {
+	if err := verifyHimmelblauBackupCredentialKey(backupDir); err != nil {
+		return err
+	}
+
+	// The root HSM initializer runs before DynamicUser can create these links.
+	for _, path := range himmelblauStatePaths {
+		if path.source == path.restore {
+			continue
+		}
+		public := filepath.Join(rootfs, path.source)
+		target, err := os.Readlink(public)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil || target != "private/himmelblaud" {
+			return fmt.Errorf("refusing to overwrite conflicting Himmelblau public state path %s", path.source)
+		}
+	}
+	for _, statePath := range himmelblauStatePaths {
+		src := filepath.Join(backupDir, statePath.source)
+		if _, err := os.Stat(src); errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("stat Himmelblau backup %s: %w", statePath.source, err)
+		}
+
+		dest := filepath.Join(rootfs, statePath.restore)
+		if statePath.source != statePath.restore {
+			out, err := r.Run("sudo", "install", "-d", "-m", "0700", filepath.Dir(dest))
+			if err != nil {
+				return fmt.Errorf("protect Himmelblau private state parent: %w\n%s", err, out)
+			}
+		}
+		out, err := r.Run("sudo", "mkdir", "-p", dest)
+		if err != nil {
+			return fmt.Errorf("create Himmelblau state path %s: %w\n%s", statePath.restore, err, out)
+		}
+		out, err = r.Run("sudo", "cp", "-a", src+string(filepath.Separator)+".", dest+string(filepath.Separator))
+		if err != nil {
+			return fmt.Errorf("restore Himmelblau state %s: %w\n%s", statePath.restore, err, out)
+		}
+		if statePath.source != statePath.restore {
+			public := filepath.Join(rootfs, statePath.source)
+			if _, err := os.Lstat(public); errors.Is(err, fs.ErrNotExist) {
+				out, err := r.Run("sudo", "ln", "-s", "private/himmelblaud", public)
+				if err != nil {
+					return fmt.Errorf("restore Himmelblau public state link: %w\n%s", err, out)
+				}
+			} else if err != nil {
+				return fmt.Errorf("inspect restored Himmelblau public state link: %w", err)
+			}
+		}
+	}
+	credentialKey := filepath.Join(backupDir, systemdCredentialKeyPath)
+	if _, err := os.Stat(credentialKey); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("stat systemd credential key backup: %w", err)
+	}
+	for _, relPath := range []string{systemdCredentialKeyPath, machineIDPath} {
+		dest := filepath.Join(rootfs, relPath)
+		out, err := r.Run("sudo", "mkdir", "-p", filepath.Dir(dest))
+		if err != nil {
+			return fmt.Errorf("create credential identity directory: %w\n%s", err, out)
+		}
+		if err := copyHimmelblauIdentityFile(r, filepath.Join(backupDir, relPath), dest, "restored"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyHimmelblauBackupCredentialKey(backupDir string) error {
+	pinPath := filepath.Join(backupDir, himmelblauEncryptedPINPath)
+	_, pinErr := os.Stat(pinPath)
+	if pinErr != nil && !errors.Is(pinErr, fs.ErrNotExist) {
+		return fmt.Errorf("inspect Himmelblau backup HSM PIN credential: %w", pinErr)
+	}
+
+	keyPath := filepath.Join(backupDir, systemdCredentialKeyPath)
+	keyInfo, err := os.Lstat(keyPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(pinErr, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("himmelblau backup contains an encrypted HSM PIN but is missing %s; the PIN cannot be restored safely", filepath.Join("/", systemdCredentialKeyPath))
+	}
+	if err != nil {
+		return fmt.Errorf("inspect systemd credential key backup: %w", err)
+	}
+	if !keyInfo.Mode().IsRegular() {
+		return fmt.Errorf("systemd credential key backup %s is not a regular file", filepath.Join("/", systemdCredentialKeyPath))
+	}
+	return verifyHimmelblauMachineID(backupDir)
 }
 
 // BackupShadowEntry reads the shadow file from the rootfs and returns the

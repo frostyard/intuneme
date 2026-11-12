@@ -32,6 +32,9 @@ func runOpen(r runner.Runner, root, command string, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateOpenAppForImage(cfg, command); err != nil {
+		return err
+	}
 
 	if _, err := os.Stat(cfg.RootfsPath); err != nil {
 		return fmt.Errorf("not initialized — run 'intuneme init' first")
@@ -222,6 +225,20 @@ Examples:
 
 	cmd.Flags().BoolVar(&list, "list", false, "list the installed Edge web apps")
 	return cmd
+}
+
+func validateOpenAppForImage(cfg *config.Config, command string) error {
+	if !cfg.Himmelblau {
+		return nil
+	}
+	switch command {
+	case "intune-portal":
+		return fmt.Errorf("intune portal is not included in Himmelblau mode; use 'intuneme enroll --user <UPN>' to start Himmelblau enrollment")
+	case "microsoft-edge":
+		return fmt.Errorf("microsoft edge is not included in the Himmelblau image")
+	default:
+		return nil
+	}
 }
 
 func init() {

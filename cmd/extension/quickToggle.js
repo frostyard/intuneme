@@ -70,6 +70,8 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
                 return;
             if (!this._manager.container_running || this._manager.transitioning)
                 return;
+            if (this._manager.identity === 'himmelblau-experimental')
+                return;
             this._refreshApps();
         });
 
@@ -84,6 +86,9 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         );
         this._managerSignals.push(
             this._manager.connect('notify::error', () => this._sync()),
+        );
+        this._managerSignals.push(
+            this._manager.connect('notify::identity', () => this._sync()),
         );
 
         // Handle toggle clicks
@@ -105,6 +110,10 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         const running = this._manager.container_running;
         const transitioning = this._manager.transitioning;
         const error = this._manager.error;
+        const himmelblau = this._manager.identity === 'himmelblau-experimental';
+
+        this.title = himmelblau ? 'Himmelblau' : 'Intune';
+        this.menu.setHeader('computer-symbolic', himmelblau ? 'Himmelblau Container' : 'Intune Container');
 
         // Toggle state
         this.checked = running;
@@ -126,16 +135,20 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
                     : (running ? 'Running' : 'Stopped')
         }`;
 
-        this._brokerStatusItem.label.text = `Broker Proxy: ${
+        this._brokerStatusItem.label.text = `${himmelblau ? 'Himmelblau ' : ''}Broker Proxy: ${
             this._manager.broker_running ? 'Running' : 'Stopped'
         }`;
 
-        // Shell/Edge/Portal/Apps items only available when running and not transitioning
+        this._portalItem.label.text = himmelblau ? 'Himmelblau Sign-in' : 'Open Intune Portal';
+
+        // Shell/Edge/enrollment/Apps items only available when running and not transitioning
         this._shellItem.sensitive = running && !transitioning;
         this._edgeItem.sensitive = running && !transitioning;
+        this._edgeItem.actor.visible = !himmelblau;
         this._portalItem.sensitive = running && !transitioning;
-        this._appsItem.sensitive = running && !transitioning;
-        if (!running)
+        this._appsItem.sensitive = running && !transitioning && !himmelblau;
+        this._appsItem.actor.visible = !himmelblau;
+        if (!running || himmelblau)
             this._appsItem.menu.close();
     }
 
