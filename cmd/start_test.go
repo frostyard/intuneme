@@ -77,6 +77,64 @@ func TestStartMigratesRunningContainer(t *testing.T) {
 	}
 }
 
+func TestStartRunningHimmelblauRefreshesBrokerEnvironment(t *testing.T) {
+	mockLaunchInstall(t)
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	if err := os.Mkdir(rootfs, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		MachineName: "intuneme", RootfsPath: rootfs, HostUID: os.Getuid(), HostUser: "alice",
+		Himmelblau: true, HimmelblauDomain: "example.com", HimmelblauUPN: "alice@example.com",
+	}
+	if err := cfg.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	r := &startSecurityRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(r.commands, "\n")
+	setup := strings.Index(all, "sudo "+nspawn.NsenterHelperPath+" exec ")
+	linger := strings.Index(all, "enable-linger")
+	if setup < 0 || setup < linger {
+		t.Fatalf("already-running Himmelblau start did not initialize its session after linger:\n%s", all)
+	}
+	if !strings.Contains(all, "/usr/local/bin/intuneme-session-setup >&2") ||
+		!strings.Contains(all, "exec /usr/bin/systemctl --user try-restart himmelblau-broker.service") {
+		t.Fatalf("missing activation environment refresh and active broker restart:\n%s", all)
+	}
+	if strings.Contains(all, "sudo systemd-nspawn") {
+		t.Fatalf("session repair rebooted the running container:\n%s", all)
+	}
+}
+
+func TestStartRunningHimmelblauSessionFailureIsFatal(t *testing.T) {
+	mockLaunchInstall(t)
+	journal := problemrectest.Use(t, recordVersion)
+	root := identityRoot(t, "himmelblau = true\nhimmelblau_domain = \"example.com\"\nhimmelblau_upn = \"alice@example.com\"\n")
+	r := &startSecurityRunner{fail: nspawn.NsenterHelperPath}
+	if err := runStart(r, root); err == nil || !strings.Contains(err.Error(), "initialize Himmelblau session environment") {
+		t.Fatalf("session refresh failure = %v, want explicit startup error", err)
+	}
+	journal.ExpectNone(50 * time.Millisecond)
+}
+
+func TestStartRunningHimmelblauDryRunDoesNotRefreshSession(t *testing.T) {
+	old := clix.DryRun
+	clix.DryRun = true
+	t.Cleanup(func() { clix.DryRun = old })
+	root := startRoot(t, "himmelblau = true\nhimmelblau_domain = \"example.com\"\nhimmelblau_upn = \"alice@example.com\"\n")
+	r := &startSecurityRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(r.commands, "\n"), "sudo ") {
+		t.Fatalf("dry run refreshed the session or security artifacts: %v", r.commands)
+	}
+}
+
 func TestStartLingerFailureIsFatal(t *testing.T) {
 	shortLingerRetries(t)
 	mockLaunchInstall(t)
@@ -242,7 +300,8 @@ func TestHimmelblauStartBindsBlueZOnlyForTerminalPasskeys(t *testing.T) {
 				t.Fatalf("Himmelblau boot preceded security reconciliation: %s", all)
 			}
 			if !strings.Contains(all, "sudo systemd-run --machine=intuneme --wait --pipe") ||
-				!strings.Contains(all, "sudo "+nspawn.NsenterHelperPath+" exec ") {
+				!strings.Contains(all, "sudo "+nspawn.NsenterHelperPath+" exec ") ||
+				!strings.Contains(all, "exec /usr/bin/systemctl --user try-restart himmelblau-broker.service") {
 				t.Fatalf("Himmelblau startup did not initialize linger and its session: %s", all)
 			}
 		})

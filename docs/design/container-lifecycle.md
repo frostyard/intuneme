@@ -188,7 +188,7 @@ Boots the container and sets up runtime environment.
 
     After the security refresh, call `puller.ReconcileRootfs()` before checking whether the machine is running. This repairs the rootfs directory owner to `0:0` and mode to `0755` for older containers, including already-running containers. A reconciliation failure is fatal and produces no problem record, because user setup or sudo authentication can cause it. Dry run does not reconcile.
 
-    Then, if the machine is already running, enable linger (not in dry run) and return; a set `product_name` prints a next-boot message.
+    Then, if the machine is already running, enable linger and initialize an enrolled Himmelblau session (not in dry run) before returning; a set `product_name` prints a next-boot message.
 3. **Detect host sockets** — Auto-detect Wayland, PipeWire, PulseAudio, X11 auth (`nspawn.DetectHostSockets()`)
 4. **Prepare runtime bind mount** (if the broker, notify or screencast proxy is enabled) — Create runtime directory, add bind mount
 5. **Detect Nvidia GPU** — If `/dev/nvidiactl` exists, detect device nodes, parse `ldconfig -p` for host libraries, prepare bind mounts for lib dirs and ICD files
@@ -214,9 +214,22 @@ the terminal-passkey image marker, prepare its private BlueZ directory bind,
 add a read-only host udev database bind when available, and install the
 effective config, user map and PAM allowlist. Upstream security reconciliation
 still runs before the already-running return and before boot. After linger,
-an enrolled Himmelblau user gets session setup through the scoped exec
-helper. Proxy-enabled Himmelblau starts use linger's bus directly rather than
-opening an unattended PAM login shell.
+`initializeHimmelblauSession` initializes an enrolled user's session through
+`nspawn.ExecForeground` on both cold and already-running starts. The shared
+prologue imports the display into systemd and D-Bus activation, then
+`systemctl --user try-restart himmelblau-broker.service` refreshes an active
+broker's process environment without starting an inactive one. The
+foreground call waits for completion and returns failures instead of hiding
+them behind a background command. The daemon and its protected credentials
+are not restarted or unlocked. Proxy-enabled Himmelblau starts use linger's
+bus directly rather than opening an unattended PAM login shell.
+
+The shared launch prologue waits for a successful D-Bus `GetId` reply before
+session setup. Testing only socket existence is insufficient: a host-bound
+runtime directory retains the old socket after container shutdown, but early
+connections receive `Connection refused`. `timeout` bounds the complete
+probe loop to 30 seconds, including an unresponsive listener. The probe
+discards its output so foreground MCP stdout remains protocol-only.
 
 ## `intuneme stop`
 
