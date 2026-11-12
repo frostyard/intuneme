@@ -11,10 +11,17 @@ import (
 type mockRunner struct {
 	available map[string]bool
 	commands  []string
+	errors    map[string]error
 }
 
 func (m *mockRunner) Run(name string, args ...string) ([]byte, error) {
-	m.commands = append(m.commands, name+" "+strings.Join(args, " "))
+	cmd := name + " " + strings.Join(args, " ")
+	m.commands = append(m.commands, cmd)
+	for prefix, err := range m.errors {
+		if strings.HasPrefix(cmd, prefix) {
+			return nil, err
+		}
+	}
 	return nil, nil
 }
 
@@ -84,6 +91,39 @@ func TestDetectFallsBackToDocker(t *testing.T) {
 	}
 	if p.Name() != "docker" {
 		t.Errorf("expected docker, got %s", p.Name())
+	}
+}
+
+func TestDetectForImagePrefersLocalDockerTag(t *testing.T) {
+	r := &mockRunner{
+		available: map[string]bool{"podman": true, "docker": true},
+		errors:    map[string]error{"podman image exists": fmt.Errorf("not found")},
+	}
+	p, err := DetectForImage(r, "localhost/ubuntu-himmelblau:dev")
+	if err != nil {
+		t.Fatalf("DetectForImage() error: %v", err)
+	}
+	if p.Name() != "docker" {
+		t.Fatalf("DetectForImage() chose %q, want docker", p.Name())
+	}
+	if len(r.commands) != 2 ||
+		r.commands[0] != "podman image exists localhost/ubuntu-himmelblau:dev" ||
+		r.commands[1] != "docker image inspect localhost/ubuntu-himmelblau:dev" {
+		t.Fatalf("unexpected local image probes: %v", r.commands)
+	}
+}
+
+func TestDetectForImageReportsMissingLocalTag(t *testing.T) {
+	r := &mockRunner{
+		available: map[string]bool{"podman": true, "docker": true},
+		errors: map[string]error{
+			"podman image exists":  fmt.Errorf("not found"),
+			"docker image inspect": fmt.Errorf("not found"),
+		},
+	}
+	if _, err := DetectForImage(r, "localhost/ubuntu-himmelblau:dev"); err == nil ||
+		!strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("DetectForImage() error = %v, want missing local image error", err)
 	}
 }
 
@@ -185,6 +225,22 @@ func TestDockerPullAndExtract(t *testing.T) {
 	}
 	if !strings.Contains(r.commands[5], "docker rm") {
 		t.Errorf("cmd[5]: expected docker rm, got: %s", r.commands[5])
+	}
+}
+
+func TestDockerLocalImageDoesNotPullRegistry(t *testing.T) {
+	r := &mockRunner{available: map[string]bool{"docker": true}}
+	p := NewDockerPuller()
+	if err := p.PullAndExtract(r, "localhost/ubuntu-himmelblau:dev", t.TempDir(), ""); err != nil {
+		t.Fatalf("PullAndExtract() error: %v", err)
+	}
+	for _, command := range r.commands {
+		if strings.Contains(command, "docker pull") {
+			t.Fatalf("local image should not be pulled from a registry: %s", command)
+		}
+	}
+	if !strings.Contains(strings.Join(r.commands, "\n"), "docker image inspect localhost/ubuntu-himmelblau:dev") {
+		t.Fatalf("local image existence was not checked: %v", r.commands)
 	}
 }
 

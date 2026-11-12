@@ -15,7 +15,7 @@ import (
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show container and intune-portal status",
+	Short: "Show container and identity enrollment status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		r := &runner.SystemRunner{}
 		root, err := resolveRoot()
@@ -64,17 +64,28 @@ var statusCmd = &cobra.Command{
 			channel = "insiders"
 		}
 
-		if printed, err := clix.OutputJSON(map[string]any{
+		identity := "microsoft"
+		if cfg.Himmelblau {
+			identity = "himmelblau-experimental"
+			channel = "community-nightly"
+		}
+
+		status := map[string]any{
 			"initialized":      true,
 			"root":             root,
 			"rootfs":           cfg.RootfsPath,
 			"machine":          cfg.MachineName,
 			"container":        containerStatus,
 			"channel":          channel,
+			"identity":         identity,
 			"broker_proxy":     brokerStatus,
 			"notify_proxy":     notifyStatus,
 			"screencast_proxy": screencastStatus,
-		}); printed || err != nil {
+		}
+		if cfg.Himmelblau {
+			status["himmelblau_enrolled"] = cfg.HimmelblauUPN != ""
+		}
+		if printed, err := clix.OutputJSON(status); printed || err != nil {
 			return err
 		}
 
@@ -83,6 +94,14 @@ var statusCmd = &cobra.Command{
 		rep.MessagePlain("Machine: %s", cfg.MachineName)
 		rep.MessagePlain("Container: %s", containerStatus)
 		rep.MessagePlain("Channel: %s", channel)
+		rep.MessagePlain("Identity: %s", identity)
+		if cfg.Himmelblau {
+			enrollment := "not enrolled"
+			if cfg.HimmelblauUPN != "" {
+				enrollment = "enrolled"
+			}
+			rep.MessagePlain("Himmelblau: %s", enrollment)
+		}
 
 		if cfg.BrokerProxy {
 			rep.MessagePlain("Broker proxy: %s", brokerStatus)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/bluezproxy"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/problemrec/problemrectest"
@@ -188,6 +189,64 @@ func (r *coldBootRunner) RunAttached(name string, args ...string) error {
 func (r *coldBootRunner) RunBackground(name string, args ...string) error {
 	_, err := r.Run(name, args...)
 	return err
+}
+
+func TestHimmelblauStartBindsBlueZOnlyForTerminalPasskeys(t *testing.T) {
+	mockLaunchInstall(t)
+	for _, terminal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("terminal=%t", terminal), func(t *testing.T) {
+			root, err := os.MkdirTemp("", "imb")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(root) })
+			rootfs := filepath.Join(root, "rootfs")
+			defaults := filepath.Join(rootfs, "usr/lib/himmelblau/himmelblau.conf")
+			if err := os.MkdirAll(filepath.Dir(defaults), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(defaults, []byte("[global]\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{
+				MachineName: "intuneme", RootfsPath: rootfs, HostUID: os.Getuid(), HostUser: "alice",
+				Himmelblau: true, HimmelblauDomain: "example.com", HimmelblauUPN: "alice@example.com",
+				HimmelblauTerminalPasskey: terminal,
+			}
+			if terminal {
+				cfg.HimmelblauTerminalPasskeySource = strings.Repeat("a", 40)
+				writeTerminalPasskeyMarker(t, rootfs, "usr/share/intuneme/himmelblau-terminal-passkey-source", cfg.HimmelblauTerminalPasskeySource)
+			}
+			if err := cfg.Save(root); err != nil {
+				t.Fatal(err)
+			}
+			r := &coldBootRunner{}
+			if err := runStart(r, root); err != nil {
+				t.Fatal(err)
+			}
+			all := strings.Join(r.commands, "\n")
+			var boot string
+			for _, c := range r.commands {
+				if strings.HasPrefix(c, "sudo systemd-nspawn ") {
+					boot = c
+				}
+			}
+			wantBind := "--bind-ro=" + filepath.Join(root, "runtime/himmelblau-bluez") + ":" + bluezproxy.ContainerDir
+			if strings.Contains(boot, wantBind) != terminal {
+				t.Fatalf("terminal=%t, boot = %s", terminal, boot)
+			}
+			if strings.Contains(all, "machinectl bind") || strings.Contains(all, "xdg-dbus-proxy") {
+				t.Fatalf("startup used a runtime bind or started a proxy: %s", all)
+			}
+			if strings.Index(all, "install-helpers") > strings.Index(all, "sudo systemd-nspawn ") {
+				t.Fatalf("Himmelblau boot preceded security reconciliation: %s", all)
+			}
+			if !strings.Contains(all, "sudo systemd-run --machine=intuneme --wait --pipe") ||
+				!strings.Contains(all, "sudo "+nspawn.NsenterHelperPath+" exec ") {
+				t.Fatalf("Himmelblau startup did not initialize linger and its session: %s", all)
+			}
+		})
+	}
 }
 
 // On a cold boot the GNOME extension can launch an app as soon as the machine

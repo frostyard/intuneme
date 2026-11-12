@@ -69,6 +69,9 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         this._managerSignals.push(
             this._manager.connect('notify::error', () => this._sync()),
         );
+        this._managerSignals.push(
+            this._manager.connect('notify::identity', () => this._sync()),
+        );
 
         // Handle toggle clicks
         this.connect('clicked', () => {
@@ -89,6 +92,10 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         const running = this._manager.container_running;
         const transitioning = this._manager.transitioning;
         const error = this._manager.error;
+        const himmelblau = this._manager.identity === 'himmelblau-experimental';
+
+        this.title = himmelblau ? 'Himmelblau' : 'Intune';
+        this.menu.setHeader('computer-symbolic', himmelblau ? 'Himmelblau Container' : 'Intune Container');
 
         // Toggle state
         this.checked = running;
@@ -110,13 +117,16 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
                     : (running ? 'Running' : 'Stopped')
         }`;
 
-        this._brokerStatusItem.label.text = `Broker Proxy: ${
+        this._brokerStatusItem.label.text = `${himmelblau ? 'Himmelblau ' : ''}Broker Proxy: ${
             this._manager.broker_running ? 'Running' : 'Stopped'
         }`;
 
-        // Shell/Edge/Portal items only available when running and not transitioning
+        this._portalItem.label.text = himmelblau ? 'Himmelblau Sign-in' : 'Open Intune Portal';
+
+        // Shell/Edge/enrollment items only available when running and not transitioning
         this._shellItem.sensitive = running && !transitioning;
         this._edgeItem.sensitive = running && !transitioning;
+        this._edgeItem.actor.visible = !himmelblau;
         this._portalItem.sensitive = running && !transitioning;
     }
 
