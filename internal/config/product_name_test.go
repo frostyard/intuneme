@@ -76,7 +76,8 @@ func TestSaveProductName(t *testing.T) {
 	for _, name := range []string{"", "Test Model"} {
 		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
 			root := t.TempDir()
-			cfg := &Config{ProductName: name}
+			// Load refuses an empty rootfs_path, so the saved file needs a real one.
+			cfg := &Config{ProductName: name, RootfsPath: filepath.Join(root, "rootfs")}
 			if err := cfg.Save(root); err != nil {
 				t.Fatal(err)
 			}

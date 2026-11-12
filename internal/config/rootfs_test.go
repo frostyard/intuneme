@@ -117,6 +117,7 @@ func TestLoadRefusesUnsafeRootfsPath(t *testing.T) {
 		name   string
 		rootfs string
 	}{
+		{name: "explicit empty", rootfs: ""},
 		{name: "relative", rootfs: "rootfs"},
 		{name: "filesystem root", rootfs: "/"},
 		{name: "parent element", rootfs: t.TempDir() + "/a/../b"},
@@ -138,6 +139,24 @@ func TestLoadRefusesUnsafeRootfsPath(t *testing.T) {
 				t.Errorf("error %q does not name the key", err)
 			}
 		})
+	}
+}
+
+// TestLoadOmittedRootfsPathKeepsDefault proves that a config.toml without the
+// rootfs_path key still gets <root>/rootfs, while an explicit empty value is
+// refused (TestLoadRefusesUnsafeRootfsPath).
+func TestLoadOmittedRootfsPathKeepsDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte("machine_name = \"intuneme\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if want := filepath.Join(root, "rootfs"); cfg.RootfsPath != want {
+		t.Errorf("RootfsPath = %q, want %q", cfg.RootfsPath, want)
 	}
 }
 

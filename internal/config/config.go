@@ -174,12 +174,10 @@ func Load(root string) (*Config, error) {
 
 	path := filepath.Join(root, "config.toml")
 	if _, err := os.Stat(path); err == nil {
+		// A key the file omits keeps the default set above. An explicit
+		// rootfs_path = "" is not replaced: ValidateRootfsPath refuses it.
 		if _, err := toml.DecodeFile(path, cfg); err != nil {
 			return nil, err
-		}
-		// Ensure rootfs_path default if not in file
-		if cfg.RootfsPath == "" {
-			cfg.RootfsPath = defaultRootfs
 		}
 	}
 
