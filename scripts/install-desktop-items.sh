@@ -1,7 +1,7 @@
 #!/bin/bash
 # install-desktop-items.sh
-# Installs .desktop entries for intuneme-managed apps (Edge, Intune Portal)
-# so they appear in the GNOME application grid, with correct icons, and pinned to the dash.
+# Installs .desktop entries for intuneme-managed apps so they appear in the
+# GNOME application grid and are pinned to the dash.
 #
 # Usage: bash scripts/install-desktop-items.sh [--uninstall]
 
@@ -101,21 +101,24 @@ fi
 
 mkdir -p "$APPS_DIR" "$ICONS_DIR"
 
-# Install icons from the container rootfs so GNOME can find them on the host
-echo "Installing icons..."
-install_icons "microsoft-edge"
-install_icons "intune"
-gtk-update-icon-cache --force "${ICONS_DIR}" 2>/dev/null || true
-
-# Microsoft Edge (via intuneme container)
-cat > "$EDGE_DESKTOP" <<EOF
+IDENTITY="$("$INTUNEME_BIN" --root "$INTUNEME_ROOT" status | sed -n 's/^Identity: //p')"
+if [[ "$IDENTITY" == "himmelblau-experimental" ]]; then
+    rm -f "$EDGE_DESKTOP"
+    unpin_app "$EDGE_ID"
+    find "${ICONS_DIR}" -type f \( -name "microsoft-edge.png" -o -name "microsoft-edge.svg" \) -delete
+    gtk-update-icon-cache --force "${ICONS_DIR}" 2>/dev/null || true
+else
+    echo "Installing Microsoft Edge icon..."
+    install_icons "microsoft-edge"
+    gtk-update-icon-cache --force "${ICONS_DIR}" 2>/dev/null || true
+    cat > "$EDGE_DESKTOP" <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=Microsoft Edge (Intune)
 GenericName=Web Browser
 Comment=Microsoft Edge running inside the Intune container
-Exec=${INTUNEME_BIN} open edge
+Exec="${INTUNEME_BIN}" "--root=${INTUNEME_ROOT}" open edge
 Icon=microsoft-edge
 StartupNotify=true
 StartupWMClass=msedge
@@ -123,23 +126,41 @@ Categories=Network;WebBrowser;
 Keywords=intune;edge;browser;microsoft;
 EOF
 
-echo "Installed: $EDGE_DESKTOP"
+    echo "Installed: $EDGE_DESKTOP"
+fi
 
-# Intune Portal (via intuneme container)
-# The portal icon is named "intune" in the container's hicolor theme
-cat > "$PORTAL_DESKTOP" <<EOF
+if [[ "$IDENTITY" == "himmelblau-experimental" ]]; then
+    cat > "$PORTAL_DESKTOP" <<EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Himmelblau Sign-in
+GenericName=Entra ID Sign-in
+Comment=Start the experimental Himmelblau PAM sign-in and enrollment flow
+Exec="${INTUNEME_BIN}" "--root=${INTUNEME_ROOT}" enroll
+Icon=system-users
+Terminal=true
+StartupNotify=true
+Categories=System;Security;
+Keywords=himmelblau;entra;sign-in;enrollment;
+EOF
+else
+    install_icons "intune"
+    gtk-update-icon-cache --force "${ICONS_DIR}" 2>/dev/null || true
+    cat > "$PORTAL_DESKTOP" <<EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=Intune Portal
 GenericName=Device Management
 Comment=Microsoft Intune Portal running inside the Intune container
-Exec=${INTUNEME_BIN} open portal
+Exec="${INTUNEME_BIN}" "--root=${INTUNEME_ROOT}" open portal
 Icon=intune
 StartupNotify=true
 Categories=System;Security;
 Keywords=intune;portal;microsoft;mdm;compliance;
 EOF
+fi
 
 echo "Installed: $PORTAL_DESKTOP"
 
@@ -152,7 +173,7 @@ pin_app "$EDGE_ID"
 pin_app "$PORTAL_ID"
 
 echo ""
-echo "Done. Edge and Intune Portal are pinned to the dash and available in the app grid."
+echo "Done. Edge and the identity sign-in shortcut are pinned to the dash and available in the app grid."
 echo "If the container is not running when you launch them, you will"
 echo "see an error — run 'intuneme start' first."
 echo ""
