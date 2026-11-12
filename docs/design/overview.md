@@ -17,6 +17,7 @@ internal/
 ├── notify/           Desktop notification proxy (container→host notifications)
 ├── screencast/       ScreenCast portal proxy (screen sharing from the container)
 ├── config/           Config struct + TOML load/save (~/.local/share/intuneme/config.toml)
+├── imagesig/         Cosign image signature check (standard library only, before extraction)
 ├── nspawn/           systemd-nspawn wrapper (boot, stop, exec, shell, bind mounts)
 ├── prereq/           Prerequisite checks (systemd-nspawn, machinectl)
 ├── provision/        Container provisioning (user, fixups, password, polkit, SELinux, backup/restore)
@@ -48,9 +49,28 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 
 ## Key Patterns
 
+### Image signature check
+
+`init` and `recreate` check the cosign signature of the container image
+before any file is written, and recreate checks it before sudo, before the
+stop, before the backups and before the delete. `internal/imagesig` does the
+check with the Go standard library only: it reads the legacy cosign `.sig`
+manifest of the image tag, verifies 1 simplesigning layer with the P-256 key
+embedded from `ubuntu-intune/cosign.pub` (`containerimage.CosignPublicKey`),
+and requires that the payload names the manifest digest it computed from the
+manifest bytes and the repository with no tag. It never trusts the
+`Docker-Content-Digest` header. The callers then pull the verified digest
+`ghcr.io/frostyard/ubuntu-intune@sha256:<hex>`, never the tag, so a tag moved
+between the check and the pull cannot reach the rootfs. A failed check stops
+the command before it changes anything; `--insecure-skip-signature-check` is
+the only bypass and warns. `image_signature_contract_test.go` pins the CI
+signing flags, so the signer and the verifier change together. See
+[ADR-0005](../adr/0005-verify-the-container-image-signature-before-extraction.md).
+
 ### Rootfs Preparation and Upgrade Repair
 
-`cmd.prepareInitRootfs` creates the extraction target, explicitly sets mode
+`cmd.prepareInitRootfs` first resolves the verified image digest (see "Image
+signature check" above), then creates the extraction target, explicitly sets mode
 `0755` without relying on the umask, extracts through a `puller.Puller`, and
 checks `puller.VerifyRootOwned` before reconciling the directory itself.
 `puller.ReconcileRootfs` resolves a symlinked path, checks the resolved

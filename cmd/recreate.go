@@ -21,12 +21,17 @@ import (
 
 var insidersRecreate bool
 var tmpDirRecreate string
+var skipSignatureRecreate bool
+
+// newRecreateRunner is the runner recreate uses. A test replaces it to prove
+// that a failed signature check runs no host command.
+var newRecreateRunner = func() runner.Runner { return &runner.SystemRunner{} }
 
 var recreateCmd = &cobra.Command{
 	Use:   "recreate",
 	Short: "Recreate the container with a fresh image, preserving enrollment state",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		r := &runner.SystemRunner{}
+		r := newRecreateRunner()
 		root := rootDir
 		if root == "" {
 			var err error
@@ -65,12 +70,31 @@ var recreateCmd = &cobra.Command{
 		}
 
 		if clix.DryRun {
+			rep.Message("[dry-run] Would check the image signature against ubuntu-intune/cosign.pub")
 			rep.Message("[dry-run] Would stop container (if running)")
 			rep.Message("[dry-run] Would backup shadow entry and broker state")
 			rep.Message("[dry-run] Would remove old rootfs at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would pull new image and re-provision")
 			rep.Message("[dry-run] Would set container hostname to %s", containerHostname)
 			return nil
+		}
+
+		// Resolve the channel and check the image signature here, after the
+		// dry-run return and before sudo, the stop, the backups and the delete.
+		// An image that does not verify must leave the running container and its
+		// enrollment untouched.
+		insiders := cfg.Insiders
+		if cmd.Flags().Changed("insiders") {
+			insiders = insidersRecreate
+		}
+		image := pkgversion.ImageRef(insiders)
+		pullRef, err := resolvePullRef(cmd.Context(), image, skipSignatureRecreate)
+		if err != nil {
+			return err
+		}
+		p, err := puller.Detect(r)
+		if err != nil {
+			return err
 		}
 
 		// Validate sudo early
@@ -144,20 +168,15 @@ var recreateCmd = &cobra.Command{
 				return fmt.Errorf("save config: %w", err)
 			}
 		}
-		image := pkgversion.ImageRef(cfg.Insiders)
-		p, err := puller.Detect(r)
-		if err != nil {
-			return err
-		}
 
-		rep.Message("Pulling and extracting OCI image %s (via %s)...", image, p.Name())
+		rep.Message("Pulling and extracting OCI image %s (via %s)...", pullRef, p.Name())
 		if err := os.MkdirAll(cfg.RootfsPath, 0755); err != nil {
 			return fmt.Errorf("create rootfs dir: %w", err)
 		}
 		if err := os.Chmod(cfg.RootfsPath, 0o755); err != nil {
 			return fmt.Errorf("set initial rootfs mode: %w", err)
 		}
-		if err := p.PullAndExtract(r, image, cfg.RootfsPath, tmpDirRecreate); err != nil {
+		if err := p.PullAndExtract(r, pullRef, cfg.RootfsPath, tmpDirRecreate); err != nil {
 			return err
 		}
 		if err := puller.VerifyRootOwned(cfg.RootfsPath); err != nil {
@@ -223,5 +242,6 @@ func warnIfHostnameChanges(rep reporter.Reporter, rootfsPath, newName string) {
 func init() {
 	recreateCmd.Flags().BoolVar(&insidersRecreate, "insiders", false, "switch to the insiders channel container image")
 	recreateCmd.Flags().StringVar(&tmpDirRecreate, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
+	recreateCmd.Flags().BoolVar(&skipSignatureRecreate, "insecure-skip-signature-check", false, "skip the cosign signature check of the container image (not recommended)")
 	rootCmd.AddCommand(recreateCmd)
 }

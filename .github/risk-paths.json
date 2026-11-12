@@ -128,6 +128,11 @@
       "why": "signing and keys: the cosign key that verifies the container image"
     },
     {
+      "glob": "internal/imagesig/**",
+      "level": "L1",
+      "why": "signing and keys: verifies the container image signature against cosign.pub before extraction"
+    },
+    {
       "glob": "scripts/install-desktop-items.sh",
       "level": "L1",
       "why": "destructive operations: installs desktop entries and, with --uninstall, deletes them"

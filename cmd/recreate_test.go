@@ -1,11 +1,18 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/imagesig"
+	"github.com/frostyard/intuneme/internal/runner"
 )
 
 // warningRecorder captures Warning calls for test assertions.
@@ -82,5 +89,79 @@ func TestWarnIfHostnameChanges(t *testing.T) {
 				t.Errorf("warning %q does not name the new hostname", rec.warnings[0])
 			}
 		})
+	}
+}
+
+// recreateRunner records every command. recreate must run none of them when the
+// image signature does not verify. LookPath answers podman because
+// puller.Detect calls it to pick a backend; that is not a host change.
+type recreateRunner struct {
+	commands []string
+}
+
+func (r *recreateRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return nil, errors.New("injected failure")
+}
+
+func (r *recreateRunner) RunAttached(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+func (r *recreateRunner) RunBackground(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+func (r *recreateRunner) LookPath(name string) (string, error) {
+	if name == "podman" {
+		return "/usr/bin/podman", nil
+	}
+	return "", errors.New("not found")
+}
+
+// TestRecreateBadSignatureChangesNothing is the guard: recreate must check the
+// image signature before sudo, before the stop, before the backups and before
+// it deletes the old rootfs, so a rejected image leaves the container and its
+// enrollment untouched.
+func TestRecreateBadSignatureChangesNothing(t *testing.T) {
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	if err := os.Mkdir(rootfs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(rootfs, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config := "machine_name = \"intuneme\"\nrootfs_path = " + strconv.Quote(rootfs) + "\n"
+	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	useRootDir(t, root)
+	useInitTestReporter(t)
+	useSignatureCheck(t, func(context.Context, string) (string, error) {
+		return "", imagesig.ErrInvalidSignature
+	})
+	r := &recreateRunner{}
+	origRunner := newRecreateRunner
+	newRecreateRunner = func() runner.Runner { return r }
+	t.Cleanup(func() { newRecreateRunner = origRunner })
+
+	origDryRun, origSkip := clix.DryRun, skipSignatureRecreate
+	clix.DryRun, skipSignatureRecreate = false, false
+	t.Cleanup(func() { clix.DryRun, skipSignatureRecreate = origDryRun, origSkip })
+
+	err := recreateCmd.RunE(recreateCmd, nil)
+	if !errors.Is(err, imagesig.ErrInvalidSignature) {
+		t.Fatalf("error = %v, want the signature error", err)
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("recreate ran host commands after a failed check: %v", r.commands)
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Errorf("the old rootfs was changed after a failed check: %v", statErr)
 	}
 }

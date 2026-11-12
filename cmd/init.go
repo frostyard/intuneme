@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +29,7 @@ var forceInit bool
 var passwordFile string
 var insidersInit bool
 var tmpDirInit string
+var skipSignatureInit bool
 
 var initUID = os.Getuid
 
@@ -80,6 +82,7 @@ var initCmd = &cobra.Command{
 		}
 
 		if clix.DryRun {
+			rep.Message("[dry-run] Would check the image signature against ubuntu-intune/cosign.pub")
 			rep.Message("[dry-run] Would pull OCI image and create container at %s", cfg.RootfsPath)
 			rep.Message("[dry-run] Would create container user %s", u.Username)
 			rep.Message("[dry-run] Would set container hostname to %s", containerHostname)
@@ -109,8 +112,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		rep.Message("Pulling and extracting OCI image %s (via %s)...", image, p.Name())
-		if err := prepareInitRootfs(r, p, image, cfg.RootfsPath, tmpDirInit, nil); err != nil {
+		if err := prepareInitRootfs(cmd.Context(), r, p, image, cfg.RootfsPath, tmpDirInit, skipSignatureInit, nil); err != nil {
 			return err
 		}
 
@@ -209,7 +211,17 @@ func checkInitRootfs(root, path string, force bool) error {
 // An empty directory of another owner is accepted but never chmodded or removed.
 // A populated --force target must survive every error.
 // A nil verify selects the production ownership check.
-func prepareInitRootfs(r runner.Runner, p puller.Puller, image, path, tmpDir string, verify func(string) error) (err error) {
+func prepareInitRootfs(ctx context.Context, r runner.Runner, p puller.Puller, image, path, tmpDir string, skip bool, verify func(string) error) (err error) {
+	// The signature check comes first. A rejected image must leave the host as
+	// it was, so no directory is created and nothing is extracted.
+	pullRef, err := resolvePullRef(ctx, image, skip)
+	if err != nil {
+		return err
+	}
+	// Report the pull only after the check, so the output never says
+	// "Pulling" before the image is verified. The reference is the verified
+	// digest, not the tag the user named.
+	rep.Message("Pulling and extracting OCI image %s (via %s)...", pullRef, p.Name())
 	fi, reusable, err := inspectInitRootfs(path)
 	if err != nil {
 		return err
@@ -246,7 +258,7 @@ func prepareInitRootfs(r runner.Runner, p puller.Puller, image, path, tmpDir str
 			return fmt.Errorf("set initial rootfs mode: %w", err)
 		}
 	}
-	if err := p.PullAndExtract(r, image, path, tmpDir); err != nil {
+	if err := p.PullAndExtract(r, pullRef, path, tmpDir); err != nil {
 		return err
 	}
 	if verify == nil {
@@ -403,5 +415,6 @@ func init() {
 	initCmd.Flags().StringVar(&passwordFile, "password-file", "", "path to file containing the container user password (first line used)")
 	initCmd.Flags().BoolVar(&insidersInit, "insiders", false, "use the insiders channel container image")
 	initCmd.Flags().StringVar(&tmpDirInit, "tmp-dir", "", "directory for temporary files during image extraction (default: system temp dir)")
+	initCmd.Flags().BoolVar(&skipSignatureInit, "insecure-skip-signature-check", false, "skip the cosign signature check of the container image (not recommended)")
 	rootCmd.AddCommand(initCmd)
 }

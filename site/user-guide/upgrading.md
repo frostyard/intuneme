@@ -11,13 +11,20 @@ intuneme start
 
 `recreate` performs the following steps:
 
-1. Stops the running container (if it is running)
-2. Backs up the password hash and device enrollment database from `~/Intune/`
-3. Pulls the new container image
-4. Re-provisions the rootfs (same steps as `intuneme init`)
-5. Restores the backed-up enrollment state
+1. Checks the image signature (see below)
+2. Stops the running container (if it is running)
+3. Backs up the password hash and device enrollment database from `~/Intune/`
+4. Pulls the new container image
+5. Re-provisions the rootfs (same steps as `intuneme init`)
+6. Restores the backed-up enrollment state
 
 No re-enrollment is needed after `recreate`. Your existing enrollment, browser profiles, downloads, and other files in `~/Intune/` are preserved.
+
+### Checks the image signature
+
+Before it stops anything, `recreate` checks the cosign signature of the new image against the key in your intuneme release, and then pulls the image by the digest it verified, never by the tag. If the check fails, `recreate` stops with `image signature check failed` and leaves the old rootfs alone: the container keeps running and the enrollment stays where it is. The message names the reason and what to try. See [Troubleshooting → Image signature check failed](../troubleshooting.md#image-signature-check-failed).
+
+`--insecure-skip-signature-check` skips the check and pulls the tag. It warns that the image is not verified; use it only for an image you built and trust yourself.
 
 ### What is preserved
 
@@ -37,6 +44,14 @@ No re-enrollment is needed after `recreate`. Your existing enrollment, browser p
     ```bash
     intuneme recreate --tmp-dir /var/tmp
     ```
+
+## Signature check (migration note)
+
+From the next release, `intuneme init` and `intuneme recreate` check the container image's cosign signature before they extract it. Existing containers keep running unchanged: no command you do not run starts a check.
+
+A rootfs that an older intuneme pulled was never verified. To replace it with a verified image, run `intuneme recreate`. The check runs before the old rootfs is touched, so a failed check costs you nothing but the wait.
+
+An offline machine could never pull the image, and the check needs the same access to `https://ghcr.io` as the pull does. A proxy or a registry mirror that blocks the signature lookup makes the check fail; the error names the troubleshooting page.
 
 ## Re-enrollment
 
@@ -71,3 +86,4 @@ intuneme destroy --all
 
 !!! warning
     Re-enrollment (`destroy` + `init`) will require you to go through the full Intune enrollment process again. Your IT administrator may need to approve the device before you regain access to corporate resources.
+
