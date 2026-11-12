@@ -118,6 +118,11 @@
       "why": "destructive operations: deletes the rootfs, the polkit files and the sudoers rule with sudo"
     },
     {
+      "glob": "cmd/rootfs_remove.go",
+      "level": "L1",
+      "why": "destructive operations: deletes the rootfs directory with sudo after checking the configured path"
+    },
+    {
       "glob": "cmd/recreate.go",
       "level": "L1",
       "why": "destructive operations: deletes and replaces the rootfs with sudo"

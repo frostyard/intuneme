@@ -11,6 +11,10 @@ import (
 
 type Config struct {
 	MachineName string `toml:"machine_name"`
+	// RootfsPath is the absolute path to the container root filesystem
+	// directory. Load checks it with ValidateRootfsPath, so a relative, unclean,
+	// top-level or home-containing value stops every command before anything is
+	// deleted as root.
 	RootfsPath  string `toml:"rootfs_path"`
 	HostUID     int    `toml:"host_uid"`
 	HostUser    string `toml:"host_user"`
@@ -142,23 +146,49 @@ func DefaultRoot() (string, error) {
 	return filepath.Join(home, ".local", "share", "intuneme"), nil
 }
 
+// defaultRootfsPath returns <root>/rootfs as an absolute path. --root may be a
+// relative path, but rm and systemd-nspawn need an absolute one, and Load
+// refuses a relative rootfs_path.
+func defaultRootfsPath(root string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve data root %q: %w", root, err)
+	}
+	return filepath.Join(absRoot, "rootfs"), nil
+}
+
+// Load reads <root>/config.toml and fills in the defaults for the keys the file
+// does not set. It checks the resulting rootfs_path, so a value that a
+// destructive command would delete as root stops every command here.
 func Load(root string) (*Config, error) {
+	defaultRootfs, err := defaultRootfsPath(root)
+	if err != nil {
+		return nil, err
+	}
 	cfg := &Config{
 		MachineName: "intuneme",
-		RootfsPath:  filepath.Join(root, "rootfs"),
+		RootfsPath:  defaultRootfs,
 		HostUID:     os.Getuid(),
 		HostUser:    os.Getenv("USER"),
 	}
 
 	path := filepath.Join(root, "config.toml")
 	if _, err := os.Stat(path); err == nil {
+		// A key the file omits keeps the default set above. An explicit
+		// rootfs_path = "" is not replaced: ValidateRootfsPath refuses it.
 		if _, err := toml.DecodeFile(path, cfg); err != nil {
 			return nil, err
 		}
-		// Ensure rootfs_path default if not in file
-		if cfg.RootfsPath == "" {
-			cfg.RootfsPath = filepath.Join(root, "rootfs")
-		}
+	}
+
+	// The default is checked too, so a bad data root cannot name a rootfs that
+	// the destructive commands would then delete.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine home directory to check rootfs_path: %w", err)
+	}
+	if err := ValidateRootfsPath(cfg.RootfsPath, root, home); err != nil {
+		return nil, fmt.Errorf("invalid rootfs_path in config.toml: %w", err)
 	}
 
 	return cfg, nil

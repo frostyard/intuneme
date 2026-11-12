@@ -156,7 +156,7 @@ var recreateCmd = &cobra.Command{
 
 		// Remove old rootfs
 		rep.Message("Removing old rootfs at %s...", cfg.RootfsPath)
-		out, err := r.Run("sudo", "rm", "-rf", cfg.RootfsPath)
+		out, err := removeRootfs(r, root, cfg.RootfsPath)
 		if err != nil {
 			return fmt.Errorf("rm rootfs failed: %w\n%s", err, out)
 		}

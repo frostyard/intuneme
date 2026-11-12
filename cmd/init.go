@@ -106,7 +106,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		if err := prepareInitRootfs(cmd.Context(), r, p, image, cfg.RootfsPath, tmpDirInit, skipSignatureInit, nil); err != nil {
+		if err := prepareInitRootfs(cmd.Context(), r, p, root, image, cfg.RootfsPath, tmpDirInit, skipSignatureInit, nil); err != nil {
 			return err
 		}
 
@@ -215,7 +215,8 @@ func checkInitRootfs(root, path string, force bool) error {
 // An empty directory of another owner is accepted but never chmodded or removed.
 // A populated --force target must survive every error.
 // A nil verify selects the production ownership check.
-func prepareInitRootfs(ctx context.Context, r runner.Runner, p puller.Puller, image, path, tmpDir string, skip bool, verify func(string) error) (err error) {
+// root is the intuneme data root; the failure cleanup passes it to removeRootfs.
+func prepareInitRootfs(ctx context.Context, r runner.Runner, p puller.Puller, root, image, path, tmpDir string, skip bool, verify func(string) error) (err error) {
 	// The signature check comes first. A rejected image must leave the host as
 	// it was, so no directory is created and nothing is extracted.
 	pullRef, err := resolvePullRef(ctx, image, skip)
@@ -252,7 +253,7 @@ func prepareInitRootfs(ctx context.Context, r runner.Runner, p puller.Puller, im
 			rep.Warning("remove failed init rootfs %s: %v", path, removeErr)
 			return
 		}
-		if out, removeErr := r.Run("sudo", "rm", "-rf", path); removeErr != nil {
+		if out, removeErr := removeRootfs(r, root, path); removeErr != nil {
 			rep.Warning("remove failed init rootfs %s: %v: %s", path, removeErr, out)
 		}
 	}()

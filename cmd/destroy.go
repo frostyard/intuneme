@@ -111,7 +111,7 @@ intuneme artifacts.`,
 
 		// Remove rootfs with sudo (owned by root after nspawn use)
 		rep.Message("Removing %s...", root)
-		out, err := r.Run("sudo", "rm", "-rf", cfg.RootfsPath)
+		out, err := removeRootfs(r, root, cfg.RootfsPath)
 		if err != nil {
 			return fmt.Errorf("rm rootfs failed: %w\n%s", err, out)
 		}

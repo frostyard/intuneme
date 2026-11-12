@@ -19,6 +19,8 @@ The repository has two main components:
 
 The optional `product_name` key is validated only at use in `start`, before sudo; never validate it in `config.Load`. Its bind source path must be absolute and must never contain `:` or `\` (nspawn splits at `:` and reads `\` as an escape), and the host DMI target must exist before sudo and boot.
 
+`config.Load` validates `rootfs_path` with `config.ValidateRootfsPath`: it must be absolute and clean, must not be `/` or a top-level directory, and must not be or contain the home directory or the data root, also after the parent path's symlinks are resolved. Every `sudo rm -rf` of a rootfs goes through `cmd.removeRootfs`, which checks again, never a direct `r.Run("sudo", "rm", "-rf", ...)`.
+
 ## Executing commands inside the container
 
 `nspawn.Exec()` uses the installed Go helper to enter the container namespaces and execute as the numeric configured user. Background GUI processes are reparented inside the container.

@@ -94,10 +94,38 @@ permissions counts as an existing installation, so `--force` can proceed.
 A custom rootfs has the same rules. Verification is injectable for tests;
 production uses `VerifyRootOwned`.
 
+Every destructive use of the rootfs path is guarded twice. `config.Load` checks
+`rootfs_path` with `config.ValidateRootfsPath`, and `destroy`, `recreate` and the
+failed-init cleanup then call `cmd.removeRootfs`, which checks the path again
+immediately before `sudo rm -rf` and runs no command when it refuses. See
+"Rootfs Path Rule" below.
+
 On every non-dry-run `start`, the same reconciliation follows
 `refreshStartSecurity` and precedes `IsRunning`, so both cold boots and the
 already-running return repair old directory metadata. Failure is fatal without
 a problem record: setup and sudo errors are not internal failures.
+
+### Rootfs Path Rule
+
+`rootfs_path` comes from a text file that a user can edit, and 3 code paths
+delete it with `sudo rm -rf`: `destroy`, `recreate` and the failure cleanup of
+`init`. A wrong value therefore deletes the wrong directory as root.
+`config.ValidateRootfsPath` refuses a value that is:
+
+- empty or not absolute, so the delete does not depend on the working directory.
+- not clean: it holds `.` or `..` elements, or doubled or trailing slashes. `rm`
+  would resolve those itself, so the checked value must be the deleted one.
+- `/` or a top-level directory such as `/home`, `/usr` or `/var`.
+- equal to, or an ancestor of, the home directory or the data root. The default
+  rootfs lives inside the data root, and the enrollment state lives in `~/Intune`.
+
+The check resolves the parent path of `rootfs_path`, never its last element,
+because `sudo rm -rf` removes the last element inside the resolved parent, while
+a rootfs that is itself a symlink is a supported setup. It applies the directory
+rules again to the resolved path; a parent that does not exist skips those checks,
+and every other resolution error fails closed. `config.Load` runs the check for
+every command, including the default `<root>/rootfs`, and `cmd.removeRootfs` runs
+it once more directly before each `sudo rm -rf`.
 
 ### Command Execution Inside the Container
 
