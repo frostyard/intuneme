@@ -59,6 +59,16 @@ BlueZ directory read-only only for terminal-passkey images; enrollment checks
 that mount and starts the filtered proxy only for PAM. Keep the runtime
 machine helper MCP-only. See [ADR-0005](docs/adr/0005-bind-bluez-at-boot.md).
 
+For an enrolled Himmelblau container, every non-dry-run `start` initializes
+the session environment after linger, including before the already-running
+return. Use the foreground exec path and `systemctl --user try-restart
+himmelblau-broker.service` so an active broker inherits the display variables
+needed for its Hello PIN dialog. Do not retain the PIN or auto-unlock PRTs.
+The host-bound runtime directory can retain a stale user-bus socket after a
+container restart. `userBusWaitScript` must require a successful D-Bus
+`GetId`, not only `test -S`, and bound the whole probe loop (including stalled
+requests) to 30 seconds without writing protocol data to stdout.
+
 Container roots using Himmelblau `DynamicUser` store daemon state under
 `/var/lib/private/himmelblaud` and `/var/cache/private/himmelblaud`; recreate
 must restore to these private backing paths and create the public relative

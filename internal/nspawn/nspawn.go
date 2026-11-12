@@ -476,8 +476,8 @@ func CheckRuntimeBind(r runner.Runner, markerPath string) error {
 	return nil
 }
 
-// sessionBusWaitAttempts bounds how long a launch waits for the container user's
-// session bus: 150 attempts of 0.2s is 30 seconds, which matches the linger
+// sessionBusWaitAttempts sets the user-bus wait budget in 0.2-second units:
+// 150 units is 30 seconds, which matches the linger
 // retry window in cmd/start.go, so a launch that races `intuneme start`
 // outlasts linger setup instead of failing on it.
 const sessionBusWaitAttempts = 150
@@ -495,10 +495,9 @@ const (
 	sessionBusTimeoutTail   = " s; run 'intuneme start' and try again"
 )
 
-// userBusWaitScript returns a shell snippet that waits, bounded, for the
-// container user's session bus at $XDG_RUNTIME_DIR/bus: attempts tries, 0.2s
-// apart. The GNOME extension can launch an app while `intuneme start` is still
-// enabling linger, or while user@<uid> is still starting after boot.
+// userBusWaitScript waits for a responsive container user bus, probing 0.2s
+// apart with a total timeout of attempts * 0.2s. A persistent runtime directory
+// can hold a stale socket from the previous boot.
 //
 // When the bus does not appear the snippet writes 1 line to stderr and exits
 // non-zero, so the app or MCP server is never started without a session bus: the
@@ -509,15 +508,16 @@ func userBusWaitScript(attempts int) string {
 	return fmt.Sprintf(
 		`# Wait for the container user's session bus: session setup below needs it for
 # the D-Bus activation environment and the keyring unlock.
-_bus_wait=0
-while [ ! -S "$XDG_RUNTIME_DIR/bus" ] && [ "$_bus_wait" -lt %d ]; do
-    sleep 0.2
-    _bus_wait=$((_bus_wait + 1))
-done
-if [ ! -S "$XDG_RUNTIME_DIR/bus" ]; then
+if ! timeout %.1fs /bin/bash -c '
+    until [ -S "$XDG_RUNTIME_DIR/bus" ] &&
+        busctl --address="unix:path=$XDG_RUNTIME_DIR/bus" --timeout=1s \
+            call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetId >/dev/null 2>&1; do
+        sleep 0.2
+    done
+'; then
     echo "`+sessionBusTimeoutPrefix+` ($XDG_RUNTIME_DIR`+sessionBusTimeoutMiddle+`%d`+sessionBusTimeoutTail+`" >&2
     exit 1
-fi`, attempts, attempts/5)
+fi`, float64(attempts)/5, attempts/5)
 }
 
 // buildSessionEnvScript returns the shell prologue that initializes a container

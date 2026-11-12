@@ -50,8 +50,14 @@ Linger must be enabled for the container user so that the user session (and sess
 A login session must be created inside the container so that the session bus socket is initialized. The `start` command creates this via `machinectl shell <user>@<machine> /bin/bash --login -c "exec sleep infinity"`. The login shell sources `intuneme.sh` (initializing keyring, display, etc.) and stays alive via `sleep infinity` so the keyring daemon persists. The `start` command waits up to 30 seconds for the session bus socket to appear.
 
 For Himmelblau, `start` uses linger's user bus and initializes the enrolled
-user's session with the scoped exec helper instead. It does not open an
-unattended login shell that could block on Himmelblau PAM authentication.
+user's session with the foreground scoped exec helper instead, including
+when the container is already running. It imports the display environment
+and try-restarts an active `himmelblau-broker.service`: importing variables
+alone cannot update an existing process. This enables the broker's
+interactive PIN prompt after a cold boot clears the in-memory PRT cache.
+It does not open an unattended PAM login shell or retain a PIN. Failures
+stop `start`; tests in `cmd/start_test.go` cover running-container repair,
+failure propagation, dry run and the cold-boot path.
 
 ### D-Bus Service Activation
 

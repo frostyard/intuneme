@@ -12,7 +12,7 @@ intuneme runs Microsoft Intune in a [systemd-nspawn](https://www.freedesktop.org
 ## What it does
 
 - **Container lifecycle.** `init`, `start`, `stop`, `destroy` and `recreate` manage the container; `recreate` keeps the enrollment. [Quick start](https://frostyard.github.io/intuneme/getting-started/quick-start/)
-- **Experimental Himmelblau.** `init --himmelblau`, `edit --himmelblau` and `enroll --user` provide an alternative Entra/PAM stack without Edge or Intune Portal, with a local-build terminal-passkey variant. [Setup and limitations](https://frostyard.github.io/intuneme/user-guide/himmelblau/)
+- **Experimental Himmelblau.** `init --himmelblau`, `edit --himmelblau` and `enroll --user` provide an alternative Entra/PAM stack with PIN-unlocked broker SSO, without Edge or Intune Portal, and with a local-build terminal-passkey variant. [Setup and limitations](https://frostyard.github.io/intuneme/user-guide/himmelblau/)
 - **Single sign-on on the host.** The broker proxy gives Edge, VS Code and other MSAL apps on the host the container's sign-in. [Broker proxy](https://frostyard.github.io/intuneme/user-guide/broker-proxy/)
 - **Notifications and screen sharing.** The notify and screencast proxies show the container's Edge notifications on the host and let Teams share host screens. [Notifications](https://frostyard.github.io/intuneme/user-guide/notifications/), [Screen sharing](https://frostyard.github.io/intuneme/user-guide/screen-sharing/)
 - **MCP servers in the tenant.** `intuneme mcp` runs a host MCP server inside the container, wired to host stdio, so it signs in to the container's tenant. [MCP servers](https://frostyard.github.io/intuneme/user-guide/mcp-servers/)

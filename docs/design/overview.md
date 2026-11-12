@@ -446,6 +446,19 @@ remain in memory until a PIN unlock, because neither the PIN nor the unlocked
 key is retained. Entra revocation and authentication-freshness policies remain
 authoritative; this change does not guarantee prompt-free access indefinitely.
 
+After a host reboot, the in-memory PRT cache is empty until PIN
+authentication unlocks the protected credential. Every enrolled Himmelblau
+`start`, including an already-running call, initializes the activation
+environment and try-restarts an active user broker through the foreground
+exec helper. Otherwise an early headless broker keeps its missing display
+environment and returns cookie failures instead of showing the PIN dialog.
+Only the user broker is refreshed; enrollment and daemon credentials remain
+intact. See [Broker Proxy](broker-proxy.md#login-session).
+The shared `userBusWaitScript` verifies D-Bus responsiveness, not just socket
+existence: a persistent runtime bind can retain a dead socket across boots.
+The entire `GetId` probe loop has a 30-second timeout, so even a listening
+but unresponsive socket cannot launch session setup early or block forever.
+
 The image family and Himmelblau variant are selected only during `init` and
 stored as `himmelblau` and `himmelblau_terminal_passkey` in `config.toml`.
 `recreate` preserves both the selection and enrollment state; changing either

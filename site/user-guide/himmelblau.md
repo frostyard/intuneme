@@ -205,6 +205,21 @@ successful shell connection alone is not sufficient. `intuneme status` reports
 the last UPN whose explicit PAM authentication succeeded; it does not query
 Himmelblau for a live token or cloud session.
 
+### SSO after reboot
+
+The saved Hello credential survives reboot, but its PRT must be unlocked
+with your Hello PIN before browser SSO can use it. Run `intuneme start` from
+your graphical session before using host SSO. For an enrolled container,
+start prepares the display environment and refreshes an already-running
+user broker so it can show the PIN dialog on the next SSO request.
+It is safe to run start again without stopping the container.
+
+An enrolled status and a running broker proxy do not mean the credential is
+unlocked. If an older CLI leaves the broker headless, update and install the
+CLI in its root-owned path, run `intuneme start` again, then retry Firefox.
+You do not need to recreate the image or enroll again. Never save your PIN
+in a startup script to skip this unlock.
+
 On success, intuneme stores the UPN in `config.toml`; subsequent starts restore
 the map and PAM policy. `intuneme shell` continues to use the local username,
 which Himmelblau maps to the enrolled Entra identity. The Himmelblau images
