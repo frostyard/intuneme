@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/imagesig"
 	"github.com/frostyard/intuneme/internal/runner"
 )
@@ -437,5 +438,83 @@ func TestInitIncompleteInstallMessage(t *testing.T) {
 	err = checkInitRootfs(root, path, false)
 	if err == nil || !strings.Contains(err.Error(), "already initialized") {
 		t.Fatalf("error with config.toml = %v", err)
+	}
+}
+
+// initRunner records every command. init must run none of them when the image
+// signature does not verify.
+type initRunner struct {
+	commands []string
+}
+
+func (r *initRunner) Run(name string, args ...string) ([]byte, error) {
+	r.commands = append(r.commands, name+" "+strings.Join(args, " "))
+	return nil, errors.New("injected failure")
+}
+
+func (r *initRunner) RunAttached(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+func (r *initRunner) RunBackground(name string, args ...string) error {
+	_, err := r.Run(name, args...)
+	return err
+}
+
+// LookPath answers every tool that prereq.Check and puller.Detect ask for.
+func (r *initRunner) LookPath(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+// usePasswordFile points init at a password file for 1 test.
+func usePasswordFile(t *testing.T, password string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "password")
+	if err := os.WriteFile(path, []byte(password+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := passwordFile
+	passwordFile = path
+	t.Cleanup(func() { passwordFile = orig })
+}
+
+// TestInitBadSignatureChangesNothing is the guard: a rejected image must leave a
+// fresh host untouched, including ~/Intune, the rootfs and config.toml.
+func TestInitBadSignatureChangesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := t.TempDir()
+	useRootDir(t, root)
+	useInitTestReporter(t)
+	useSignatureCheck(t, func(context.Context, string) (string, error) {
+		return "", imagesig.ErrInvalidSignature
+	})
+	usePasswordFile(t, "Correct3Horse!")
+
+	origForce, origSkip, origInsiders, origDryRun := forceInit, skipSignatureInit, insidersInit, clix.DryRun
+	forceInit, skipSignatureInit, insidersInit = false, false, false
+	clix.DryRun = false
+	t.Cleanup(func() {
+		forceInit, skipSignatureInit, insidersInit, clix.DryRun = origForce, origSkip, origInsiders, origDryRun
+	})
+	r := &initRunner{}
+	origRunner := newInitRunner
+	newInitRunner = func() runner.Runner { return r }
+	t.Cleanup(func() { newInitRunner = origRunner })
+
+	err := initCmd.RunE(initCmd, nil)
+	if !errors.Is(err, imagesig.ErrInvalidSignature) {
+		t.Fatalf("error = %v, want the signature error", err)
+	}
+	for _, path := range []string{
+		filepath.Join(home, "Intune"),
+		filepath.Join(root, "rootfs"),
+		filepath.Join(root, "config.toml"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Errorf("%s exists after a failed check: %v", path, statErr)
+		}
+	}
+	if len(r.commands) != 0 {
+		t.Errorf("init ran host commands after a failed check: %v", r.commands)
 	}
 }

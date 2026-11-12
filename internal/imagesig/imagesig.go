@@ -62,8 +62,16 @@ const (
 	// maxPayloadBytes caps a signature payload. A real simplesigning payload is
 	// a few hundred bytes.
 	maxPayloadBytes = 64 << 10
-	// defaultTimeout bounds one Verify call when the caller supplies no client.
+	// maxDistinctBlobs caps the payloads 1 call fetches. A hostile signature
+	// manifest can name thousands of distinct digests, and each is a request;
+	// layers past the cap are treated as failed candidates.
+	maxDistinctBlobs = 32
+	// defaultTimeout bounds 1 request when the caller supplies no client.
 	defaultTimeout = 60 * time.Second
+	// verifyTimeout bounds 1 whole Verify call, so a registry that answers every
+	// request slowly cannot hold the command open: each request stays under the
+	// client timeout, and their total stays under this.
+	verifyTimeout = 2 * time.Minute
 )
 
 // manifestMediaTypes are the manifest types a tag may answer with.
@@ -93,6 +101,8 @@ func (v *Verifier) Verify(ctx context.Context, ref string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(ctx, verifyTimeout)
+	defer cancel()
 	repo, tag, err := splitTaggedRef(ref)
 	if err != nil {
 		return "", err
@@ -131,6 +141,9 @@ func (v *Verifier) Verify(ctx context.Context, ref string) (string, error) {
 	var reasons []string
 	signatures := 0
 	for _, layer := range sigManifest.Layers {
+		if err := ctx.Err(); err != nil {
+			return "", fmt.Errorf("check the image signature of %s: %w", ref, err)
+		}
 		if layer.MediaType != simpleSigningMediaType {
 			continue
 		}
@@ -167,6 +180,9 @@ func (f *fetcher) verifyLayer(ctx context.Context, digest string, size int64, en
 	}
 	if _, err := hex.DecodeString(hexDigest); err != nil {
 		return fmt.Errorf("signature layer has the unsupported digest %q", digest)
+	}
+	if !f.blobWithinLimit(digest) {
+		return errors.New("too many distinct signature payloads")
 	}
 	payload, err := f.blob(ctx, digest, size)
 	if err != nil {
@@ -224,10 +240,34 @@ func Verify(ctx context.Context, ref string) (string, error) {
 }
 
 func (v *Verifier) client() *http.Client {
-	if v.Client != nil {
-		return v.Client
+	base := v.Client
+	if base == nil {
+		base = &http.Client{Timeout: defaultTimeout}
 	}
-	return &http.Client{Timeout: defaultTimeout}
+	// A shallow copy keeps the caller's client untouched while replacing the
+	// redirect policy for this call only.
+	client := *base
+	client.CheckRedirect = httpsOnly(base.CheckRedirect)
+	return &client
+}
+
+// httpsOnly refuses a redirect to any scheme but https, then applies next, or
+// the standard limit of 10 redirects when next is nil. The default policy
+// follows an https to http redirect, so a token or a payload could travel in
+// clear text and the Authorization header could ride a downgrade.
+func httpsOnly(next func(*http.Request, []*http.Request) error) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if req.URL.Scheme != "https" {
+			return fmt.Errorf("refusing to follow a redirect to %s: only https redirects are allowed", req.URL.Host)
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
 }
 
 func (v *Verifier) publicKey() []byte {
@@ -290,6 +330,9 @@ type fetcher struct {
 	base  string
 	token string
 	blobs map[string][]byte
+	// attempted records every payload digest this call tried to fetch, so the
+	// cap counts requests even when a fetch fails.
+	attempted map[string]struct{}
 }
 
 // registryBase returns the distribution API base URL of a host/repo reference.
@@ -422,35 +465,53 @@ func (f *fetcher) manifest(ctx context.Context, ref string, accept, allowed []st
 	return data, nil
 }
 
+// blobWithinLimit reports whether 1 more distinct payload may be fetched, and
+// records the attempt.
+func (f *fetcher) blobWithinLimit(digest string) bool {
+	if _, ok := f.attempted[digest]; ok {
+		return true
+	}
+	if len(f.attempted) >= maxDistinctBlobs {
+		return false
+	}
+	if f.attempted == nil {
+		f.attempted = make(map[string]struct{})
+	}
+	f.attempted[digest] = struct{}{}
+	return true
+}
+
 // blob fetches a signature payload and requires it to match its declared size
 // and digest, so the bytes that are verified are the bytes the manifest names.
 func (f *fetcher) blob(ctx context.Context, digest string, size int64) ([]byte, error) {
-	if data, ok := f.blobs[digest]; ok {
-		return data, nil
+	data, cached := f.blobs[digest]
+	if !cached {
+		resp, err := f.get(ctx, f.base+"/blobs/"+digest, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return nil, statusError("get the blob "+digest, resp)
+		}
+		data, err = readLimited(resp.Body, size)
+		if err != nil {
+			return nil, fmt.Errorf("read the blob %s: %w", digest, err)
+		}
+		sum := sha256.Sum256(data)
+		if got := "sha256:" + hex.EncodeToString(sum[:]); got != digest {
+			return nil, fmt.Errorf("blob content is %s, not the declared %s", got, digest)
+		}
+		if f.blobs == nil {
+			f.blobs = make(map[string][]byte)
+		}
+		f.blobs[digest] = data
 	}
-	resp, err := f.get(ctx, f.base+"/blobs/"+digest, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, statusError("get the blob "+digest, resp)
-	}
-	data, err := readLimited(resp.Body, size)
-	if err != nil {
-		return nil, fmt.Errorf("read the blob %s: %w", digest, err)
-	}
+	// A cached payload still has to match this layer's declared size: 2 layers
+	// can name 1 digest with different sizes, and the size is part of the check.
 	if int64(len(data)) != size {
 		return nil, fmt.Errorf("blob %s is %d bytes, not the %d the manifest declares", digest, len(data), size)
 	}
-	sum := sha256.Sum256(data)
-	if got := "sha256:" + hex.EncodeToString(sum[:]); got != digest {
-		return nil, fmt.Errorf("blob content is %s, not the declared %s", got, digest)
-	}
-	if f.blobs == nil {
-		f.blobs = make(map[string][]byte)
-	}
-	f.blobs[digest] = data
 	return data, nil
 }
 

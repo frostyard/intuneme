@@ -31,13 +31,17 @@ var insidersInit bool
 var tmpDirInit string
 var skipSignatureInit bool
 
+// newInitRunner is the runner init uses. A test replaces it to prove that a
+// rejected image runs no host command.
+var newInitRunner = func() runner.Runner { return &runner.SystemRunner{} }
+
 var initUID = os.Getuid
 
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Provision the Intune nspawn container",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		r := &runner.SystemRunner{}
+		r := newInitRunner()
 		root := rootDir
 		if root == "" {
 			var err error
@@ -89,16 +93,6 @@ var initCmd = &cobra.Command{
 			return nil
 		}
 
-		// Create ~/Intune directory
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		intuneHome := filepath.Join(home, "Intune")
-		if err := os.MkdirAll(intuneHome, 0755); err != nil {
-			return fmt.Errorf("create ~/Intune: %w", err)
-		}
-
 		// Check if already initialized
 		if err := checkInitRootfs(root, cfg.RootfsPath, forceInit); err != nil {
 			return err
@@ -114,6 +108,16 @@ var initCmd = &cobra.Command{
 
 		if err := prepareInitRootfs(cmd.Context(), r, p, image, cfg.RootfsPath, tmpDirInit, skipSignatureInit, nil); err != nil {
 			return err
+		}
+
+		// Create ~/Intune. Only now, after the signature check passed, so a
+		// rejected image leaves a fresh host without a new directory.
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Join(home, "Intune"), 0755); err != nil {
+			return fmt.Errorf("create ~/Intune: %w", err)
 		}
 
 		if err := provision.ProvisionContainer(r, rep, cfg.RootfsPath, u.Username, os.Getuid(), os.Getgid(), containerHostname, cfg.MachineName); err != nil {

@@ -122,8 +122,13 @@ type registry struct {
 	digestHeader string
 	// realmScheme replaces the https scheme of the token realm.
 	realmScheme string
-	blobs       map[string][]byte
-	bearerSeen  bool
+	// blobRedirect makes every blob request answer a redirect to
+	// <scheme>://<host>/v2/<repo>/blobs/<digest>?copy=1. Empty means no redirect.
+	blobRedirect string
+	blobs        map[string][]byte
+	bearerSeen   bool
+	// blobsServed counts the blob responses that carried a body.
+	blobsServed int
 	// paths records the path of every request, so a test can prove the
 	// registry API was addressed under /v2/.
 	paths []string
@@ -180,11 +185,18 @@ func (reg *registry) start(t *testing.T) *httptest.Server {
 			}
 			_, _ = w.Write(reg.manifest)
 		case strings.HasPrefix(path, "/v2/"+testRepo+"/blobs/"):
-			body, ok := reg.blobs[path[strings.LastIndex(path, "/")+1:]]
+			digest := path[strings.LastIndex(path, "/")+1:]
+			if reg.blobRedirect != "" && r.URL.RawQuery == "" {
+				w.Header().Set("Location", fmt.Sprintf("%s://%s/v2/%s/blobs/%s?copy=1", reg.blobRedirect, r.Host, testRepo, digest))
+				w.WriteHeader(http.StatusTemporaryRedirect)
+				return
+			}
+			body, ok := reg.blobs[digest]
 			if !ok {
 				http.NotFound(w, r)
 				return
 			}
+			reg.blobsServed++
 			_, _ = w.Write(body)
 		default:
 			http.NotFound(w, r)
@@ -502,5 +514,97 @@ func TestDetailDedupesAndCaps(t *testing.T) {
 	}
 	if got := detail(nil); got != "" {
 		t.Errorf("detail(nil) = %q, want empty", got)
+	}
+}
+
+// TestVerifyRejectsCachedBlobSizeMismatch is the guard: 2 layers may name the
+// same payload digest with different sizes, and a cache hit must still match
+// the size the layer being checked declares.
+func TestVerifyRejectsCachedBlobSizeMismatch(t *testing.T) {
+	k, other := newTestKey(t), newTestKey(t)
+	reg := &registry{}
+	srv := reg.start(t)
+	body := payload(reg.digest(t), reg.repoRef())
+	bad := signedLayer(t, other, body)
+	// Layer 1 caches the payload and fails on its signature. Layer 2 names the
+	// same payload 1 byte shorter with a valid signature, so only the size check
+	// can reject it.
+	short := layer{digest: bad.digest, size: int64(len(body)) - 1, sig: k.sign(t, body)}
+	reg.blobs[bad.digest] = body
+	reg.sigBody = signatureManifest(t, bad, short)
+
+	_, err := reg.verify(t, srv, k)
+	if !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("error = %v, want ErrInvalidSignature", err)
+	}
+}
+
+func TestVerifyCancelledContext(t *testing.T) {
+	k := newTestKey(t)
+	reg := &registry{}
+	srv := reg.start(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	v := &Verifier{Client: srv.Client(), PublicKey: k.public}
+	_, err := v.Verify(ctx, reg.repoRef()+":"+testTag)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+}
+
+// TestVerifyCapsDistinctBlobs proves 1 signature manifest cannot make the check
+// fetch an unbounded number of payloads: past the cap every layer fails, even a
+// good one at the end.
+func TestVerifyCapsDistinctBlobs(t *testing.T) {
+	k := newTestKey(t)
+	reg := &registry{}
+	srv := reg.start(t)
+	layers := make([]layer, 0, maxDistinctBlobs+9)
+	for i := range maxDistinctBlobs + 8 {
+		// Each payload is distinct and names another digest, so every layer is a
+		// distinct payload that fails on its claim.
+		body := payload(fmt.Sprintf("sha256:%064x", i), reg.repoRef())
+		reg.blobs[sha256Digest(body)] = body
+		layers = append(layers, signedLayer(t, k, body))
+	}
+	good := payload(reg.digest(t), reg.repoRef())
+	reg.blobs[sha256Digest(good)] = good
+	layers = append(layers, signedLayer(t, k, good))
+	reg.sigBody = signatureManifest(t, layers...)
+
+	_, err := reg.verify(t, srv, k)
+	if !errors.Is(err, ErrInvalidSignature) {
+		t.Fatalf("error = %v, want ErrInvalidSignature", err)
+	}
+	if reg.blobsServed > maxDistinctBlobs {
+		t.Errorf("the registry served %d payloads, want at most %d", reg.blobsServed, maxDistinctBlobs)
+	}
+}
+
+func TestVerifyRejectsPlainTextBlobRedirect(t *testing.T) {
+	k := newTestKey(t)
+	reg := &registry{blobRedirect: "http"}
+	srv := reg.start(t)
+	reg.signWith(t, k, payload(reg.digest(t), reg.repoRef()))
+
+	_, err := reg.verify(t, srv, k)
+	if err == nil || !strings.Contains(err.Error(), "only https redirects are allowed") {
+		t.Fatalf("error = %v, want a refused downgrade", err)
+	}
+}
+
+func TestVerifyFollowsHTTPSBlobRedirect(t *testing.T) {
+	k := newTestKey(t)
+	reg := &registry{blobRedirect: "https"}
+	srv := reg.start(t)
+	reg.signWith(t, k, payload(reg.digest(t), reg.repoRef()))
+
+	got, err := reg.verify(t, srv, k)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if want := reg.repoRef() + "@" + reg.digest(t); got != want {
+		t.Errorf("Verify returned %q, want %q", got, want)
 	}
 }
