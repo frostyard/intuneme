@@ -61,6 +61,7 @@ nav:
       - Quick Start: getting-started/quick-start.md
   - User Guide:
       - Daily Workflow: user-guide/daily-workflow.md
+      - Experimental Himmelblau: user-guide/himmelblau.md
       - Broker Proxy (SSO): user-guide/broker-proxy.md
       - Desktop Notifications: user-guide/notifications.md
       - Screen Sharing: user-guide/screen-sharing.md

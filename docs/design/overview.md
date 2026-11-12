@@ -2,7 +2,7 @@
 
 ## Purpose
 
-intuneme is a Go CLI tool that provisions and manages a `systemd-nspawn` container running Microsoft Intune on immutable Linux hosts. It isolates Intune Portal, Microsoft Edge, and the Microsoft identity broker inside a container while providing transparent access to host display, audio, GPU, and USB devices via bind mounts and namespace forwarding.
+intuneme is a Go CLI tool that provisions and manages a `systemd-nspawn` identity container on immutable Linux hosts. The default Microsoft image isolates Intune Portal, Microsoft Edge, and the Microsoft identity broker; an opt-in experimental image uses Himmelblau's Entra authentication, broker, and compliance stack without bundling Edge or Intune Portal. Both modes can access host display, audio, GPU, and USB devices via bind mounts and namespace forwarding.
 
 The tool handles the full container lifecycle — init, start, stop, destroy, recreate — with minimal host modifications (a polkit rule, a sudoers rule, and udev rules while running). `destroy --all` performs a full uninstall of all artifacts.
 
@@ -27,10 +27,11 @@ internal/
 ├── sudoers/          Sudoers rule install/remove for passwordless nsenter
 ├── udev/             Udev rules + hotplug script for YubiKey and video devices
 └── version/          Build version + OCI image ref resolution
-ubuntu-intune/        Container image definition
-├── Containerfile     Multi-stage build (Ubuntu 24.04 base)
-├── build_files/      Build script (package install, PAM config, patches)
-└── system_files/     Static config files copied into image
+ubuntu-intune/        Microsoft Intune container image
+ubuntu-himmelblau/    Experimental Himmelblau alternative image
+ubuntu-himmelblau-terminal-passkey/  Pinned fork daemon/PAM variant
+├── Containerfile     Variant image build using shared Himmelblau image files
+└── build_files/      Build helper for the pinned fork daemon and PAM packages
 polkit/               Polkit rule reference for machinectl access (actual rule generated inline)
 scripts/              Build helpers (completions, manpages, SELinux, desktop item installer)
 site/                 MkDocs documentation site content (user-facing)
@@ -42,9 +43,9 @@ mkdocs.yml            MkDocs config (materialx theme, published to GitHub Pages)
 | Component | Role |
 |-----------|------|
 | **Go CLI** (`cmd/`, `internal/`) | Container lifecycle, host-specific setup (user creation, hostname, polkit, sudoers) |
-| **Container image** (`ubuntu-intune/`) | Static content: packages, systemd overrides, PAM config, Edge wrapper |
+| **Container images** (`ubuntu-intune/`, `ubuntu-himmelblau/`, `ubuntu-himmelblau-terminal-passkey/`) | Static content: packages, systemd overrides, PAM config; Edge wrapper is Microsoft-image-only |
 
-**Rule of thumb:** If something is static and doesn't depend on the host, it belongs in `ubuntu-intune/`. If it depends on the host user/UID/hostname, it stays in `internal/provision/`.
+**Rule of thumb:** If something is static and doesn't depend on the host, it belongs in the matching image directory. If it depends on the host user/UID/hostname or host runtime service, it stays in the Go CLI and `internal/`.
 
 ## Key Patterns
 
@@ -105,7 +106,8 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 
 | Type | Host Path | Container Path | Lifecycle |
 |------|-----------|----------------|-----------|
-| Home directory | `~/Intune` | `/home/<user>` | Persistent (survives recreate) |
+| Home directory | `~/Intune` | `/home/<host-user>` for both image families; Himmelblau maps that local account to an Entra UPN and aligns its primary group name to the username while preserving the GID | Persistent (survives recreate) |
+| Udev metadata | `/run/udev/data` | `/run/udev/data` | Read-only on Himmelblau starts when present; supplies host filesystem-type metadata to compliance checks |
 | X11 sockets | `/tmp/.X11-unix` | `/tmp/.X11-unix` | Always (see the tmpfiles note below) |
 | Wayland | `$WAYLAND_DISPLAY` (see search order below) | `/run/host-wayland` | Auto-detected on start |
 | PipeWire | `$XDG_RUNTIME_DIR/pipewire-0` | `/run/host-pipewire` | Auto-detected on start |
@@ -266,7 +268,7 @@ A SELinux failure stops `init` before it saves `config.toml` and before it print
 
 Container password is set via a bind-mounted temp file to avoid shell injection: the CLI writes `user:password` to a host temp file, bind-mounts it read-only as `/run/chpasswd-input`, and runs `chpasswd < /run/chpasswd-input` inside the container via `systemd-nspawn`.
 
-Password validation (both CLI-side and container PAM): minimum 12 chars, at least one digit, uppercase, lowercase, and special character, no username substring.
+`init` sets a non-empty local password for interactive container login. intuneme and both image families enforce no password-quality rules; recommend a strong password to protect interactive access to the container.
 
 ### Session Setup (shared between login and launch paths)
 
@@ -361,6 +363,11 @@ not merely be exported: the broker is D-Bus activated, so a plain `export`
 never reaches it. `TestSessionSetupPropagatesWebKitWorkaround` guards exactly
 that distinction.
 
+The same propagation list includes `HOME`. In Himmelblau mode the Entra UPN's
+NSS home is mounted at `~/Intune`; importing that `HOME` into the user manager
+and D-Bus activation environment ensures the activated broker uses the same
+persistent home as GUI applications.
+
 ### State Preservation Across Recreate
 
 `recreate` updates the container image while preserving enrollment:
@@ -411,22 +418,72 @@ All shell commands go through the `runner.Runner` interface (`internal/runner/`)
 
 ### OCI Image Resolution
 
-`version.ImageRef()` resolves the container image tag from the build version:
-- Insiders channel → `ghcr.io/frostyard/ubuntu-intune:insiders`
-- Clean semver (e.g., v1.2.3) → `ghcr.io/frostyard/ubuntu-intune:v1.2.3`
-- Dev builds → `ghcr.io/frostyard/ubuntu-intune:latest`
+`version.ImageRef()` resolves the image family from `config.toml` and the tag from the build version:
+- Default Microsoft image, insiders → `ghcr.io/frostyard/ubuntu-intune:insiders`
+- Default Microsoft image, clean semver (e.g., v1.2.3) → `ghcr.io/frostyard/ubuntu-intune:v1.2.3`
+- Default Microsoft image, dev builds → `ghcr.io/frostyard/ubuntu-intune:latest`
+- Experimental Himmelblau image → matching tags under `ghcr.io/frostyard/ubuntu-himmelblau`; it tracks the upstream community-nightly package repository and rejects `--insiders`.
+- Terminal-passkey Himmelblau variant → local-build-only image supplied with `--himmelblau-local-image`; it builds the daemon and PAM module from the [source pin](../../internal/version/himmelblau_terminal_passkey_source.txt), rebased onto official upstream and including the cached-PRT fallback and durable decoupled-Hello PRT renewal.
+
+The terminal-passkey `build-local-image` helper targets the unchunked builder
+stage and can load it with Docker Buildx (`--load`), Podman, or Buildah. The
+variant is local-build-only and is not published by the hosted image workflow.
+
+Both registered and decoupled Hello-key cached-PRT validation share the
+Edge-to-default-client retry. The decoupled path previously escalated
+`AADSTS530003` into fresh MFA immediately after PIN creation, although initial
+enrollment succeeded through the default client. The retry remains an online
+authorization check; consent and network handling are unchanged, and failed
+retries reach the existing denial/reauthentication paths. See the
+[image contract](../specs/container-image.md#terminal-passkey-variant-ubuntu-himmelblau-terminal-passkey).
+
+Online PAM PIN authentication and broker PIN unlock renew decoupled-Hello PRTs
+after four hours, or when their renewal age is unknown after a cold start.
+The replacement must be resealed with the unlocked Hello key and persisted
+before use; storage failures fail the operation. Unlock also saves newer
+in-memory PRTs without resetting their renewal age. Background-only renewals
+remain in memory until a PIN unlock, because neither the PIN nor the unlocked
+key is retained. Entra revocation and authentication-freshness policies remain
+authoritative; this change does not guarantee prompt-free access indefinitely.
+
+The image family and Himmelblau variant are selected only during `init` and
+stored as `himmelblau` and `himmelblau_terminal_passkey` in `config.toml`.
+`recreate` preserves both the selection and enrollment state; changing either
+requires destroy and a new init. Himmelblau enrollment is PAM-driven, not an
+`aad-tool join` command. `intuneme enroll --user <UPN>` writes `host_user:UPN`
+to `/etc/himmelblau/user-map`. If stopped, it uses the normal start flow so
+the daemon loads the map at initial boot; if running with a new mapping, it
+reboots and then starts PAM login as the existing local account. It verifies
+that the local account is removed from the PAM bypass allowlist before login
+and still has the host UID after login. Rebooting a running container closes
+apps and shells. In systemd-nspawn, in-place restart/reload of `himmelblaud`
+leaves its socket units inactive, so do not use those in place of reboot.
+intuneme keeps using that local username for login and app launch, preserving
+its UID, GID, groups, and `~/Intune` home.
+
+Only the terminal-passkey variant uses the unmerged fork PAM package. When
+`enable_passwordless_qr_bluetooth = true` (the intuneme default), enrollment
+runs host `xdg-dbus-proxy` and exposes only `org.bluez` through a directory
+bound read-only by `start` at boot; the container's system bus is not replaced or
+connected to the host's full system bus. The proxy is stopped when the PAM
+attempt ends. This requires host `xdg-dbus-proxy`, an active BlueZ service, and
+an adapter visible to BlueZ. The QR flow may still ask for the Entra password
+before the passkey challenge. Set the option to `false` in `[global]` to opt
+out.
 
 ### Image Pull Strategy
 
 The puller detects available tools in order: podman → skopeo+umoci → docker. Each implements the `Puller` interface with `PullAndExtract()` to download the OCI image and extract the rootfs.
 
-### Edge Wrapper
+### Edge Wrapper (Microsoft image only)
 
 The container ships `/usr/local/bin/microsoft-edge` which wraps the real binary:
 - Always adds `--disable-gpu-sandbox` (nspawn cannot create nested user namespaces; renderer sandbox stays active)
 - The image ships `/etc/opt/edge/policies/managed/intuneme-command-line-flags.json`; `provision.InstallSessionScripts` reinstalls it on every `intuneme start`, so existing containers receive it with no recreate
 - The flag stays because the GPU process sandbox crashes inside nspawn with `SIGTRAP`: it tries to create a user namespace (`CLONE_NEWUSER`), which nspawn restricts, and Chromium crashes before it can fall back to software rendering. The GPU process stays unsandboxed as before, and the policy also hides the banner for any other unsafe flag that a user adds
 - When `WAYLAND_DISPLAY` is set: unsets `DISPLAY`, adds `--enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland`
+
+The Himmelblau images do not install Microsoft Edge or copy this wrapper.
 
 ### GNOME Shell Extension
 
@@ -453,6 +510,36 @@ Single TOML file at `~/.local/share/intuneme/config.toml`:
 | `insiders` | bool | Use insiders channel image |
 | `hostname` | string | Container host name; unset means `<host hostname>LXC` (validated by `config.ValidateHostname`, RFC 1123, max 64 characters; used by `init` and `recreate` only) |
 | `product_name` | string | Optional PC model override; unset changes nothing. Printable ASCII, 1–64 bytes, no surrounding spaces; validated at use by `start`, applied at cold boot through a read-only DMI bind |
+| `himmelblau` | bool | Use the experimental `ubuntu-himmelblau` image instead of the Microsoft default |
+| `himmelblau_terminal_passkey` | bool | Use the fork-based `ubuntu-himmelblau-terminal-passkey` variant; requires `himmelblau = true` |
+| `himmelblau_terminal_passkey_source` | string | Source commit recorded from the image marker; checked on boot/enroll and refreshed from a rebuilt local image during `recreate` |
+| `himmelblau_upn` | string | Entra UPN mapped to the host-matched local account by `intuneme enroll` after explicit `machine-shell` PAM authentication succeeds |
+
+For Himmelblau mode, the full INI-style configuration is kept separately at
+`<root>/himmelblau.conf`, not in `config.toml`; it is seeded from the package's
+commented defaults, can be edited any time with `intuneme edit --himmelblau`,
+and is reapplied before each container boot and after `recreate`. Intuneme
+validates its required global settings using Himmelblau's INI semantics and
+leaves unrelated options to Himmelblau. DynamicUser state is backed up from
+public paths and restored under systemd's private backing paths, with public
+relative links installed before the root HSM initializer runs. Recreate
+preserves `/var/lib/systemd/credential.secret` and `/etc/machine-id` together:
+systemd deletes a credential key bound to a different machine ID. Incomplete
+identity backups or conflicting state directories fail before rootfs deletion.
+Both identity copies are verified byte-for-byte, and the sensitive backup is
+retained at the reported path until the user confirms normal PIN login after
+boot. See [Container Lifecycle](container-lifecycle.md#intuneme-recreate).
+Stopped
+container enrollment writes the map before boot; enrollment on a running
+container reboots so the daemon reloads it. The terminal-passkey variant uses
+a PAM-time filtered BlueZ proxy and is local-build-only.
+
+The `runtime/himmelblau-bluez/` directory is host-user-owned and mode `0700`.
+For terminal-passkey images, `start` binds it read-only at
+`/run/intuneme/bluez-proxy`, without starting a proxy. Enrollment verifies the
+mount using the scoped exec helper and reports a stop/start requirement if
+it is absent. Its socket is removed after each PAM attempt. The MCP-only
+runtime bind helper is unchanged; see [ADR-0005](../adr/0005-bind-bluez-at-boot.md).
 
 The `--root` persistent flag overrides the default data directory (`~/.local/share/intuneme`). `config.DefaultRoot()` returns `(string, error)` — it propagates `os.UserHomeDir()` errors rather than silently producing a relative path, preventing accidental destructive operations (e.g., `sudo rm -rf` on a relative path) when `$HOME` is unset.
 

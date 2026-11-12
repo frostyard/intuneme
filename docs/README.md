@@ -21,6 +21,7 @@ is a separate change.
 Outside this tree: [`AGENTS.md`](../AGENTS.md) holds the rules for agents,
 and [`.memory/corrections.jsonl`](../.memory/corrections.jsonl) is the
 append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
+The root [GLOSSARY](../GLOSSARY.md) defines domain terms.
 
 ## Index
 
@@ -30,6 +31,7 @@ append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
 - [0002 — Pin machine operations and scope shell authorization](adr/0002-pin-machine-operations-and-scope-shell-authorization.md)
 - [0003 — Record problems with std/problems](adr/0003-record-problems-with-std-problems.md)
 - [0004 — Adopt the frostyard repository baseline](adr/0004-adopt-the-repository-baseline.md)
+- [0005 — Bind the filtered BlueZ directory at boot](adr/0005-bind-bluez-at-boot.md)
 - Org-wide decisions: [org-adrs.md](org-adrs.md)
 
 ### Design
@@ -53,8 +55,9 @@ append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
 ### Specs
 
 - [Container Image](specs/container-image.md) — exact contents of the
-  `ghcr.io/frostyard/ubuntu-intune` image: build stages, package set, static
-  config, tag scheme
+  Microsoft `ubuntu-intune` image and experimental `ubuntu-himmelblau`
+  alternatives (including terminal-passkey variant): build stages, package
+  sets, static config, tag scheme
 
 ### Plans
 

@@ -22,6 +22,12 @@ The location can be overridden with the `--root` flag on any command. If you use
 | `notify_proxy` | bool | `false` | Forward desktop notifications from the container to the host. When `true`, `intuneme start` runs a proxy so web notifications from the container's Edge, such as Outlook mail and calendar reminders, show on the host desktop. See [Desktop Notifications](../user-guide/notifications.md). |
 | `screencast_proxy` | bool | `false` | Let apps in the container share host screens and windows. When `true`, `intuneme start` runs a proxy that forwards screen sharing requests from the container's Edge to the host's portal. See [Screen Sharing](../user-guide/screen-sharing.md). |
 | `insiders` | bool | `false` | Use the insiders channel container image (`ghcr.io/frostyard/ubuntu-intune:insiders`) instead of the stable release. Set at init time with `--insiders`. `intuneme recreate` keeps it, and changes it only when `--insiders` or `--insiders=false` is given. |
+| `himmelblau` | bool | `false` | Select the experimental Himmelblau image at init; cannot switch image families during recreate. |
+| `himmelblau_terminal_passkey` | bool | `false` | Local-build terminal-passkey variant, detected from its image marker. |
+| `himmelblau_terminal_passkey_source` | string | _(unset)_ | Exact source commit from the local image marker, verified at start and enrollment. |
+| `himmelblau_domain` | string | _(unset)_ | Entra sign-in domain selected at init. |
+| `himmelblau_local_image` | string | _(unset)_ | Local `localhost/...` image used by init and recreate. |
+| `himmelblau_upn` | string | _(unset)_ | UPN saved only after explicit PAM enrollment succeeds. See [Himmelblau](../user-guide/himmelblau.md). |
 | `mcp_binary` | string | _(unset)_ | Host path to a self-contained MCP server binary that `intuneme mcp` runs inside the container. Any MCP server works; there is no built-in default. The binary's directory is bind-mounted into the container at runtime, so it stays out of the rootfs and survives `recreate`. Override per-invocation with `intuneme mcp --binary`. See [MCP Servers](../user-guide/mcp-servers.md). |
 | `mcp_args` | array of strings | _(empty)_ | Default arguments passed to the MCP server binary by `intuneme mcp`. For a server whose stdio mode is a subcommand, set e.g. `mcp_args = ["mcp"]` so the VS Code config can be just `["mcp"]`. Trailing `intuneme mcp -- args...` override these. |
 | `hostname` | string | `<host hostname>LXC` | Container host name written to the container's `/etc/hostname` by `intuneme init` and `intuneme recreate`. It becomes the device name in Intune. The value must be a valid RFC 1123 host name of at most 64 characters. Leave it unset for the default. See [Container hostname](#container-hostname). |
@@ -40,6 +46,12 @@ broker_proxy = false
 notify_proxy = false
 screencast_proxy = false
 insiders = false
+himmelblau = false
+himmelblau_terminal_passkey = false
+himmelblau_terminal_passkey_source = ""
+himmelblau_domain = ""
+himmelblau_local_image = ""
+himmelblau_upn = ""
 mcp_binary = ""
 mcp_args = []
 ```

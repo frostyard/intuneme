@@ -6,17 +6,17 @@ Detailed flows for each lifecycle command. All commands share the `--root` flag 
 
 One-time provisioning that creates the container from scratch.
 
-**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use insiders channel), `--tmp-dir` (temp directory for image extraction)
+**Flags:** `--force` (reinit), `--password-file` (read password from file), `--insiders` (use Microsoft insiders channel), `--himmelblau` (experimental alternative image), `--himmelblau-terminal-passkey` (optional assertion for the local-build terminal QR variant; requires `--himmelblau` and `--himmelblau-local-image`), `--himmelblau-local-image` (locally built Himmelblau image), `--tmp-dir` (temp directory for image extraction)
 
 **Steps:**
 
 1. **Check prerequisites** — Verify `systemd-nspawn` and `machinectl` are available (`prereq.Check()`)
 2. **Create home bind mount** — `mkdir ~/Intune`
-3. **Pull OCI image** — Auto-detect puller (podman → skopeo+umoci → docker), pull from `ghcr.io/frostyard/ubuntu-intune:<tag>`
+3. **Pull OCI image** — Auto-detect puller (podman → skopeo+umoci → docker); select the Microsoft or standard Himmelblau registry image with `version.ImageRef`, or use the explicit local Himmelblau image.
 4. **Prepare and extract rootfs** — `prepareInitRootfs` creates `~/.local/share/intuneme/rootfs/` and explicitly sets its mode to `0755`, independent of the caller's umask. Initial `Lstat` metadata determines ownership of preparation: an absent target or an empty directory owned by the running UID gets the initial user `chmod` and counts as new for failure cleanup. An empty directory of another owner is accepted but gets no initial user `chmod` and is never removed; post-extraction reconciliation fixes its metadata. A non-empty directory or a symlink still requires `--force`, which extracts over it. A directory that cannot be read because of permissions counts as an existing installation, so `--force` can proceed. When `config.toml` is missing, the error calls the installation incomplete. After extraction, assert with `puller.VerifyRootOwned()` that `rootfs/etc/passwd` is owned by `0:0`, then call `puller.ReconcileRootfs()` to set the directory itself to owner `0:0` and mode `0755`. Reconciliation resolves a symlinked path, `Lstat`s the resolved directory, and runs `sudo chown` or `sudo chmod` only when needed. If directory setup, extraction, verification or reconciliation fails, remove only a directory absent before this run or an accepted empty leftover owned by the running UID, never a symlink or a pre-existing directory of another owner. Try `os.Remove` first; only `ENOTEMPTY` or `EEXIST` permits the `sudo rm -rf` fallback for a partial extraction. Any other removal error only warns. Never remove a pre-existing non-empty `--force` or custom rootfs target. A cleanup failure warns without replacing the original error.
 5. **Configure GPU access** — Detect host render group GID, create matching group in container via `EnsureRenderGroup()` (resolves GID conflicts by reassigning the conflicting group to a free system GID 999–100), add user to it
 6. **Create container user** — Match host UID/GID. Handles three cases: (a) rename existing user with same UID (e.g., `ubuntu` from OCI base) via `usermod --login --move-home`, (b) create new user with `useradd`, (c) update existing user's groups with `usermod --append`
-7. **Set password** — Validate locally (12+ chars, at least one digit/uppercase/lowercase/special char, no username substring), then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection)
+7. **Set password** — Require a non-empty local password, then pass via bind-mounted read-only temp file to `chpasswd` inside the container (avoids shell injection). A strong password is recommended.
 8. **Write fixups** — the container host name to `/etc/hostname` and `/etc/hosts` (default `<hostname>LXC`, or the `hostname` key value, checked by `config.ValidateHostname` before any container work), session scripts (`/usr/local/bin/intuneme-session-setup` + `profile.d/intuneme.sh` that sources it, via `provision.InstallSessionScripts`), `fix-home-ownership.service` (oneshot unit to chown home dir), container-side sudoers at `/etc/sudoers.d/intuneme` (a comment-only file with no grants; interactive sudo still requires the container password)
 9. **Install polkit rule** — `50-intuneme.rules` grants only the configured caller UID a shell as the configured non-root user in the configured machine
 10. **Install sudoers rule + helper**: root-owned helper binary at `/usr/local/libexec/intuneme/nsenter-exec` (`0755`), its root-owned config at `nsenter-exec.toml` (`0644`), and `/etc/sudoers.d/intuneme-exec` granting passwordless sudo for that single wildcard-free path (validated with `visudo -c`). The config bakes the machine name, user, numeric UID/GID, home, and rootfs. The helper resolves and validates the container leader itself and drops to the numeric UID before executing the script, so the caller cannot supply a PID or influence the target UID. The helper indirection is required by sudo-rs, which rejects wildcards in command arguments (issue #168).
@@ -33,6 +33,122 @@ no `/usr/sbin` and no `/usr/bin`; `init` then dies with
 `execv(groupmod) failed: No such file or directory`. A new provisioning exec
 must use `containerExec` rather than calling `systemd-nspawn` directly —
 `TestProvisioningNspawnCommandsSetPATH` fails otherwise.
+
+### Experimental Himmelblau image
+
+`intuneme init --himmelblau` selects a separate Ubuntu 26.04 image with Himmelblau's PAM/NSS, broker, and compliance packages. It deliberately omits Microsoft's `intune-portal` and `microsoft-identity-broker`; it uses the signed community-nightly package repository and is not upstream-validated under systemd-nspawn.
+
+During Himmelblau init and recreate, intuneme aligns the primary group's name
+with the local username (for example, `alice:alice`) without changing its GID. This
+avoids the common user-map resolver collision where a differently named local
+group contributes a GID equal to the mapped user's UID. The Microsoft image is
+unchanged. Existing Himmelblau containers need `recreate` for this rootfs
+provisioning change.
+
+Init verifies that the extracted image contains executable
+`/usr/bin/pamtester`, required for fail-closed authentication in `enroll`.
+The Himmelblau image build also asserts this dependency after package
+installation. For an initialized local-image installation, rebuild the local
+tag and run `recreate` followed by `start` to replace the existing rootfs.
+
+The packaged, commented configuration at
+`/usr/lib/himmelblau/himmelblau.conf` is the baseline for
+`/etc/himmelblau/himmelblau.conf`. Init sets the configured domain,
+`cn_name_mapping = false`, and `user_map_file = /etc/himmelblau/user-map`
+without dropping the package comments. `intuneme edit --himmelblau` opens this
+effective file in `$VISUAL` or `$EDITOR`; in a graphical session it uses
+`xdg-open` and the host's default text application, otherwise it searches
+`sensible-editor`, `editor`, `micro`, `nano`, `nvim`, `vim`, and `vi`. The
+desktop path prompts for Enter after the user saves and closes the app. Use
+the command during setup or later to change Himmelblau settings. The saved host copy at
+`<root>/himmelblau.conf` is the durable source of truth, is installed on every
+container boot and after `recreate`, and is removed by `destroy`. Users can edit
+that host copy directly; stop and start the container to apply changes.
+Himmelblau reads this INI-style key/value config, not TOML.
+Intuneme checks the three required mapping settings using that syntax and
+leaves unrelated options to Himmelblau's parser; it also reads the QR flag to
+prepare host Bluetooth access during enrollment. It defaults
+`global.apply_policy = true` over the package baseline and when a saved config
+omits or comments out the setting. This applies to existing saved configs when
+`start` or `recreate` installs them. An explicit `apply_policy = false`
+remains an opt-out. This enables Himmelblau's Intune device enrollment and
+policy application.
+Intuneme also defaults `global.enable_passwordless_qr_bluetooth = true` in
+fresh configs and inserts it into saved configs when absent or commented; an
+explicit `false` remains an opt-out. Only the terminal-passkey image supports
+the terminal QR handler, and enrollment uses host BlueZ through the filtered
+proxy described below.
+Before opening the editor, `PrepareHimmelblauConfig` rewrites those required
+settings in the temporary file, so prior installations with an unquoted
+`user_map_file` path are repaired without losing the user's other options.
+This outside-the-rootfs persistence is the reason custom options survive image
+replacement. Intuneme validates only the mapping settings it owns using
+Himmelblau's INI semantics and leaves unrelated values to Himmelblau.
+Stopped-container enrollment boots with a new user map; enrollment on a
+running container reboots so the daemon loads the map.
+
+## `intuneme edit`
+
+`intuneme edit --himmelblau` opens the active or saved Himmelblau config in the
+user's editor. It requires an initialized Himmelblau installation and an
+interactive terminal. The command validates and saves the result at
+`<root>/himmelblau.conf`; it does not change a running daemon's live config.
+Stop and start the container to apply edits. Invalid files can be edited and
+repaired, but only a valid file with intuneme's required mapping settings is
+saved.
+
+Himmelblau enrolls during PAM authentication. After `init`, run `intuneme enroll --user user@example.com` from a terminal; the container may be stopped or running. The command verifies the image has `pamtester`, then writes a `host_user:UPN` mapping to `/etc/himmelblau/user-map`. If stopped, it runs the normal `start` flow to boot with the new map. If already running with a new mapping, it reboots so the daemon loads it; this closes running apps and shells. If already mapped, it keeps the container running and checks that the services are ready. It then removes the local username from the `machine-shell` PAM allowlist and invokes that fail-closed PAM authentication service directly with `pamtester`; a successful `machinectl shell` connection by itself does not authenticate the user. Only after PAM succeeds does intuneme open the usual local shell. In systemd-nspawn, restarting or reloading `himmelblaud` in place leaves socket activation broken, so the running-container path requires reboot. After the user exits the shell, intuneme verifies that the existing local account still has the host-matched UID and saves the UPN; the Entra session does not create a second Unix account. No RFC2307 UID attribute is required.
+
+The standard `ubuntu-himmelblau` image uses upstream's signed nightly PAM
+module, whose QR/Bluetooth terminal handler is GDM-gated. The explicit
+`ubuntu-himmelblau-terminal-passkey` variant builds the daemon and
+`pam-himmelblau` from the pinned fork and supports local terminal PAM
+conversations. Its pinned fork commit includes the cached-PRT client fallback;
+intuneme applies no source patches. The standard image continues to use signed
+upstream packages.
+For a locally built image, init detects the embedded source marker and records
+its commit; a caller needs only the existing `--himmelblau-local-image` flag.
+The option defaults to true; when enabled in this variant's effective config,
+`enroll` starts host
+`xdg-dbus-proxy` and filters the host system bus to `org.bluez`.
+`start` prepares and binds only that directory read-only at
+`/run/intuneme/bluez-proxy` during authenticated boot for terminal-passkey
+images; no proxy starts at boot. Enrollment checks the bind and reports a
+stop/start requirement if absent. It never uses the MCP-only runtime bind
+helper for BlueZ ([ADR-0005](../adr/0005-bind-bluez-at-boot.md)). It sets
+`DBUS_SYSTEM_BUS_ADDRESS` only for the foreground `pamtester` process and stops
+the proxy after the PAM attempt; it never exposes the host system bus socket to
+container services. This requires an active host BlueZ service and an adapter,
+and it is only supported from an interactive terminal. The QR step may follow
+an Entra password prompt, depending on the account and tenant policy; enabling
+`enable_passwordless_qr_bluetooth` does not skip earlier authentication steps.
+
+`user-map` reuses the host-matched local account, so `~/Intune` and its existing UID/GID/groups remain authoritative. The Entra UPN therefore inherits the same local sudo and host authority; nspawn does not isolate container root from host root. There is no TPM device passthrough; Himmelblau's default TPM policy can fall back to software TPM. Broker D-Bus activation, compliance behavior, and device enrollment inside nspawn remain experimental. See the user-facing [Himmelblau guide](../../site/user-guide/himmelblau.md).
+
+## `intuneme enroll`
+
+Interactive first-login enrollment for the experimental Himmelblau image.
+
+**Usage:** `intuneme enroll --user user@example.com` (or omit `--user` to prompt in a terminal)
+
+**Flow:**
+
+1. Verify the container is initialized in Himmelblau mode and the image contains executable `/usr/bin/pamtester`; the container itself may be stopped
+2. Validate the UPN, authenticate host sudo and refresh the scoped security artifacts, then write the local username to Entra UPN map at `/etc/himmelblau/user-map`
+3. If stopped, boot through `intuneme start` with the map already written. If running with a new mapping, reboot and wait for `himmelblaud`, `himmelblau-tasks`, and their sockets; the daemon snapshots its name-reservation list at startup. If already mapped and running, wait for those services without rebooting.
+4. Restrict the `machine-shell` PAM allowlist to root and verify the mapped local username is not bypassed
+5. Run `/usr/bin/pamtester machine-shell <host-user> authenticate` through the foreground nsenter helper as the host-matched local user; this invokes Himmelblau for the mapped identity and preserves the helper's real exit status
+6. Only after PAM succeeds, open the normal local-user shell. When it exits, verify the local account retains the host UID, persist the UPN, enable linger, and wait for the session bus
+
+`machinectl shell` is polkit-authorized and can open a shell without authenticating the user; it also reports success when the remote command fails, so it must not be used for the PAM check. The foreground nsenter helper preserves `pamtester`'s real status, including Ctrl-C. Do not replace the explicit PAM call with `su`: the general `su` stack permits local Unix-password fallback.
+
+The root-owned app-launch helper continues to run as the local host-matched username. The user map makes PAM/NSS associate that local identity with the Entra account; `start` reinstalls the user map and corresponding PAM allowlist from config before boot.
+
+Enrollment's reboot uses authenticated `sudo machinectl reboot`. Service
+readiness uses `sudo systemd-run --machine --wait --pipe`, not an authorized
+root `machinectl shell`. Linger reuses `enableUserLinger`; PAM, NSS identity
+verification and runtime-bind probes use the numeric-user exec helper with
+no caller-supplied PID. No passwordless container sudo is restored.
 
 ### Extraction must produce a root-owned rootfs
 
@@ -93,6 +209,15 @@ Boots the container and sets up runtime environment.
     - Wait for session bus socket to appear
 19. **Start proxies** (each if enabled) — `startProxy()` launches `intuneme broker-proxy`, `intuneme notify-proxy` and `intuneme screencast-proxy` as background processes with `setsid`, then polls each PID file (up to 5 seconds). The notify and screencast proxies must own their names before Edge starts, because Chromium looks for a notification server and checks the portal only at browser startup
 
+Himmelblau-specific boot preparation occurs after the dry-run return: verify
+the terminal-passkey image marker, prepare its private BlueZ directory bind,
+add a read-only host udev database bind when available, and install the
+effective config, user map and PAM allowlist. Upstream security reconciliation
+still runs before the already-running return and before boot. After linger,
+an enrolled Himmelblau user gets session setup through the scoped exec
+helper. Proxy-enabled Himmelblau starts use linger's bus directly rather than
+opening an unattended PAM login shell.
+
 ## `intuneme stop`
 
 Graceful shutdown via `runStop()` (shared between `stop` command and internal use).
@@ -136,9 +261,9 @@ Removes container and host modifications. By default preserves user files in `~/
 
 ## `intuneme recreate`
 
-Updates the container image while preserving enrollment. Can switch channels.
+Updates the selected container image while preserving its enrollment state. The image family cannot be switched with `recreate`.
 
-**Flags:** `--insiders` (switch to insiders channel), `--tmp-dir` (temp directory for image extraction)
+**Flags:** `--insiders` (switch Microsoft image to insiders; unavailable for Himmelblau), `--tmp-dir` (temp directory for image extraction)
 
 **Flow:**
 
@@ -146,16 +271,39 @@ Updates the container image while preserving enrollment. Can switch channels.
 2. **Stop container** if running — stops broker proxy first (if enabled), then `nspawn.StopAndWait()`
 3. **Backup state:**
    - Password hash from container's `rootfs/etc/shadow` (`provision.BackupShadowEntry()`)
-   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` to temp dir (`provision.BackupDeviceBrokerState()`)
+   - Device broker state from `rootfs/var/lib/microsoft-identity-device-broker` for Microsoft mode, or Himmelblau daemon, policy, and NSS state under `/var/lib` and `/var/cache` for Himmelblau mode. The daemon's `DynamicUser` state restores under `/var/lib/private/himmelblaud` and `/var/cache/private/himmelblaud`, with root-owned `0700` private parents and relative public links to `private/himmelblaud`. The root HSM initializer has `StateDirectory=himmelblaud` too: without the public link it creates a second state directory and new PIN before DynamicUser runs. Backup rejects simultaneous real public/private directories rather than choosing one and losing the other. Protected HSM PIN inspection retries through `sudo` when the host user cannot traverse private state.
+   - If `/var/lib/systemd/credential.secret` exists, preserve `/etc/machine-id` with it. Require a regular, initialized, nonzero 32-digit hexadecimal machine ID and verify both staged copies byte-for-byte. An encrypted PIN without its key, or a key without its machine ID, fails before rootfs deletion. systemd embeds the machine identity in its host credential key and deletes a restored key if the fresh image has a different machine ID.
 4. **Delete old rootfs** — `sudo rm -rf`
 5. **Pull and extract new image** — Same as init step (channel can be switched via `--insiders` flag)
 6. **Re-provision** — GPU render group, user creation, host name (default `<host>LXC`, or the `hostname` key value), fixups, polkit rule
 7. **Restore state:**
    - Write backed-up password hash into new `rootfs/etc/shadow`
    - Copy backed-up device broker state back into `rootfs/var/lib/microsoft-identity-device-broker`
-8. **Update config** — Save with potentially new insiders flag
+   - For Himmelblau, restore daemon/policy/NSS state, public links, `credential.secret`, and `machine-id`; verify both identity files are regular and byte-for-byte equal to the staged copies. Reject conflicting destination public paths instead of overwriting them.
+8. **Update config** — Save the selected channel while retaining the initialized image family
 
 Note: `recreate` reinstalls the host polkit rule but does NOT reinstall the host sudoers rule — `start` handles that idempotently.
+
+For Himmelblau, `recreate` refuses before deleting the rootfs if the encrypted
+HSM PIN exists but its systemd credential key is missing. That credential
+cannot be copied to the fresh image in a usable state; see [the recovery
+procedure](../../site/troubleshooting.md#himmelblau-fails-with-failed-to-determine-local-credential-key).
+If an incomplete staged backup or failed destination-key verification is
+detected during restore, `recreate` returns an error and retains the backup
+instead of reporting success. Even successful Himmelblau restores retain the
+sensitive `/tmp/intuneme-himmelblau-backup-*` directory and report its path:
+recreate does not boot the container, so preboot verification alone cannot
+prove the credential survives startup. Keep that backup until normal online
+PIN authentication succeeds, then remove that exact reported directory with
+appropriate privilege. `/tmp` may be cleared on host reboot; move the backup
+to protected persistent storage first if recovery is still pending.
+
+`TestHimmelblauRecreatePreservesCredentialIdentityAndPublicLinks` exercises the
+real filesystem copy boundary for both legacy public directories and
+DynamicUser private state, including replacement of a fresh image's machine
+ID and access to the restored PIN through the initializer's public path.
+Additional backup/restore tests cover missing or invalid IDs, failed/mismatched
+copies, conflicting layouts, and protected state inspection.
 
 `machinectl poweroff` only signals the container's init and returns
 immediately, so `systemd-nspawn` is still unwinding the rootfs (its `/sys`,
@@ -180,7 +328,7 @@ Supports `--json` for machine-readable output via `clix.OutputJSON()`.
 
 Opens an interactive bash login shell inside the container.
 
-Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sources `/etc/profile.d/intuneme.sh`, which in turn sources the shared `/usr/local/bin/intuneme-session-setup` to set up DISPLAY, audio, the D-Bus activation environment, and the keyring.
+Uses `machinectl shell <user>@<machine> /bin/bash --login` for the ordinary host-matched container user. The login shell sources `/etc/profile.d/intuneme.sh`, which in turn sources the shared `/usr/local/bin/intuneme-session-setup` to set up DISPLAY, audio, the D-Bus activation environment, and the keyring.
 
 ## `intuneme open edge` / `intuneme open portal`
 
@@ -235,7 +383,7 @@ Installs the GNOME Shell Quick Settings extension for managing the container fro
 2. Install polkit policy to `/etc/polkit-1/actions/org.frostyard.intuneme.policy` (requires sudo)
 3. Enable extension via `gnome-extensions enable`
 
-The extension provides a Quick Settings toggle (start/stop), status display, and shortcuts for shell, Edge, and Intune Portal. It monitors container state via systemd-machined D-Bus signals with a 5-second polling fallback.
+The extension provides a Quick Settings toggle (start/stop), status display, and shortcuts for shell, Edge, and identity sign-in. The sign-in action opens Intune Portal in the Microsoft image and runs `intuneme enroll` (explicit Himmelblau PAM authentication followed by the local shell) in the experimental image. It monitors container state via systemd-machined D-Bus signals with a 5-second polling fallback.
 
 ## `intuneme broker-proxy`
 

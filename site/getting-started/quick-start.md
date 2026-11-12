@@ -10,6 +10,9 @@ intuneme init
 
 This pulls the Ubuntu 24.04 container image, which already contains Microsoft Edge and Intune Portal, from GHCR, extracts the rootfs, creates a container user matching your host UID, and writes the configuration file. It also installs a polkit rule so you can open an interactive shell in the container without repeated password prompts; host shells and broad machine management are not granted.
 
+Setup accepts any non-empty local container password. Use a strong one to
+protect interactive access; passwordless container sudo is not granted.
+
 If image preparation fails, `init` removes a new rootfs directory, or a previously empty rootfs directory owned by your user, so you can retry without `--force`. It accepts an empty directory owned by another user but never changes its mode before extraction or removes it on failure. A partial extraction needs sudo for cleanup. If cleanup fails, a warning shows the error. A pre-existing non-empty rootfs is never removed on init failure and still requires `--force` to extract over it. The rootfs directory mode is explicitly `0755` and its owner is `root:root`, even with a restrictive host umask.
 
 See the [init command reference](../reference/cli/intuneme_init.md) for the full list of what `init` does.
@@ -27,6 +30,9 @@ See the [init command reference](../reference/cli/intuneme_init.md) for the full
     intuneme init --insiders
     ```
     The insiders image may include newer versions of Edge or the Intune agent. The channel is saved in `config.toml`, so `intuneme recreate` keeps it without the flag.
+
+!!! warning "Experimental Himmelblau alternative"
+    `intuneme init --himmelblau` selects a separate image that replaces Microsoft's broker and Intune Portal with Himmelblau's PAM, broker, and compliance stack. It prompts for your Entra sign-in domain; use `--himmelblau-domain` for automated setup. Use `intuneme edit --himmelblau` during setup or later to edit the commented package config. It is not upstream-validated under systemd-nspawn and tracks Community Nightly packages. Review the [Himmelblau guide](../user-guide/himmelblau.md) before using it.
 
 ## 2. Start the container
 
