@@ -4,7 +4,7 @@ intuneme automatically forwards USB security keys and video capture devices into
 
 ## How it works
 
-When the container is running, udev rules on the host detect supported devices and use `nsenter` to create the corresponding device nodes inside the container. The rules are installed by `intuneme start` and removed by `intuneme stop`.
+When the container is running, udev rules on the host detect supported devices and use `nsenter` to create the corresponding device nodes inside the container. The rules are installed by `intuneme start` and removed by `intuneme stop`. They live in `/run/udev/rules.d/` (runtime only, not `/etc/udev/rules.d/`), so a host reboot clears them until the next `intuneme start`.
 
 ## Supported devices
 
@@ -50,7 +50,7 @@ Both commands are idempotent — `udev remove` succeeds even if no rules are cur
 
 ```bash
 # Check the udev rules are present
-ls /etc/udev/rules.d/70-intuneme-video.rules
+ls /run/udev/rules.d/70-intuneme-video.rules
 
 # Re-install if missing
 intuneme udev install
@@ -66,7 +66,7 @@ journalctl -t intuneme-hotplug
 
 ```bash
 # Check the udev rules are present
-ls /etc/udev/rules.d/70-intuneme-yubikey.rules
+ls /run/udev/rules.d/70-intuneme-yubikey.rules
 
 # Re-install if missing
 intuneme udev install
