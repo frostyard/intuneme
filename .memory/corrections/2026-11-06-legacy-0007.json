@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "risk-paths",
+  "correction": "A scan for a sudo literal misses privileged entry points that call an install, remove or helper function of another package; also match those calls and keep an explicit list of required entry points.",
+  "evidence": "frostyard/intuneme#251 re-review 1",
+  "promoted_to": "risk_paths_test.go"
+}

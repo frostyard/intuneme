@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "problem-records",
+  "correction": "A statement about what a problem record holds names the part it covers: the structured fields hold no paths, but the journal MESSAGE field holds the original error text.",
+  "evidence": "frostyard/intuneme#251 cross-review F2",
+  "promoted_to": "AGENTS.md"
+}

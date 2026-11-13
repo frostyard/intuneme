@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "internal/config/rootfs.go",
+  "correction": "rootfs_path must be absolute and clean, must not be / or a top-level directory, and must not be or contain the home directory or the data root, also after the parent path's symlinks are resolved. config.Load validates it, and every sudo rm -rf of a rootfs goes through cmd.removeRootfs, which validates it again.",
+  "evidence": "frostyard/intuneme#278; TestValidateRootfsPath, TestRemoveRootfsRefusesUnsafePath",
+  "promoted_to": "AGENTS.md"
+}

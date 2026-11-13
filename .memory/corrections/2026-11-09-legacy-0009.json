@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-09",
+  "scope": "risk_paths_test.go",
+  "correction": "Belief: a risk-path glob that matches a privileged file keeps it high risk. Reality: in risk-paths schema version 2 a glob can be L3 or L4, which gets no risk:high; a coverage test must require a matching L1 or L2 glob",
+  "evidence": "frostyard/intuneme#266 cross-review (openai/gpt-6.1-sol) of head bc8a9c0d5f7e7c937857f3577e715c0372508d3f, finding 1",
+  "promoted_to": "risk_paths_test.go (TestRiskCovered)"
+}

@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-10",
+  "scope": "init-rootfs-cleanup",
+  "correction": "Init failure cleanup must treat only an absent or a user-owned empty rootfs as its own; an empty directory of another owner is never initially chmodded or removed.",
+  "evidence": "Cross-review of frostyard/intuneme#271; TestPrepareInitRootfsOtherOwnerEmptyDirectory",
+  "promoted_to": "cmd/init_rootfs_test.go"
+}

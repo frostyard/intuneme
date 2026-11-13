@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-11",
+  "scope": "cmd/init.go",
+  "correction": "init must not create ~/Intune before the image signature check: the directory is created only after prepareInitRootfs succeeded, so a rejected image leaves a fresh host untouched.",
+  "evidence": "Cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#281 head 1994f88; TestInitBadSignatureChangesNothing",
+  "promoted_to": "cmd/init_rootfs_test.go"
+}

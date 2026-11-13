@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-11",
+  "scope": "image-signature",
+  "correction": "init and recreate must verify the cosign signature of the container image and pull the verified digest before any write: init before it creates the rootfs, recreate before sudo, the stop, the backups and the delete.",
+  "evidence": "Conformance sweep issue frostyard/intuneme#277; TestPrepareInitRootfsBadSignatureWritesNothing and TestRecreateBadSignatureChangesNothing fail without the check",
+  "promoted_to": "AGENTS.md"
+}

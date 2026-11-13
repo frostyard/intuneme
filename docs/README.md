@@ -19,8 +19,8 @@ Its move to ProperDocs and MaterialX
 is a separate change.
 
 Outside this tree: [`AGENTS.md`](../AGENTS.md) holds the rules for agents,
-and [`.memory/corrections.jsonl`](../.memory/corrections.jsonl) is the
-append-only corrections inbox ([`.memory/README.md`](../.memory/README.md)).
+and [`.memory/README.md`](../.memory/README.md) describes the corrections inbox,
+1 file for each record in `.memory/corrections/`.
 
 ## Index
 

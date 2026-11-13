@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-12",
+  "scope": "internal/config/config.go",
+  "correction": "config.Load must not replace an explicit rootfs_path = \"\" with the default: an omitted key keeps the default set before the decode, and an explicit empty value is refused by ValidateRootfsPath.",
+  "evidence": "Cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#282 head 4382fb1; TestLoadRefusesUnsafeRootfsPath/explicit_empty, TestLoadOmittedRootfsPathKeepsDefault",
+  "promoted_to": "internal/config/rootfs_test.go"
+}

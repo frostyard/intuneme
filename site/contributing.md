@@ -28,7 +28,7 @@ make check    # make fmt, then make verify
 make ci       # verify, the corrections check, govulncheck and the build: what CI runs
 ```
 
-`make verify` changes no file. `make ci BASE=origin/main` also checks that `.memory/corrections.jsonl` only grew since `origin/main`. `make lint` fails when the installed golangci-lint is not the `mise.toml` pin; run `mise install` to fix it.
+`make verify` changes no file. `make ci BASE=origin/main` also checks that no record in `.memory/corrections/` was removed, renamed or changed since `origin/main`, except a filled empty `promoted_to`. `make lint` fails when the installed golangci-lint is not the `mise.toml` pin; run `mise install` to fix it.
 
 Tests use the Go standard library `testing` package. No external test framework is required. The kernel boundary test (`internal/nshelper`) needs `unshare` and subordinate UID/GID maps, and skips without them; CI sets `INTUNEME_REQUIRE_KERNEL_TESTS=1` so that it fails instead of skipping there.
 
