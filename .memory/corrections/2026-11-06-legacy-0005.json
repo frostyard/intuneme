@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "risk-paths",
+  "correction": "Start each why in .github/risk-paths.json with 1 category of core's risk-paths spec section B and a colon; the template's supply chain entries do not follow it, and the validator does not check it.",
+  "evidence": "frostyard/intuneme#251 cross-review F3",
+  "promoted_to": "risk_paths_test.go"
+}

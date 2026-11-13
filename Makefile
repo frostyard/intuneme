@@ -96,15 +96,16 @@ verify-template: ## Check agent surfaces, docs index, risk paths, corrections an
 	node scripts/check-template.mjs
 	node --test test/*.test.mjs
 
-# The corrections check compares .memory/corrections.jsonl with BASE: lines
-# are append-only (only an empty promoted_to may be filled in). The contract
-# starts with the gate: a BASE that does not hold
+# The corrections check compares the record files in .memory/corrections/ with
+# BASE: no record is removed, renamed or changed, except that an empty
+# promoted_to may be filled in once. The old single file must not come back.
+# The contract starts with the gate: a BASE that does not hold
 # scripts/check-corrections.mjs had no such rule, so the comparison is skipped
 # with a notice. Every BASE after the adoption holds the script.
 #
 # A BASE that does not resolve to a commit is an error, never an old base: a
 # typo or an unfetched ref must not turn the comparison into a silent pass.
-corrections-base: ## Check that .memory/corrections.jsonl is append-only against BASE
+corrections-base: ## Check the corrections records against BASE
 	@if [ -z "$(BASE)" ]; then exit 0; fi; \
 	if ! git rev-parse --verify --quiet "$(BASE)^{commit}" >/dev/null; then \
 		echo "FAIL: BASE $(BASE) does not resolve to a commit (fetch it first)"; \

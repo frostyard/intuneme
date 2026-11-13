@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "problem-records",
+  "correction": "Open a path under the container rootfs with O_NONBLOCK and O_NOFOLLOW and reject a non-regular file before you read it, and parse a passwd entry strictly (7 fields, numeric UID and GID) and fail closed.",
+  "evidence": "frostyard/intuneme#248 re-review 2",
+  "promoted_to": "AGENTS.md"
+}

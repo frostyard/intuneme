@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-05",
+  "scope": "problem-records",
+  "correction": "Record a problem code only where the failure cannot come from user config or sudo authentication, and prove each exclusion with a socket-backed negative test, not a nil recorder.",
+  "evidence": "frostyard/intuneme#248 cross-review",
+  "promoted_to": "AGENTS.md"
+}

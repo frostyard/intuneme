@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-06",
+  "scope": "dependabot",
+  "correction": "Ignoring library/ubuntu semver-major does not keep the image on an LTS release: Dependabot reads an interim release (24.04 to 24.10) as a minor update, so ignore semver-minor too.",
+  "evidence": "frostyard/intuneme#258 (Dependabot bump to 24.10 after #256)",
+  "promoted_to": "dependabot_config_test.go"
+}

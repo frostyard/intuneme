@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-11",
+  "scope": "internal/imagesig/imagesig.go",
+  "correction": "A cached signature payload must still match the current layer's declared size: 2 layers can name 1 digest with different sizes, and the bytes cached by layer 1 must not let layer 2 pass.",
+  "evidence": "Cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#281 head 1994f88; TestVerifyRejectsCachedBlobSizeMismatch",
+  "promoted_to": "internal/imagesig/imagesig_test.go"
+}

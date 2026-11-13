@@ -31,7 +31,7 @@ function fixture() {
   mkdirSync(join(root, ".claude"), { recursive: true });
   mkdirSync(join(root, ".github", "workflows"), { recursive: true });
   mkdirSync(join(root, "docs", "adr"), { recursive: true });
-  mkdirSync(join(root, ".memory"), { recursive: true });
+  mkdirSync(join(root, ".memory", "corrections"), { recursive: true });
   mkdirSync(join(root, "scripts", "lib"), { recursive: true });
 
   writeFileSync(join(root, "AGENTS.md"), "# Test instructions\n", "utf8");
@@ -79,8 +79,14 @@ function fixture() {
   ].join("\n"), "utf8");
 
   writeFileSync(
-    join(root, ".memory", "corrections.jsonl"),
-    '{"date":"2026-11-01","scope":"test","correction":"keep this guard","evidence":"PR-1 review","promoted_to":""}\n',
+    join(root, ".memory", "corrections", "2026-11-01-pr-1-keep-guard.json"),
+    JSON.stringify({
+      date: "2026-11-01",
+      scope: "test",
+      correction: "keep this guard",
+      evidence: "PR-1 review",
+      promoted_to: "",
+    }, null, 2) + "\n",
     "utf8",
   );
 
@@ -364,28 +370,100 @@ test("caller that renames the job exits 1", (t) => {
 test("correction with a sixth field exits 1", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  writeFileSync(join(root, ".memory", "corrections.jsonl"), '{"date":"2026-11-01","scope":"test","correction":"fix","evidence":"PR-1","promoted_to":"","extra":true}\n', "utf8");
+  writeFileSync(
+    join(root, ".memory", "corrections", "2026-11-01-pr-1-sixth-field.json"),
+    JSON.stringify({
+      date: "2026-11-01",
+      scope: "test",
+      correction: "fix",
+      evidence: "PR-1",
+      promoted_to: "",
+      extra: true,
+    }, null, 2) + "\n",
+    "utf8",
+  );
   assertFailure(run(root), "corrections");
 });
 
 test("correction with bad date exits 1", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  writeFileSync(join(root, ".memory", "corrections.jsonl"), '{"date":"2026-02-30","scope":"test","correction":"fix","evidence":"PR-1","promoted_to":""}\n', "utf8");
+  writeFileSync(
+    join(root, ".memory", "corrections", "2026-02-30-pr-1-fix.json"),
+    JSON.stringify({
+      date: "2026-02-30",
+      scope: "test",
+      correction: "fix",
+      evidence: "PR-1",
+      promoted_to: "",
+    }, null, 2) + "\n",
+    "utf8",
+  );
   assertFailure(run(root), "corrections");
 });
 
 test("correction with empty evidence exits 1", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  writeFileSync(join(root, ".memory", "corrections.jsonl"), '{"date":"2026-11-01","scope":"test","correction":"fix","evidence":"","promoted_to":""}\n', "utf8");
+  writeFileSync(
+    join(root, ".memory", "corrections", "2026-11-01-pr-1-empty-evidence.json"),
+    JSON.stringify({
+      date: "2026-11-01",
+      scope: "test",
+      correction: "fix",
+      evidence: "",
+      promoted_to: "",
+    }, null, 2) + "\n",
+    "utf8",
+  );
   assertFailure(run(root), "corrections");
 });
 
-test("empty corrections file exits 0", (t) => {
+test("correction record that is not in canonical form exits 1", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  writeFileSync(join(root, ".memory", "corrections.jsonl"), "", "utf8");
+  // Valid JSON, valid fields, compact on 1 line: the bytes are not canonical.
+  writeFileSync(
+    join(root, ".memory", "corrections", "2026-11-01-pr-1-compact.json"),
+    '{"date":"2026-11-01","scope":"test","correction":"fix","evidence":"PR-1","promoted_to":""}',
+    "utf8",
+  );
+  assertFailure(run(root), "corrections");
+});
+
+test("correction record whose name date differs from its date exits 1", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(
+    join(root, ".memory", "corrections", "2026-11-02-pr-1-name-mismatch.json"),
+    JSON.stringify({
+      date: "2026-11-01",
+      scope: "test",
+      correction: "fix",
+      evidence: "PR-1",
+      promoted_to: "",
+    }, null, 2) + "\n",
+    "utf8",
+  );
+  assertFailure(run(root), "corrections");
+});
+
+test("corrections folder and the old corrections file together exit 1", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(
+    join(root, ".memory", "corrections.jsonl"),
+    '{"date":"2026-11-01","scope":"test","correction":"fix","evidence":"PR-1","promoted_to":""}\n',
+    "utf8",
+  );
+  assertFailure(run(root), "corrections");
+});
+
+test("corrections folder with only .gitkeep exits 0", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  unlinkSync(join(root, ".memory", "corrections", "2026-11-01-pr-1-keep-guard.json"));
+  writeFileSync(join(root, ".memory", "corrections", ".gitkeep"), "", "utf8");
   assertClean(run(root));
 });
 

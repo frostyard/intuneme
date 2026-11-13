@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-10",
+  "scope": "internal/broker/proxy.go",
+  "correction": "A PID file value goes to kill(2) only when it is an integer in 1..2147483647: 0 signals the caller's process group, -1 every process the user can signal, and pid_t is 32 bits, so 4294967296 is truncated to 0. StopByPIDFile and IsRunningByPIDFile parsed the file with strconv.Atoi alone; they now use busproxy.ParsePID, and any other value names no process.",
+  "evidence": "Grooming of internal/broker/proxy.go on origin/main 405f1fe; cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#274 head 9ed2a9a found the 32-bit truncation; TestStopByPIDFile_InvalidPIDSignalsNothingAndRemovesFile, TestIsRunningByPIDFile_InvalidPIDSignalsNothing and TestParsePID fail without the guard",
+  "promoted_to": "internal/broker/proxy_test.go"
+}
