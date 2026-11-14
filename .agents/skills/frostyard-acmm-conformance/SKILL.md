@@ -61,7 +61,7 @@ repogen#37–#55).
    | Coverage gate | `.coverage-thresholds.json` (schema_version, the three docs-gate rates at 1.0, `never_relax: true`) consumed by `scripts/check-docs.mjs` |
    | Prompts catalog | `.github/prompts/README.md` + `review.prompt.md` runbook naming the repo's real gate commands |
    | EditorConfig | `.editorconfig` for the repo's languages |
-   | Correction capture | `.memory/README.md` + empty append-only `corrections.jsonl` (five-field schema from core ADR-0018) |
+   | Correction capture | `.memory/README.md` + `.memory/corrections/` with an empty `.gitkeep` (1 file for each record, five-field schema from core ADR-0018, form from core ADR-0081) |
    | PR acceptance metric | Real `docs/specs/pr-acceptance-metric.md` (must contain `## Definition` and `## Rules` — the gate pins them) + alias `docs/metrics.md` → `specs/pr-acceptance-metric.md` |
    | PR review rubric | Real `docs/specs/pr-review-rubric.md` (rows = the repo's actual verifiable gates) + alias `docs/review-rubric.md` → `specs/pr-review-rubric.md` |
    | Quality dashboard | Real `docs/design/quality-loop.md` (declare→review→gate→learn→observe, wired to the repo's real CI) + alias `docs/quality.md` → `design/quality-loop.md` |
