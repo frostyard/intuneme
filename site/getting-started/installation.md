@@ -35,7 +35,7 @@ Arch Linux users can install `intuneme` or `intuneme-bin` from the Arch User Rep
 
 ## go install
 
-If you have Go 1.26 or later installed, you can install directly from source:
+If you have Go 1.27 or later installed, you can install directly from source:
 
 ```bash
 go install github.com/frostyard/intuneme@latest
