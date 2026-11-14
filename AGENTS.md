@@ -95,11 +95,15 @@ Himmelblau `start` binds the host's `/run/udev/data` read-only when present so i
 
 The Microsoft image remains based on Ubuntu 24.04. Both Himmelblau image variants use the pinned Ubuntu 26.04 base and matching Community Nightly packages; the terminal-passkey daemon and PAM packages are built for that release.
 
-The terminal-passkey image builds the daemon and PAM module from the commit in
+The terminal-passkey image builds the daemon, session broker, and PAM module from the commit in
 [`internal/version/himmelblau_terminal_passkey_source.txt`](internal/version/himmelblau_terminal_passkey_source.txt), rebased onto official upstream
 and including the cached-PRT client fallback and durable decoupled-Hello PRT
 renewal during online PAM/broker PIN unlock. Intuneme applies no local source
-patches. The standard
+patches. The pinned session broker also resolves WorkIQ missing-account requests,
+maps its default redirect to the registered broker URI, and completes legacy
+token error diagnostics; when changing that pin, read the compatibility contract
+in `ubuntu-himmelblau-terminal-passkey/README.md`.
+The standard
 Himmelblau image continues to use signed upstream packages. The fallback
 retries Edge-client acquisition errors with the default client while
 preserving consent/network handling and never turning retry failures into
