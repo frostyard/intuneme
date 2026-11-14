@@ -40,7 +40,7 @@ Ubuntu 26.04 builds. They install Himmelblau's authentication, broker, PAM,
 NSS, SSO, and compliance packages from the signed Community Nightly APT
 repository, plus the shared GUI/device dependencies described in
 [`ubuntu-himmelblau/README.md`](../../ubuntu-himmelblau/README.md).
-The terminal-passkey variant replaces the daemon and PAM packages with
+The terminal-passkey variant replaces the daemon, session broker, and PAM packages with
 locally built packages from its pinned fork. Neither Himmelblau image adds
 Microsoft's Edge APT repository or installs Microsoft Edge, Microsoft
 Identity Broker, or Intune Portal.
@@ -118,14 +118,17 @@ APT repository and is experimental.
 ### Terminal-passkey variant (ubuntu-himmelblau-terminal-passkey)
 
 The terminal-passkey variant is local-build-only. It uses the same image recipe
-and signed nightly package set, but replaces `himmelblau` and `pam-himmelblau`
+and signed nightly package set, but replaces `himmelblau`, `himmelblau-broker`, and `pam-himmelblau`
 with Debian packages built from the commit in
 [`internal/version/himmelblau_terminal_passkey_source.txt`](../../internal/version/himmelblau_terminal_passkey_source.txt).
 That fork commit is rebased onto official upstream and includes the cached-PRT
 client fallback and durable decoupled-Hello PRT renewal during online PIN
 unlock. Renewed credentials are PIN-protected on disk; neither the PIN nor the
 unlocked key is retained for background renewal. Intuneme applies no local
-source patches. Local image builds can
+source patches. The fork broker includes
+[WorkIQ account discovery and broker redirect/error compatibility](../../ubuntu-himmelblau-terminal-passkey/README.md);
+using the nightly broker with only a fork daemon/PAM would omit that fix.
+Local image builds can
 choose another HTTPS repository and Git ref through
 `build-local-image --source-repo ... --source-ref ...`. The package build
 resolves that ref to a commit; then the image build installs it and writes

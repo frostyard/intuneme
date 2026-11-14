@@ -31,7 +31,7 @@ ubuntu-intune/        Microsoft Intune container image
 ubuntu-himmelblau/    Experimental Himmelblau alternative image
 ubuntu-himmelblau-terminal-passkey/  Pinned fork daemon/PAM variant
 ├── Containerfile     Variant image build using shared Himmelblau image files
-└── build_files/      Build helper for the pinned fork daemon and PAM packages
+└── build_files/      Build helper for the pinned fork daemon, broker, and PAM packages
 polkit/               Polkit rule reference for machinectl access (actual rule generated inline)
 scripts/              Build helpers (completions, manpages, SELinux, desktop item installer)
 site/                 MkDocs documentation site content (user-facing)
@@ -423,11 +423,16 @@ All shell commands go through the `runner.Runner` interface (`internal/runner/`)
 - Default Microsoft image, clean semver (e.g., v1.2.3) → `ghcr.io/frostyard/ubuntu-intune:v1.2.3`
 - Default Microsoft image, dev builds → `ghcr.io/frostyard/ubuntu-intune:latest`
 - Experimental Himmelblau image → matching tags under `ghcr.io/frostyard/ubuntu-himmelblau`; it tracks the upstream community-nightly package repository and rejects `--insiders`.
-- Terminal-passkey Himmelblau variant → local-build-only image supplied with `--himmelblau-local-image`; it builds the daemon and PAM module from the [source pin](../../internal/version/himmelblau_terminal_passkey_source.txt), rebased onto official upstream and including the cached-PRT fallback and durable decoupled-Hello PRT renewal.
+- Terminal-passkey Himmelblau variant → local-build-only image supplied with `--himmelblau-local-image`; it builds the daemon, session broker, and PAM module from the [source pin](../../internal/version/himmelblau_terminal_passkey_source.txt), rebased onto official upstream and including WorkIQ account discovery, the cached-PRT fallback, and durable decoupled-Hello PRT renewal.
 
 The terminal-passkey `build-local-image` helper targets the unchunked builder
 stage and can load it with Docker Buildx (`--load`), Podman, or Buildah. The
 variant is local-build-only and is not published by the hosted image workflow.
+The session broker package must come from the same pin: WorkIQ's initial
+account discovery, default broker redirect mapping, and token error compatibility
+run there, around daemon token acquisition. Its UID-scoped selection,
+custom-redirect preservation, and unchanged PIN/Entra checks are described in the
+[variant guide](../../ubuntu-himmelblau-terminal-passkey/README.md).
 
 Both registered and decoupled Hello-key cached-PRT validation share the
 Edge-to-default-client retry. The decoupled path previously escalated

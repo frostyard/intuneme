@@ -3,17 +3,19 @@ set -ouex pipefail
 
 terminal_passkey_deb=""
 terminal_passkey_daemon_deb=""
+terminal_passkey_broker_deb=""
 terminal_passkey_commit=""
 if [[ $# -gt 0 ]]; then
-  if [[ $# -ne 6 || "$1" != "--terminal-passkey" ]]; then
-    echo "Usage: build [--terminal-passkey himmelblau.deb pam-himmelblau.deb default-ref package-ref source-commit]" >&2
+  if [[ $# -ne 7 || "$1" != "--terminal-passkey" ]]; then
+    echo "Usage: build [--terminal-passkey himmelblau.deb pam-himmelblau.deb himmelblau-broker.deb default-ref package-ref source-commit]" >&2
     exit 2
   fi
   terminal_passkey_daemon_deb="$2"
   terminal_passkey_deb="$3"
-  default_commit="$(tr -d '\r\n' < "$4")"
-  package_commit="$(tr -d '\r\n' < "$5")"
-  requested_commit="$6"
+  terminal_passkey_broker_deb="$4"
+  default_commit="$(tr -d '\r\n' < "$5")"
+  package_commit="$(tr -d '\r\n' < "$6")"
+  requested_commit="$7"
   if [[ ! "$default_commit" =~ ^[0-9a-f]{40}$ || ! "$package_commit" =~ ^[0-9a-f]{40}$ ]]; then
     echo "Invalid terminal-passkey source commit metadata" >&2
     exit 2
@@ -37,6 +39,10 @@ if [[ $# -gt 0 ]]; then
   fi
   if [[ "$(dpkg-deb -f "$terminal_passkey_daemon_deb" Package)" != "himmelblau" ]]; then
     echo "Terminal-passkey daemon override must be a himmelblau Debian package" >&2
+    exit 2
+  fi
+  if [[ "$(dpkg-deb -f "$terminal_passkey_broker_deb" Package)" != "himmelblau-broker" ]]; then
+    echo "Terminal-passkey broker override must be a himmelblau-broker Debian package" >&2
     exit 2
   fi
 fi
@@ -92,7 +98,7 @@ if ! command -v strings >/dev/null 2>&1; then
 fi
 
 if [[ -n "$terminal_passkey_deb" ]]; then
-  apt install -y --allow-downgrades "$terminal_passkey_daemon_deb" "$terminal_passkey_deb"
+  apt install -y --allow-downgrades "$terminal_passkey_daemon_deb" "$terminal_passkey_deb" "$terminal_passkey_broker_deb"
   install -d -m 0755 /usr/share/intuneme
   printf '%s\n' "$terminal_passkey_commit" > /usr/share/intuneme/himmelblau-terminal-passkey-source
 fi

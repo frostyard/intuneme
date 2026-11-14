@@ -106,12 +106,18 @@ mkdir -p "$source_dir/target"
    package_file=$(find target/debian -maxdepth 1 -type f -name "pam-himmelblau_*.deb" -print -quit) &&
    test -n "$package_file" &&
    test "$(dpkg-deb -f "$package_file" Package)" = pam-himmelblau &&
-   cp "$package_file" /tmp/intuneme-pam-himmelblau.deb' \
+   cp "$package_file" /tmp/intuneme-pam-himmelblau.deb &&
+   cargo deb --deb-revision="ubuntu26.04${DEB_REVISION_APPEND}" -p broker &&
+   broker_package=$(find target/debian -maxdepth 1 -type f -name "himmelblau-broker_*.deb" -print -quit) &&
+   test -n "$broker_package" &&
+   test "$(dpkg-deb -f "$broker_package" Package)" = himmelblau-broker &&
+   cp "$broker_package" /tmp/intuneme-himmelblau-broker.deb' \
   > "$work_dir/container-id"
 container_id="$(cat "$work_dir/container-id")"
 "$container_tool" start --attach "$container_id"
 "$container_tool" cp "$container_id:/tmp/intuneme-pam-himmelblau.deb" "$work_dir/pam-himmelblau.deb"
 "$container_tool" cp "$container_id:/tmp/intuneme-himmelblau.deb" "$work_dir/himmelblau.deb"
+"$container_tool" cp "$container_id:/tmp/intuneme-himmelblau-broker.deb" "$work_dir/himmelblau-broker.deb"
 "$container_tool" rm --force --volumes "$container_id"
 container_id=""
 
@@ -119,5 +125,6 @@ output_dir="$repo_root/ubuntu-himmelblau-terminal-passkey/packages"
 mkdir -p "$output_dir"
 install -m 0644 "$work_dir/pam-himmelblau.deb" "$output_dir/pam-himmelblau.deb"
 install -m 0644 "$work_dir/himmelblau.deb" "$output_dir/himmelblau.deb"
+install -m 0644 "$work_dir/himmelblau-broker.deb" "$output_dir/himmelblau-broker.deb"
 printf '%s\n' "$source_ref" > "$output_dir/source-ref"
-echo "Built himmelblau daemon and terminal-passkey pam-himmelblau from $source_repo@$source_ref"
+echo "Built himmelblau daemon, broker, and terminal-passkey pam-himmelblau from $source_repo@$source_ref"
