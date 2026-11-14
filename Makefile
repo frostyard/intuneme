@@ -54,7 +54,7 @@ format-check: ## Fail and print the files when gofmt reports unformatted source
 # with a Go no older than go.mod's go line. Only major.minor is compared:
 # golangci-lint releases are built with the Go patch current at their release
 # (2.15.0 with go1.27.0), while go.mod's go line is a patch-level release
-# (1.26.10), and a patch difference does not change gofmt's output.
+# (1.27.4), and a patch difference does not change gofmt's output.
 lint-version-check: ## Fail unless golangci-lint is the mise.toml pin, built with a Go no older than go.mod's
 	@test -n "$(GOLANGCI_LINT_VERSION)" || { echo "mise.toml pins no golangci-lint"; exit 1; }
 	@installed="$$(golangci-lint version --short 2>/dev/null)" || { \
