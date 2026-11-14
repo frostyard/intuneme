@@ -1,19 +1,33 @@
 # ubuntu-himmelblau-terminal-passkey
 
 This is an opt-in experimental Himmelblau image variant. It builds the
-`himmelblau` daemon and `pam-himmelblau` from the pinned
+`himmelblau` daemon, `himmelblau-broker`, and `pam-himmelblau` from the pinned
 `mPyKen/himmelblau` terminal-passkey commit in
 [`internal/version/himmelblau_terminal_passkey_source.txt`](../internal/version/himmelblau_terminal_passkey_source.txt). The regular
 `ubuntu-himmelblau` image continues to use signed upstream packages.
 Both images are based on Ubuntu 26.04; the fork packages use Himmelblau's
 matching Ubuntu 26.04 packaging target. The build compiles both the daemon and
-PAM module from the pinned fork.
+PAM module and session broker from the pinned fork.
 Like the standard Himmelblau image, this variant does not install Microsoft
 Edge or Intune Portal.
 The source pin from
-`feat/terminal-passkey-auth-test` is rebased onto official upstream and includes
+`fix/workiq-broker-account`, based on `feat/terminal-passkey-auth-test`,
+is rebased onto official upstream and includes
 the cached-PRT client fallback and durable decoupled-Hello PRT renewal.
 Intuneme builds that source directly and applies no local patches.
+The session broker also resolves WorkIQ's initial missing-account request
+through the daemon's UID-scoped account list before its normal PIN flow. It
+requires a unique match, honors non-empty username hints, and preserves explicit
+accounts. Other clients still require an account. For WorkIQ only, the broker
+maps its default `https://login.microsoftonline.com/common/oauth2/nativeclient`
+redirect to the registered
+`ms-appx-web://microsoft.aad.brokerplugin/ba081686-5d24-4bc6-a0d6-d034ecffed87`
+redirect for PRT exchange, avoiding `AADSTS50011`; custom redirects are preserved.
+Legacy token errors include the native runtime's required diagnostic `tag`
+without changing their failure status or context. Scopes, Entra consent/policies,
+and PIN authentication are unchanged; no browser workaround or host-side
+WorkIQ wrapper is needed. Downstream consent or policy failures still fail
+authentication.
 After PIN creation, a decoupled local Hello key validates the cached PRT
 online. If that exchange fails with an Edge-client token-acquisition error
 (including `AADSTS530003`), the daemon retries with the default client, just
@@ -99,14 +113,17 @@ The QR/Bluetooth setting defaults to true; set
 to opt out. Init detects the image marker, stores the selected source commit,
 and makes `recreate` require a matching local image.
 
-This is an unmerged, experimental fork with terminal PAM QR support and the
-cached-PRT fallback and durable PIN-time PRT renewal. It has not been validated upstream on Ubuntu or with
+This is an unmerged, experimental fork with terminal PAM QR support, WorkIQ
+broker account discovery, and the cached-PRT fallback and durable PIN-time PRT
+renewal. It has not been validated upstream on Ubuntu or with
 physical FIDO devices. The default local build uses the commit in
 `internal/version/himmelblau_terminal_passkey_source.txt`; custom local builds
 resolve the requested Git ref to a commit and embed that commit in the image.
 Review the source before selecting a different branch or updating the pin.
 
 The pinned fork includes Rust regression tests. In a checkout of that commit, run
+`cargo test -p broker` for WorkIQ account selection, redirect mapping, and
+native token error compatibility, and
 `cargo test -p himmelblau_unix_common retry_edge_prt_exchange`.
 The durable-renewal regressions are
 `cargo test -p himmelblau_unix_common pin_renewal_`.
