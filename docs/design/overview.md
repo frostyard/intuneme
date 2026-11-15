@@ -515,7 +515,7 @@ The `--root` persistent flag overrides the default data directory (`~/.local/sha
 | `BurntSushi/toml` | v1.6.0 | TOML config parsing |
 | `charmbracelet/x/term` | v0.2.2 | Terminal password input |
 
-Go version: 1.26
+Go version: 1.27
 
 Note: The polkit rule (`50-intuneme.rules`) is generated inline by `provision.InstallPolkitRule()` and allows both `sudo` and `wheel` groups to open an interactive shell in a **local container** only (`org.freedesktop.machine1.shell`). Host shells, image management, and broad machine management are deliberately not granted: `stop` and the MCP bind go through the scoped root-owned `machine-exec` helper. The `polkit/` directory contains a reference copy of the same rule.
 
