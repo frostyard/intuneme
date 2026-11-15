@@ -41,12 +41,13 @@ as untrue in the pull request.
    - **keep**: it answers 1 of the 4 questions; name the section it goes to;
    - **move**: it is a guide, a reference, internals, a check list, a
      runbook or history; name the place from the spec's "What stays out of
-     a README" table (the docs site for a tool or app, `docs/` otherwise);
+     a README" table (the docs home for a tool or app, `docs/` otherwise);
    - **drop**: it is untrue at the commit you read, or a copy of a page
      that exists. Say which.
 4. **Move before you cut.** Put each moved part in its new place first: a
-   site page in `site/content/` (frostyard-docs-site skill) or a page in
-   `docs/`. A new `docs/` page starts from its category's `TEMPLATE.md`
+   page in the tool's docs home (its own site, for example `site/content/`
+   with the frostyard-docs-site skill, or its full guide in
+   frostyard/frostyard-org) or a page in `docs/`. A new `docs/` page starts from its category's `TEMPLATE.md`
    when it is an ADR, design, spec or plan; a runbook or development guide
    can be a plain page. Add every new page to `docs/README.md`
    (frostyard-repo-docs skill).
@@ -56,9 +57,11 @@ as untrue in the pull request.
    - The status line takes 1 value: `pre-release`, `stable`,
      `in production`, `maintenance` or `deprecated`, and at most 1 more
      sentence. No history and no milestones.
-   - The documentation line links the docs site for a user-facing tool or
-     app (`https://frostyard.github.io/<repo>/`), pkg.go.dev for a library,
-     the live site for a website, and `docs/README.md` otherwise.
+   - The documentation line links the docs home for a user-facing tool or
+     app: its own site at its URL (`https://frostyard.github.io/<repo>/` for
+     a site in core ADR-0070's layout) or its full guide on frostyard.org
+     (core ADR-0084); pkg.go.dev for a library, the live site for a
+     website, and `docs/README.md` otherwise.
    - Add an optional section only when it has content (`Requirements`,
      `How it works`, `Problem records`, `Privacy`, `Limits`, `Credits`, and
      the kind's own, from the spec). Keep `Develop` and `Where to go next`
