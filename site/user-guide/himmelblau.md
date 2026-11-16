@@ -106,6 +106,7 @@ GDM-gated.
     ./ubuntu-himmelblau-terminal-passkey/build_files/build-local-image \
       localhost/ubuntu-himmelblau-terminal-passkey:dev
     intuneme init --himmelblau \
+      --insecure-skip-signature-check \
       --himmelblau-local-image localhost/ubuntu-himmelblau-terminal-passkey:dev
     ```
 
@@ -239,16 +240,21 @@ make build
 sudo install -m 0755 ./intuneme /usr/local/bin/intuneme
 intuneme init --himmelblau \
   --himmelblau-domain YOUR_ENTRA_SIGN_IN_DOMAIN \
+  --insecure-skip-signature-check \
   --himmelblau-local-image localhost/ubuntu-himmelblau:dev
 intuneme enroll --user USER@YOUR_ENTRA_SIGN_IN_DOMAIN
 ```
 
-`--himmelblau-local-image` is persisted, so `intuneme recreate` uses the
-locally built image too. The `localhost/` prefix is required; it tells the
+`--himmelblau-local-image` is persisted, so
+`intuneme recreate --insecure-skip-signature-check` uses the locally built
+image too. Local images have no registry signature: explicitly pass the
+skip flag on every init or recreation only for a build you trust. The bypass
+is not persisted and warns that the image is unverified; hosted images retain
+their signature checks. The `localhost/` prefix is required; it tells the
 puller to use a local Docker/Podman image and never attempt a registry pull.
 The image must include `pamtester`, which intuneme uses to run the fail-closed
 PAM authentication check. After rebuilding an image for an already initialized
-installation, run `intuneme recreate` and `intuneme start` before enrolling;
+installation, run `intuneme recreate --insecure-skip-signature-check` and `intuneme start` before enrolling;
 `recreate` replaces the rootfs from the persisted local tag. Use a real
 verified Entra sign-in domain and UPN for enrollment.
 
