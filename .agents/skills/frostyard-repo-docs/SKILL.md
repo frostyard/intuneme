@@ -1,6 +1,6 @@
 ---
 name: frostyard-repo-docs
-description: Give a frostyard repo core's four-category docs/ shape (adr/, design/, specs/, plans/ + indexed README), migrate any legacy yeti/ or cairn/ AI-docs tree into it, and keep the design/spec docs current with .memory/ learnings folded in. Use whenever asked to update a frostyard repo's architecture docs, after landing a significant change, when docs have drifted from the code, to retire a yeti/ or cairn/ directory, or to scaffold docs/ in a repo that lacks the shape.
+description: Give a frostyard repo core's four-category docs/ shape (adr/, design/, specs/, plans/ + indexed README), migrate any legacy yeti/ or cairn/ AI-docs tree into it, and keep the design/spec docs current with .memory/ learnings folded in. Use whenever asked to update a frostyard repo's architecture docs, after landing a significant change, when docs have drifted from the code, to retire a yeti/ or cairn/ directory, to scaffold docs/ in a repo that lacks the shape, or when recording a plan phase, a validation run or a finding, or closing a plan.
 ---
 
 # frostyard-repo-docs — core's docs shape, in every repo
@@ -93,6 +93,52 @@ If the repo lacks the shape, or still has a `yeti/`/`cairn/` tree:
 7. Keep links bidirectional (ADR ↔ design ↔ spec ↔ plan) and the index
    complete. Docs only — no code changes in the same commit. Commit as:
    `docs: update architecture docs`.
+
+## Record evidence
+
+A plan record, a validation record, a phase close or a finding claims only
+what its evidence shows. Cross-review blocks each over-claim, so check
+each claim against these rules before the first review:
+
+1. **Name the source of each claim.** A claim from a run (a command, a
+   test, a workflow) gives the command or the run URL, the head SHA or tag
+   it ran on, and the date of the run, not the date of the record. A claim
+   read in a document or the code gives the file or URL, the SHA or tag it
+   was read at, and the date of the read. A claim that a person reported
+   gives who reported it and the date of the report. When a revision or a
+   date does not apply or is not known, say so; never invent one. A time
+   read on 1 host is not the time of a read on another host: name the
+   clock.
+2. **Mark each fact by how it is known.** Observed: a command or a test
+   that you ran shows it. Reported: a person said it. Read: a document, a
+   script or the code says it. Never record a reported or a read fact as
+   observed. Before you cite a test or a code path as proof, read its body:
+   a test that parses a file does not prove a write.
+3. **Claim only what the samples show.** 1 sample is not a period, and 1
+   host is not every host. A missing report is not a pass. An absence that
+   you did not check is "not checked". A count names its source and what it
+   selects.
+4. **Close a "Done when" only on its evidence.** A phase or a plan closes
+   only when the record shows every outcome that its "Done when" (or the
+   issue it closes) names. Else the record lists what it holds, names each
+   missing piece, and names who accepts the close without it; or the phase
+   stays open.
+5. **Cite each part of another repository's work** to the PR or the commit
+   that made that part, with the date of that change, and check each
+   against that repository's default branch
+   ([core#245](https://github.com/frostyard/core/pull/245)). A record or
+   a PR body that calls another PR open or waiting checks its state again
+   (`gh pr view N -R OWNER/REPO --json state,mergedAt`) before each push
+   and before `ready-for-human`, and records a PR that merged since then
+   as merged, with its merge date
+   ([core#261](https://github.com/frostyard/core/pull/261)).
+6. **Update the plan's status line and the index in the same PR.** A plan
+   that is done, closed or superseded gets a `**Status:**` line under its
+   title: the state, its date, and the evidence or the successor (core's
+   `docs/plans/0001` to `0005`, from
+   [core#243](https://github.com/frostyard/core/pull/243)). When the
+   plan's line in the `docs/README.md` index names a state (for example
+   "superseded by Plan 0009"), change it in the same PR.
 
 ## Capturing learnings between passes
 
