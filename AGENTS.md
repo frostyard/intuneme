@@ -73,7 +73,7 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 ## Releases and dependencies
 
-- **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.21.0`).
+- **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.24.0`).
 - **Release start:** see "Release automation" above.
 - **Who tags:** Brian only. Agents never tag, push tags, or release. `make bump` pushes a tag, so it is for Brian only.
 - **Version rule:** svu computes the next version (`svu next` in `make bump`), configured in `.svu.yml` (`tag.prefix: "v"`, `v0: true`).
