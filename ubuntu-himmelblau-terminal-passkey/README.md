@@ -79,7 +79,7 @@ a hosted terminal-passkey image.
 ```
 
 For an existing container, rebuild the local image and install it with
-`intuneme recreate --himmelblau-local-image localhost/ubuntu-himmelblau-terminal-passkey:dev`.
+`intuneme recreate --insecure-skip-signature-check --himmelblau-local-image localhost/ubuntu-himmelblau-terminal-passkey:dev`.
 Recreate preserves Himmelblau enrollment state; a CLI rebuild or container
 restart alone does not install rebuilt daemon/PAM packages. The source marker
 records the exact fork commit.
@@ -100,10 +100,16 @@ Load either local image using intuneme's existing local-image override:
 make build
 sudo install -m 0755 ./intuneme /usr/local/bin/intuneme
 intuneme init --himmelblau \
+  --insecure-skip-signature-check \
   --himmelblau-local-image localhost/ubuntu-himmelblau-terminal-passkey:dev
 intuneme edit --himmelblau
 intuneme enroll --user user@example.com
 ```
+
+Local images have no registry signature. Pass
+`--insecure-skip-signature-check` explicitly on every `init` or `recreate`
+to trust a build you reviewed; the bypass is not persisted. It warns that the
+image is unverified. Hosted images keep their normal signature checks.
 
 The root-owned CLI path is required for trusted helper refreshes at start and
 enrollment; running either from `go run` or a user-owned build fails closed.
