@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/bluezproxy"
 	"github.com/frostyard/intuneme/internal/broker"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
@@ -58,6 +59,22 @@ func runStart(r runner.Runner, root string) error {
 			return err
 		}
 	}
+	if cfg.Himmelblau && cfg.HimmelblauUPN != "" {
+		if err := validateHimmelblauUPN(cfg.HimmelblauUPN); err != nil {
+			return fmt.Errorf("invalid configured Himmelblau UPN: %w", err)
+		}
+	}
+	if cfg.Himmelblau {
+		cfg.HimmelblauDomain, err = config.NormalizeHimmelblauDomain(cfg.HimmelblauDomain)
+		if err != nil {
+			return fmt.Errorf("himmelblau domain is not configured; run 'intuneme init --force --himmelblau --himmelblau-domain <domain>': %w", err)
+		}
+		if cfg.HimmelblauUPN != "" {
+			if err := validateHimmelblauUPNDomain(cfg.HimmelblauUPN, cfg.HimmelblauDomain); err != nil {
+				return fmt.Errorf("configured Himmelblau UPN does not match the sign-in domain: %w", err)
+			}
+		}
+	}
 
 	// Problem records: the config load, the rootfs check, the product_name
 	// checks, sudo -v, refreshStartSecurity and rootfs reconciliation are
@@ -86,6 +103,9 @@ func runStart(r runner.Runner, root string) error {
 			// Heals containers booted before linger was unconditional.
 			if err := enableUserLinger(r, cfg); err != nil {
 				recordInternal(cfg, problemrec.CodeLingerFailed, err)
+				return err
+			}
+			if err := initializeHimmelblauSession(r, cfg); err != nil {
 				return err
 			}
 		}
@@ -142,6 +162,9 @@ func runStart(r runner.Runner, root string) error {
 
 	if clix.DryRun {
 		rep.Message("[dry-run] Would boot container %s", cfg.MachineName)
+		if cfg.HimmelblauTerminalPasskey {
+			rep.Message("[dry-run] Would prepare a read-only BlueZ proxy directory bind (no proxy process)")
+		}
 		if productName != "" {
 			rep.Message("[dry-run] Would present product name %q to the container", productName)
 		}
@@ -162,6 +185,42 @@ func runStart(r runner.Runner, root string) error {
 			rep.Message("[dry-run] Would start screencast proxy")
 		}
 		return nil
+	}
+
+	if cfg.Himmelblau {
+		if cfg.HimmelblauTerminalPasskey {
+			if err := provision.VerifyHimmelblauTerminalPasskey(cfg.RootfsPath, cfg.HimmelblauTerminalPasskeySource); err != nil {
+				return err
+			}
+			dir, err := bluezproxy.Prepare(root)
+			if err != nil {
+				return err
+			}
+			sockets = append(sockets, nspawn.BindMount{Host: dir, Container: bluezproxy.ContainerDir, ReadOnly: true})
+		}
+		udevData, found, err := nspawn.DetectHostUdevDataBind()
+		if err != nil {
+			return fmt.Errorf("detect host udev data for Himmelblau compliance: %w", err)
+		}
+		if found {
+			sockets = append(sockets, udevData)
+		}
+		if err := provision.ConfigureHimmelblauDomain(r, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+			return fmt.Errorf("configure Himmelblau domain: %w", err)
+		}
+		if err := installSavedHimmelblauConfig(r, root, cfg.RootfsPath, cfg.HimmelblauDomain); err != nil {
+			return err
+		}
+		if cfg.HimmelblauUPN != "" {
+			if err := provision.InstallHimmelblauUserMap(r, cfg.RootfsPath, cfg.HostUser, cfg.HimmelblauUPN); err != nil {
+				return fmt.Errorf("install Himmelblau user mapping: %w", err)
+			}
+		} else if err := provision.EnsureHimmelblauUserMap(r, cfg.RootfsPath); err != nil {
+			return fmt.Errorf("initialize Himmelblau user map: %w", err)
+		}
+		if err := provision.InstallHimmelblauPAMAllowlist(r, cfg.RootfsPath, cfg.HostUser, cfg.HimmelblauUPN != ""); err != nil {
+			return fmt.Errorf("install Himmelblau PAM allowlist: %w", err)
+		}
 	}
 
 	if productName != "" {
@@ -217,6 +276,9 @@ func runStart(r runner.Runner, root string) error {
 	rep.Message("Enabling linger for container user...")
 	if err := enableUserLinger(r, cfg); err != nil {
 		recordInternal(cfg, problemrec.CodeLingerFailed, err)
+		return err
+	}
+	if err := initializeHimmelblauSession(r, cfg); err != nil {
 		return err
 	}
 
@@ -305,11 +367,13 @@ func runStart(r runner.Runner, root string) error {
 		return nil
 	}
 
-	if clix.Verbose {
-		rep.Message("Creating login session...")
-	}
-	if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
-		return fmt.Errorf("failed to create login session: %w", err)
+	if !cfg.Himmelblau {
+		if clix.Verbose {
+			rep.Message("Creating login session...")
+		}
+		if err := r.RunBackground("machinectl", broker.LoginSessionArgs(cfg.MachineName, cfg.HostUser)...); err != nil {
+			return fmt.Errorf("failed to create login session: %w", err)
+		}
 	}
 
 	rep.Message("Waiting for container session bus...")
@@ -352,6 +416,17 @@ func runStart(r runner.Runner, root string) error {
 	}
 	rep.Message("Container is running. Use 'intuneme shell' to connect.")
 
+	return nil
+}
+
+func initializeHimmelblauSession(r runner.Runner, cfg *config.Config) error {
+	if !cfg.Himmelblau || cfg.HimmelblauUPN == "" {
+		return nil
+	}
+	// A running D-Bus broker keeps its old environment until it is restarted.
+	if err := nspawn.ExecForeground(r, cfg.HostUID, "/usr/bin/systemctl --user try-restart himmelblau-broker.service"); err != nil {
+		return fmt.Errorf("initialize Himmelblau session environment: %w", err)
+	}
 	return nil
 }
 

@@ -77,6 +77,11 @@ export const ContainerManager = GObject.registerClass({
             GObject.ParamFlags.READABLE,
             false,
         ),
+        'identity': GObject.ParamSpec.string(
+            'identity', '', '',
+            GObject.ParamFlags.READABLE,
+            'microsoft',
+        ),
     },
 }, class ContainerManager extends GObject.Object {
     _init() {
@@ -86,6 +91,7 @@ export const ContainerManager = GObject.registerClass({
         this._brokerRunning = false;
         this._transitioning = false;
         this._error = false;
+        this._identity = 'microsoft';
         this._errorTimeoutId = null;
 
         this._setupDBusWatch();
@@ -108,6 +114,10 @@ export const ContainerManager = GObject.registerClass({
 
     get error() {
         return this._error;
+    }
+
+    get identity() {
+        return this._identity;
     }
 
     _setContainerRunning(value) {
@@ -135,6 +145,13 @@ export const ContainerManager = GObject.registerClass({
         if (this._error !== value) {
             this._error = value;
             this.notify('error');
+        }
+    }
+
+    _setIdentity(value) {
+        if (this._identity !== value) {
+            this._identity = value;
+            this.notify('identity');
         }
     }
 
@@ -221,6 +238,9 @@ export const ContainerManager = GObject.registerClass({
 
         const brokerRunning = /^Broker proxy:\s+running\b/m.test(stdout);
         this._setBrokerRunning(brokerRunning);
+
+        const identityMatch = stdout.match(/^Identity:\s+(\S+)/m);
+        this._setIdentity(identityMatch?.[1] ?? 'microsoft');
     }
 
     /**
@@ -329,7 +349,29 @@ export const ContainerManager = GObject.registerClass({
      * Launch Intune Portal inside the container via `intuneme open portal`.
      */
     openPortal() {
+        if (this._identity === 'himmelblau-experimental') {
+            this.openHimmelblauLogin();
+            return;
+        }
         this._openApp('portal', 'Intune Portal');
+    }
+
+    openHimmelblauLogin() {
+        const terminal = findTerminal();
+        if (!terminal) {
+            console.error('[intuneme] No terminal emulator found');
+            return;
+        }
+
+        try {
+            const proc = Gio.Subprocess.new(
+                [terminal, ...terminalExecArgs(terminal), INTUNEME_BIN, 'enroll'],
+                Gio.SubprocessFlags.NONE,
+            );
+            proc.wait_async(null, null);
+        } catch (e) {
+            console.error(`[intuneme] Failed to launch Himmelblau login: ${e.message}`);
+        }
     }
 
     destroy() {

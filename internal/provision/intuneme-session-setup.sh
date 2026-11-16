@@ -82,7 +82,7 @@ export WEBKIT_DISABLE_COMPOSITING_MODE=1
 # Propagate the environment to the systemd user manager AND the D-Bus activation
 # environment. The latter is what D-Bus-activated services (the identity broker)
 # inherit — without it the broker has no DISPLAY and crashes on activation.
-_env_vars="DISPLAY XAUTHORITY NO_AT_BRIDGE GTK_A11Y PATH WAYLAND_DISPLAY \
+_env_vars="HOME DISPLAY XAUTHORITY NO_AT_BRIDGE GTK_A11Y PATH WAYLAND_DISPLAY \
 PIPEWIRE_REMOTE PULSE_SERVER __NV_PRIME_RENDER_OFFLOAD __GLX_VENDOR_LIBRARY_NAME \
 WEBKIT_DISABLE_DMABUF_RENDERER WEBKIT_DISABLE_COMPOSITING_MODE"
 # Only pass variables that are actually set, so we don't clear them.
@@ -221,7 +221,9 @@ if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
             # keyring. The user-session identity broker is D-Bus-activated (not a
             # systemd unit), so it is NOT restarted here — it re-activates with a
             # fresh process, and now working environment, on the next call from Edge.
-            systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+            if [ ! -f /etc/himmelblau/himmelblau.conf ]; then
+                systemctl --no-ask-password restart microsoft-identity-device-broker.service 2>/dev/null
+            fi
         elif [ "$_keyring_attempted" = 1 ]; then
             _intuneme_log "keyring unlock attempt $_attempts of $_keyring_max_attempts failed"
             if [ "$_attempts" -ge "$_keyring_max_attempts" ]; then
@@ -231,7 +233,13 @@ if [ ! -f "$_keyring_marker" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
     ) 9>"$XDG_RUNTIME_DIR/intuneme-keyring.lock"
 fi
 
-# Start the intune agent timer if it isn't already running.
-if ! systemctl -q --user is-active intune-agent.timer 2>/dev/null; then
-    systemctl --user start intune-agent.timer 2>/dev/null
+if [ -f /etc/himmelblau/himmelblau.conf ]; then
+    if ! systemctl -q --user is-active himmelblau-compliance-check.timer 2>/dev/null; then
+        systemctl --user start himmelblau-compliance-check.timer 2>/dev/null
+    fi
+else
+    # Start the Microsoft Intune agent timer.
+    if ! systemctl -q --user is-active intune-agent.timer 2>/dev/null; then
+        systemctl --user start intune-agent.timer 2>/dev/null
+    fi
 fi

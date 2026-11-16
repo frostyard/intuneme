@@ -90,7 +90,7 @@ Common issues and solutions. Click an item to expand it.
 
     Running the agent directly will output diagnostic information if it encounters an error.
 
-??? question "Edge crashes with \"Trace/breakpoint trap\""
+??? question "Microsoft Edge (Microsoft image only) crashes with \"Trace/breakpoint trap\""
     This is almost always a corrupted browser profile, not a GPU or sandbox issue.
 
     First, test with a fresh profile:
@@ -198,6 +198,78 @@ Common issues and solutions. Click an item to expand it.
 
     Common causes include unquoted strings, missing closing quotes, or stray characters from a manual edit. Fix the syntax. Do not delete the file and run plain `intuneme init`: the root filesystem still exists, so `init` stops with `already initialized ... use --force to reinitialize`. To regenerate the file, run `intuneme init --force`. It pulls the image and provisions the container again. `~/Intune` stays, but settings such as `broker_proxy` return to their defaults.
 
+??? question "Himmelblau fails with `Failed to determine local credential key`"
+    Himmelblau's HSM PIN is stored as a systemd encrypted credential. `recreate`
+    must preserve that encrypted file, `/var/lib/systemd/credential.secret`,
+    and `/etc/machine-id` together. If the machine ID changes, systemd can log
+    that `credential.secret` "comes from a different machine ID, deleting"
+    and replace the key, making the original PIN unusable. Current intuneme
+    validates the staged identity before deleting the old rootfs, verifies both
+    restored files match, and keeps the sensitive backup at the reported path
+    until you have confirmed normal PIN login after boot.
+
+    If recreate reports a state-restore failure, do not delete its retained
+    `/tmp/intuneme-himmelblau-backup-*` directory; it may contain the only
+    remaining copy of enrollment state. The encrypted PIN cannot be recovered
+    without its matching `credential.secret`. Restore that key and its original
+    `/etc/machine-id` from a backup of the same container state before starting
+    Himmelblau again. A newly generated key cannot decrypt an old PIN.
+    `/tmp` backups may disappear on host reboot; move a needed backup to
+    private persistent storage. Once login works, remove only the exact
+    reported backup directory; it contains sensitive credentials.
+
+    If this happened after an older recreate and Himmelblau enrollment never
+    completed, back up any custom `himmelblau.conf` outside the intuneme data
+    root, then run `intuneme destroy` and initialize again. Restore the saved
+    config before starting the new container. If the device was already
+    enrolled, do not delete the encrypted credential; restore its matching
+    key and machine ID from a backup or contact your administrator about
+    re-enrollment. If no matching key survives, preserve the remaining state
+    before resetting local enrollment; deleting only the PIN does not repair
+    the existing HSM-protected database.
+
+??? question "Himmelblau fails with `STATE_DIRECTORY` or `File exists` after recreate"
+    The daemon uses private DynamicUser state, while its root HSM initializer
+    accesses `/var/lib/himmelblaud`. That public path must link to
+    `private/himmelblaud` before boot, as must `/var/cache/himmelblaud`. Current
+    intuneme restores those links and protects their private parent directories.
+
+    An older recreate can leave both a real public directory containing a
+    newly generated PIN and a private directory containing the old PIN.
+    Do not merge them or replace one PIN with the other: preserve both first
+    and check the matching credential key and machine ID. A new recreate
+    rejects this ambiguous layout instead of discarding either copy. If the
+    original key was already replaced, repairing links alone is insufficient;
+    follow the credential recovery guidance above or arrange fresh enrollment.
+
+??? question "Himmelblau compliance check cannot resolve the mapped user's UID"
+    If the daemon logs `compliance check: could not resolve uid ... to an
+    account`, the local container user's UID may collide with a local group
+    GID. The upstream resolver can treat that numeric ID as a local-only group
+    and reject the `user-map` identity even though normal NSS lookups succeed.
+
+    Himmelblau provisioning now renames the local account's primary group to
+    match the username while preserving its GID. Run `intuneme recreate` to
+    apply this to an existing container; do not use `destroy`, which discards
+    enrollment state. If provisioning reports that the username is already a
+    group name at a different GID, resolve that group conflict first.
+
+    If `AADSTS530003` continues after the compliance check succeeds, inspect
+    the corresponding Entra sign-in event and its Conditional Access result.
+
+??? question "Himmelblau reports encrypted disks or the UEFI CA as missing"
+    Himmelblau's encryption check also uses filesystem metadata from udev. On
+    Himmelblau starts, intuneme binds the host's `/run/udev/data` read-only
+    when available. Both Himmelblau images include `strings` for
+    custom-compliance scripts that inspect the Secure Boot database.
+
+    Rebuild and `recreate` an existing Himmelblau container to install the
+    updated image package, then run `start` to apply the host udev bind. This
+    does not relax the task worker's device isolation. If the UEFI CA rule
+    still fails, check whether the tenant script inspects the firmware Secure
+    Boot `db` rather than the separate MOK list; the exact check is defined by
+    the tenant's policy.
+
 ??? question "YubiKey not detected inside the container"
     Check that udev rules are installed:
 
@@ -232,6 +304,26 @@ Common issues and solutions. Click an item to expand it.
     ```
 
     The output should list `/dev/hidraw*` and `/dev/bus/usb/...` entries. If it doesn't, the node exists but every `open()` fails with `Operation not permitted`. Run `intuneme stop && intuneme start` to re-forward the key on the correct scope unit (older intuneme releases guessed the unit name, which changed to `<machine>.scope` on systemd 256+).
+
+??? question "Himmelblau browser SSO fails after reboot instead of showing a PIN dialog"
+    Saved enrollment does not mean the PIN-protected credential is unlocked.
+    A reboot clears Himmelblau's in-memory PRT cache. The user broker needs a
+    graphical display to request your Hello PIN.
+
+    An older `intuneme start` skipped session setup for already-running
+    containers, leaving the broker without display variables. The Linux
+    Entra SSO extension could then report `Failed to fetch prt sso cookie`
+    even though status showed enrolled and the proxy was running.
+    Cold startup could also mistake the previous boot's stale bus socket
+    for a ready session bus, causing display imports to fail with
+    `Connection refused`. Current startup waits for a real D-Bus reply.
+
+    Update the CLI, install it in a root-owned path, and run `intuneme start`
+    from your graphical session. Current start initializes enrolled
+    Himmelblau sessions on every non-dry-run call and refreshes an active
+    user broker to inherit the display. Retry the browser request and enter
+    your existing Hello PIN in the dialog. No image recreation or new
+    enrollment is required.
 
 ??? question "Edge or the Company Portal asks you to sign in again after a reboot"
     Your credentials live in the container's gnome-keyring, and the keyring has to be unlocked once per boot. Older versions could skip that unlock for the whole boot: if the first launch after `intuneme start` came from the GNOME extension, the container user's session was not running yet, the unlock failed, and the keyring stayed locked. The broker then found no saved account.

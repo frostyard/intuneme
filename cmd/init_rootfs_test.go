@@ -431,6 +431,43 @@ func TestPrepareInitRootfsSkipChecksNothing(t *testing.T) {
 	}
 }
 
+func TestPrepareInitRootfsLocalImageRequiresExplicitTrust(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		t.Run(map[bool]string{false: "refuse", true: "explicit trust"}[skip], func(t *testing.T) {
+			rec := useInitTestReporter(t)
+			useSignatureCheck(t, func(context.Context, string) (string, error) {
+				t.Fatal("local image attempted registry verification")
+				return "", nil
+			})
+			const image = "localhost/ubuntu-himmelblau-terminal-passkey:dev"
+			root, path := initRootfsTarget(t)
+			p := &digestPuller{}
+			err := prepareInitRootfs(context.Background(), &startSecurityRunner{}, p, root, image, path, "", skip, skipRootOwned)
+			if !skip {
+				if !errors.Is(err, imagesig.ErrUnsigned) || !strings.Contains(err.Error(), "--insecure-skip-signature-check") {
+					t.Fatalf("error = %v, want explicit local trust requirement", err)
+				}
+				if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+					t.Errorf("rootfs exists without local trust: %v", statErr)
+				}
+				if p.ref != "" {
+					t.Errorf("untrusted image extracted: %q", p.ref)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.ref != image {
+				t.Errorf("extracted %q, want unchanged local reference %q", p.ref, image)
+			}
+			if len(rec.warnings) != 1 || !strings.Contains(rec.warnings[0], "NOT verified") {
+				t.Errorf("warnings = %q, want unverified-image warning", rec.warnings)
+			}
+		})
+	}
+}
+
 func TestInitIncompleteInstallMessage(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "rootfs")

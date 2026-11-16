@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/frostyard/intuneme/internal/imagesig"
 )
@@ -22,6 +23,9 @@ func resolvePullRef(ctx context.Context, image string, skip bool) (string, error
 	if skip {
 		rep.Warning("Skipping the image signature check because of --insecure-skip-signature-check: %s is NOT verified", image)
 		return image, nil
+	}
+	if strings.HasPrefix(image, "localhost/") {
+		return "", fmt.Errorf("image signature check failed for %s: %w; local images require --insecure-skip-signature-check to explicitly trust the unsigned build", image, imagesig.ErrUnsigned)
 	}
 	if ctx == nil {
 		ctx = context.Background()

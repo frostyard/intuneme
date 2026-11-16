@@ -126,42 +126,83 @@ func (r *recreateRunner) LookPath(name string) (string, error) {
 // it deletes the old rootfs, so a rejected image leaves the container and its
 // enrollment untouched.
 func TestRecreateBadSignatureChangesNothing(t *testing.T) {
-	root := t.TempDir()
-	rootfs := filepath.Join(root, "rootfs")
-	if err := os.Mkdir(rootfs, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	sentinel := filepath.Join(rootfs, "sentinel")
-	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	config := "machine_name = \"intuneme\"\nrootfs_path = " + strconv.Quote(rootfs) + "\n"
-	if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	for _, tc := range []struct {
+		name       string
+		himmelblau bool
+		localImage string
+		dryRun     bool
+	}{
+		{name: "Microsoft"},
+		{name: "hosted Himmelblau", himmelblau: true},
+		{name: "local Himmelblau override", himmelblau: true, localImage: "localhost/ubuntu-himmelblau-terminal-passkey:dev"},
+		{name: "dry-run local override", himmelblau: true, localImage: "localhost/ubuntu-himmelblau-terminal-passkey:dev", dryRun: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			rootfs := filepath.Join(root, "rootfs")
+			if err := os.Mkdir(rootfs, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			sentinel := filepath.Join(rootfs, "sentinel")
+			if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			config := "machine_name = \"intuneme\"\nrootfs_path = " + strconv.Quote(rootfs) + "\n"
+			if tc.himmelblau {
+				config += "himmelblau = true\nhimmelblau_domain = \"example.com\"\n"
+			}
+			if err := os.WriteFile(filepath.Join(root, "config.toml"), []byte(config), 0o644); err != nil {
+				t.Fatal(err)
+			}
 
-	useRootDir(t, root)
-	useInitTestReporter(t)
-	useSignatureCheck(t, func(context.Context, string) (string, error) {
-		return "", imagesig.ErrInvalidSignature
-	})
-	r := &recreateRunner{}
-	origRunner := newRecreateRunner
-	newRecreateRunner = func() runner.Runner { return r }
-	t.Cleanup(func() { newRecreateRunner = origRunner })
+			useRootDir(t, root)
+			useInitTestReporter(t)
+			checked := false
+			useSignatureCheck(t, func(_ context.Context, image string) (string, error) {
+				checked = true
+				if tc.himmelblau && image != "ghcr.io/frostyard/ubuntu-himmelblau:latest" {
+					t.Errorf("checking %q instead of the selected Himmelblau image", image)
+				}
+				return "", imagesig.ErrInvalidSignature
+			})
+			r := &recreateRunner{}
+			origRunner := newRecreateRunner
+			newRecreateRunner = func() runner.Runner { return r }
+			t.Cleanup(func() { newRecreateRunner = origRunner })
 
-	origDryRun, origSkip := clix.DryRun, skipSignatureRecreate
-	clix.DryRun, skipSignatureRecreate = false, false
-	t.Cleanup(func() { clix.DryRun, skipSignatureRecreate = origDryRun, origSkip })
+			origDryRun, origSkip := clix.DryRun, skipSignatureRecreate
+			clix.DryRun, skipSignatureRecreate = tc.dryRun, false
+			t.Cleanup(func() { clix.DryRun, skipSignatureRecreate = origDryRun, origSkip })
+			flag := recreateCmd.Flags().Lookup("himmelblau-local-image")
+			origChanged, origImage := flag.Changed, himmelblauLocalImageRecreate
+			flag.Changed, himmelblauLocalImageRecreate = tc.localImage != "", tc.localImage
+			t.Cleanup(func() { flag.Changed, himmelblauLocalImageRecreate = origChanged, origImage })
 
-	err := recreateCmd.RunE(recreateCmd, nil)
-	if !errors.Is(err, imagesig.ErrInvalidSignature) {
-		t.Fatalf("error = %v, want the signature error", err)
-	}
-	if len(r.commands) != 0 {
-		t.Errorf("recreate ran host commands after a failed check: %v", r.commands)
-	}
-	if _, statErr := os.Stat(sentinel); statErr != nil {
-		t.Errorf("the old rootfs was changed after a failed check: %v", statErr)
+			err := recreateCmd.RunE(recreateCmd, nil)
+			if tc.dryRun {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if tc.localImage != "" {
+				if !errors.Is(err, imagesig.ErrUnsigned) {
+					t.Fatalf("error = %v, want explicit local trust requirement", err)
+				}
+			} else if !errors.Is(err, imagesig.ErrInvalidSignature) {
+				t.Fatalf("error = %v, want the signature error", err)
+			}
+			if checked != (!tc.dryRun && tc.localImage == "") {
+				t.Errorf("registry verification ran = %v for dry-run=%v, local=%q", checked, tc.dryRun, tc.localImage)
+			}
+			if len(r.commands) != 0 {
+				t.Errorf("recreate ran host commands after a failed check: %v", r.commands)
+			}
+			if _, statErr := os.Stat(sentinel); statErr != nil {
+				t.Errorf("the old rootfs was changed after a failed check: %v", statErr)
+			}
+			saved, readErr := os.ReadFile(filepath.Join(root, "config.toml"))
+			if readErr != nil || string(saved) != config {
+				t.Errorf("saved config changed before successful trust validation: %q, %v", saved, readErr)
+			}
+		})
 	}
 }

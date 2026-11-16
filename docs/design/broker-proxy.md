@@ -2,6 +2,11 @@
 
 The broker proxy forwards the Microsoft identity broker D-Bus service (`com.microsoft.identity.broker1`) from the container's session bus to the host's session bus. This enables host-side applications (Edge, VS Code, MSAL libraries) to transparently use the container's Intune enrollment for SSO.
 
+The experimental Himmelblau broker implements this same well-known name and
+interface, so the proxy can forward its calls without a second protocol
+implementation. Headless user-service activation in systemd-nspawn remains
+unverified.
+
 ## How It Works
 
 ```
@@ -43,6 +48,16 @@ Linger must be enabled for the container user so that the user session (and sess
 ### Login Session
 
 A login session must be created inside the container so that the session bus socket is initialized. The `start` command creates this via `machinectl shell <user>@<machine> /bin/bash --login -c "exec sleep infinity"`. The login shell sources `intuneme.sh` (initializing keyring, display, etc.) and stays alive via `sleep infinity` so the keyring daemon persists. The `start` command waits up to 30 seconds for the session bus socket to appear.
+
+For Himmelblau, `start` uses linger's user bus and initializes the enrolled
+user's session with the foreground scoped exec helper instead, including
+when the container is already running. It imports the display environment
+and try-restarts an active `himmelblau-broker.service`: importing variables
+alone cannot update an existing process. This enables the broker's
+interactive PIN prompt after a cold boot clears the in-memory PRT cache.
+It does not open an unattended PAM login shell or retain a PIN. Failures
+stop `start`; tests in `cmd/start_test.go` cover running-container repair,
+failure propagation, dry run and the cold-boot path.
 
 ### D-Bus Service Activation
 
