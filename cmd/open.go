@@ -1,15 +1,21 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"text/tabwriter"
 
+	"github.com/frostyard/clix"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/problemrec"
 	"github.com/frostyard/intuneme/internal/runner"
+	"github.com/frostyard/intuneme/internal/webapps"
 	"github.com/spf13/cobra"
 )
 
@@ -74,7 +80,152 @@ open a site as a standalone Edge app window:
 	}
 }
 
+// intuneHomeDir returns the host directory that is bound to the container
+// user's home; it is where Edge writes the desktop files of its web apps.
+func intuneHomeDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, "Intune"), nil
+}
+
+// runOpenAppList writes the installed Edge web apps to out, as a table or as 1
+// JSON array. It needs the config but not a running container, and it runs no
+// command.
+func runOpenAppList(root, intuneHome string, out io.Writer, asJSON bool) error {
+	if _, err := config.Load(root); err != nil {
+		return err
+	}
+
+	apps, err := webapps.List(intuneHome)
+	if err != nil {
+		return err
+	}
+
+	if asJSON {
+		return json.NewEncoder(out).Encode(apps)
+	}
+
+	if len(apps) == 0 {
+		_, err := fmt.Fprintln(out, "No Edge web apps found.")
+		return err
+	}
+
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "ID\tNAME"); err != nil {
+		return err
+	}
+	for _, app := range apps {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\n", app.ID, app.Name); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
+}
+
+// runOpenApp launches 1 Edge web app inside the container. The ID is checked
+// against the desktop file in the Intune home before any runner call, so a
+// refused ID never reaches sudo. The launch uses the microsoft-edge wrapper on
+// the container's PATH with --profile-directory and --app-id, never the desktop
+// file's Exec line and never gtk-launch: the wrapper adds the container flags
+// (--disable-gpu-sandbox and the Wayland flags), and a cold Edge start without
+// them can crash in nspawn. runOpen quotes each argument with
+// nspawn.ShellQuote and loads the config again.
+func runOpenApp(r runner.Runner, root, intuneHome, id string) error {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(cfg.RootfsPath); err != nil {
+		return fmt.Errorf("not initialized — run 'intuneme init' first")
+	}
+
+	if err := webapps.Check(intuneHome, id); err != nil {
+		return err
+	}
+
+	appID, profileDir, err := webapps.SplitID(id)
+	if err != nil {
+		return err
+	}
+
+	return runOpen(r, root, "microsoft-edge", []string{
+		"--profile-directory=" + profileDir,
+		"--app-id=" + appID,
+	})
+}
+
+func makeOpenWebAppCmd() *cobra.Command {
+	var list bool
+
+	cmd := &cobra.Command{
+		Use:   "app [ID]",
+		Short: "List or launch an Edge web app inside the container",
+		Long: `List or launch the Microsoft 365 web apps (PWAs) that Edge installed in the
+container.
+
+Edge writes 1 desktop file per installed web app to the container user's
+~/.local/share/applications/, and that home directory is a bind mount of
+~/Intune on the host. The file name holds the ID, for example
+msedge-ahjdipcglkflohmjbcjmjpidpbbiocpk-Default.desktop. Install an app in Edge
+with "Apps > Install this site as an app" and it appears here.
+
+The ID must match msedge-<32 letters a-p>-<Default|Profile_<n> and must name a
+regular file in that directory; anything else is refused before any command
+runs. The desktop file only proves that the app is installed in that profile:
+the launch runs the container's microsoft-edge wrapper on PATH with
+--profile-directory and --app-id, the same way 'intuneme open edge' starts Edge,
+so the container flags apply. It never runs the desktop file's Exec line.
+
+Examples:
+
+  intuneme open app --list
+  intuneme open app --list --json
+  intuneme open app msedge-ahjdipcglkflohmjbcjmjpidpbbiocpk-Default`,
+		Args: func(_ *cobra.Command, args []string) error {
+			// --json is the global flag of the CLI (clix reserves it), so it is
+			// read here rather than declared as a local flag.
+			if clix.JSONOutput && !list {
+				return errors.New("--json needs --list")
+			}
+			if list {
+				if len(args) > 0 {
+					return fmt.Errorf("--list takes no arguments, got %d", len(args))
+				}
+				return nil
+			}
+			if len(args) != 1 {
+				return errors.New("give exactly 1 web app ID, or --list")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			root, err := resolveRoot()
+			if err != nil {
+				return err
+			}
+			intuneHome, err := intuneHomeDir()
+			if err != nil {
+				return err
+			}
+
+			if list {
+				return runOpenAppList(root, intuneHome, cmd.OutOrStdout(), clix.JSONOutput)
+			}
+
+			r := &runner.SystemRunner{}
+			return runOpenApp(r, root, intuneHome, args[0])
+		},
+	}
+
+	cmd.Flags().BoolVar(&list, "list", false, "list the installed Edge web apps")
+	return cmd
+}
+
 func init() {
+	openCmd.AddCommand(makeOpenWebAppCmd())
 	openCmd.AddCommand(makeOpenAppCmd(
 		"edge",
 		"Launch Microsoft Edge inside the container",

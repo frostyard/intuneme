@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "cmd/open.go",
+  "correction": "open app launches through the microsoft-edge wrapper on PATH with --profile-directory and --app-id from the validated ID, never gtk-launch or the desktop file's Exec, because the Exec path skips the container flags.",
+  "evidence": "Cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#295 head 49c87e5; cmd/open_app_test.go TestRunOpenApp_LaunchesThroughTheEdgeWrapper (default profile and profile 3), internal/webapps TestSplitID",
+  "promoted_to": "cmd/open_app_test.go"
+}

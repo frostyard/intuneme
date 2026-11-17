@@ -54,8 +54,24 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
         });
         this._portalItem.sensitive = false;
 
+        // Edge web apps submenu, filled from the container when the menu opens
+        this._appsItem = new PopupMenu.PopupSubMenuMenuItem('Apps');
+        this._appsItem.sensitive = false;
+        this.menu.addMenuItem(this._appsItem);
+        this._appsGeneration = 0;
+        this._destroyed = false;
+
         // --- Bind to manager state ---
         this._managerSignals = [];
+
+        // Reload the app list each time the menu opens.
+        this._openStateId = this.menu.connect('open-state-changed', (_menu, isOpen) => {
+            if (!isOpen)
+                return;
+            if (!this._manager.container_running || this._manager.transitioning)
+                return;
+            this._refreshApps();
+        });
 
         this._managerSignals.push(
             this._manager.connect('notify::container-running', () => this._sync()),
@@ -114,13 +130,61 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
             this._manager.broker_running ? 'Running' : 'Stopped'
         }`;
 
-        // Shell/Edge/Portal items only available when running and not transitioning
+        // Shell/Edge/Portal/Apps items only available when running and not transitioning
         this._shellItem.sensitive = running && !transitioning;
         this._edgeItem.sensitive = running && !transitioning;
         this._portalItem.sensitive = running && !transitioning;
+        this._appsItem.sensitive = running && !transitioning;
+        if (!running)
+            this._appsItem.menu.close();
+    }
+
+    /**
+     * Reload the Apps submenu from `intuneme open app --list --json`.
+     * A newer call, or a destroyed toggle, discards the result.
+     */
+    async _refreshApps() {
+        const generation = ++this._appsGeneration;
+
+        let apps = [];
+        try {
+            apps = await this._manager.listWebApps();
+        } catch (e) {
+            console.warn(`[intuneme] Failed to list web apps: ${e.message}`);
+            return;
+        }
+
+        if (generation !== this._appsGeneration || this._destroyed)
+            return;
+
+        this._appsItem.menu.removeAll();
+
+        if (apps.length === 0) {
+            const empty = new PopupMenu.PopupMenuItem('No web apps installed', {
+                reactive: false,
+            });
+            this._appsItem.menu.addMenuItem(empty);
+            return;
+        }
+
+        for (const app of apps) {
+            const item = new PopupMenu.PopupMenuItem(app.name);
+            item.connect('activate', () => {
+                this.menu.close();
+                this._manager.openWebApp(app.id);
+            });
+            this._appsItem.menu.addMenuItem(item);
+        }
     }
 
     destroy() {
+        // _destroyed is what drops a list that is still in flight; the menu
+        // signal is disconnected, so no newer refresh can start.
+        this._destroyed = true;
+        if (this._openStateId) {
+            this.menu.disconnect(this._openStateId);
+            this._openStateId = null;
+        }
         for (const id of this._managerSignals)
             this._manager.disconnect(id);
         this._managerSignals = [];

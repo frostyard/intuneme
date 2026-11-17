@@ -187,6 +187,10 @@ Uses `machinectl shell <user>@<machine> /bin/bash --login`. The login shell sour
 
 Launches GUI apps via `nspawn.Exec()`. Uses the nsenter pattern described in [overview.md](overview.md#command-execution-inside-the-container). Both are built from a shared `makeOpenAppCmd()` factory. Arguments after `--` are passed to the app: `runOpen()` quotes each one with `nspawn.ShellQuote()` and appends it to the command, so `intuneme open edge -- --app=<url>` opens a site as a standalone Edge window. The quoting matters because `nspawn.Exec()` runs the command through `bash -c`. Because the nsenter path is a *non-login* shell, `nspawn.Exec()` runs `/usr/local/bin/intuneme-session-setup` before launching the app — this is what gives the D-Bus-activated identity broker a DISPLAY and an unlocked keyring, without which authentication fails.
 
+## `intuneme open app`
+
+Lists and launches the Edge web apps (PWAs) installed in the container. `intuneme open app --list` prints a table of ID and name, and the global `--json` flag turns it into 1 JSON array (the GNOME extension reads it). Listing needs the config but not a running container: the desktop files are read on the host from `~/Intune/.local/share/applications/`, the bind source of the container home. `intuneme open app <ID>` checks the ID and the file with `internal/webapps` before any runner call, then launches `microsoft-edge --profile-directory=<dir> --app-id=<app id>` through `runOpen()` — the same command and PATH lookup as `open edge`, so the container's `microsoft-edge` wrapper and its flags always apply. It never runs `gtk-launch` or the desktop file's `Exec` line: that path runs an absolute Edge binary and skips the wrapper. See [overview.md](overview.md#edge-web-apps-open-app) for the ID pattern, `SplitID` and the checks.
+
 ## `intuneme udev install` / `intuneme udev remove`
 
 Manually install or remove udev rules for device hotplug forwarding. Normally called automatically by `start`/`stop`, but can be run independently.

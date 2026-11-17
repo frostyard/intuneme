@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-16",
+  "scope": "cmd/extension/quickToggle.js",
+  "correction": "Extension behavior changes need executable tests in test/extension-apps.test.mjs with mocked gi:// and resource:// modules; node --check proves only syntax.",
+  "evidence": "Cross-review (openai/gpt-6.1-sol) of frostyard/intuneme#295 head 49c87e5; test/extension-apps.test.mjs: menu open refreshes the apps only while the container runs and is not transitioning, malformed entries are filtered out, activating an app item runs intuneme open app <id> and closes the menu, an empty list shows the non-reactive \"No web apps installed\" item, a result that arrives after a newer refresh does not change the submenu, a result that arrives after destroy does not change the submenu",
+  "promoted_to": "test/extension-apps.test.mjs"
+}

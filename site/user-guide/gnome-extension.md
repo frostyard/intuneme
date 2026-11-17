@@ -33,6 +33,7 @@ This also removes the polkit policy action that enables the extension's password
 - **Quick Settings toggle** — Displays the current container state. Clicking it starts or stops the container.
 - **Status details** — The popup menu shows whether the container is running and enrollment status.
 - **App shortcuts** — Buttons to open a shell, launch Microsoft Edge, or launch Intune Portal directly from Quick Settings.
+- **Apps submenu** — The Edge web apps installed in the container ("Apps > Install this site as an app" in Edge), each 1 click away. The list is read with `intuneme open app --list --json` each time the menu opens, so it follows what you install in Edge without a restart.
 
 The extension monitors container state via D-Bus signals from `systemd-machined` for instant updates, with periodic polling as a fallback.
 
