@@ -65,7 +65,7 @@ intuneme writes panics and 4 coded internal errors to the local journal with `gi
 
 ## Edge web apps (`intuneme open app`)
 
-`intuneme open app` accepts only an ID that matches the strict pattern `^msedge-[a-p]{32}-(Default|Profile_[1-9][0-9]{0,3})$` and names a regular file (never a symlink, directory or FIFO) at `~/Intune/.local/share/applications/<ID>.desktop`, checked with `os.Root` before any runner call; it then passes the ID to `nspawn.ShellQuote` through `runOpen`. Never widen the pattern (or drop the file check) without tests in `internal/webapps` and `cmd`. See `docs/design/overview.md` → "Edge web apps (`open app`)".
+`intuneme open app` accepts only an ID that matches the strict pattern `^msedge-[a-p]{32}-(Default|Profile_[1-9][0-9]{0,3})$` and names a regular file (never a symlink, directory or FIFO) at `~/Intune/.local/share/applications/<ID>.desktop`, checked with `os.Root` before any runner call. It launches `microsoft-edge` with `--profile-directory` and `--app-id` from `webapps.SplitID(id)`, through `runOpen`, so the container's `/usr/local/bin/microsoft-edge` wrapper and its container flags always apply, and `nspawn.ShellQuote` quotes both arguments. The desktop file only proves that the app is installed in that profile. Never launch a web app with `gtk-launch` or with the desktop file's `Exec` line: that path runs an absolute Edge binary and skips the wrapper, and a cold Edge start without the wrapper's flags can crash in nspawn. Never widen the pattern (or drop the file check) without tests in `internal/webapps` and `cmd`. See `docs/design/overview.md` → "Edge web apps (`open app`)".
 
 ## Release automation
 
@@ -95,6 +95,7 @@ The docker update for `/ubuntu-intune` ignores `library/ubuntu` major and minor 
 - `mise install` provisions the pinned tools (`mise.toml`, checksums in `mise.lock`): golangci-lint and Node. Go comes from `go.mod` only. Bump golangci-lint in `mise.toml` and run `mise lock`; never pin it in a workflow or the `Makefile`.
 - `make verify` is the credential-free gate and changes no file: tidy diff, vet, gofmt check, the pinned golangci-lint, the template gate (`scripts/check-template.mjs`) and the race tests. `make check` runs `make fmt`, then `make verify`. `make ci BASE=origin/main` adds the corrections check against `BASE`, govulncheck and the build.
 - `ci` has no recipe: `.github/workflows/ci.yml` runs each prerequisite as its own `make <target>` step (frostyard/core ADR-0073). A new prerequisite of `ci` needs its step in `ci.yml` in the same change. Keep the workflow name `Tests`: `snapshot.yml` follows it.
+- Extension behavior is tested in `test/extension-apps.test.mjs` with mocked `gi://` and `resource://` modules (`test/extension-mocks/`); `node --check` is not a test.
 - `scripts/check-template.mjs`, `scripts/check-corrections.mjs`, `scripts/lib/risk-paths.mjs` and `test/check-template.test.mjs` are copies from bketelsen/agentic-template. Never edit them here; take a new copy.
 - Every doc under `docs/` must be linked from `docs/README.md`, or `make verify` fails.
 

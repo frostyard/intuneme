@@ -100,19 +100,54 @@ func TestRunOpenApp_NotRunning(t *testing.T) {
 	}
 }
 
-func TestRunOpenApp_LaunchesWithGtkLaunch(t *testing.T) {
-	r := &mcpMockRunner{}
-	root, _ := initializedRoot(t, true)
-	home := newIntuneHome(t)
-	writeDesktop(t, home, testAppID, "Outlook")
-
-	if err := runOpenApp(r, root, home, testAppID); err != nil {
-		t.Fatalf("runOpenApp() = %v, want nil", err)
+// TestRunOpenApp_LaunchesThroughTheEdgeWrapper is the guard against a launch
+// through gtk-launch or the desktop file's Exec line: either skips the
+// container's microsoft-edge wrapper and its flags.
+func TestRunOpenApp_LaunchesThroughTheEdgeWrapper(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		appID   string
+		profile string
+	}{
+		{
+			name:    "default profile",
+			id:      testAppID,
+			appID:   "ahjdipcglkflohmjbcjmjpidpbbiocpk",
+			profile: "Default",
+		},
+		{
+			name:    "profile 3",
+			id:      "msedge-" + strings.Repeat("a", 32) + "-Profile_3",
+			appID:   strings.Repeat("a", 32),
+			profile: "Profile 3",
+		},
 	}
-	script := lastExecScript(t, r)
-	want := "nohup gtk-launch '" + testAppID + "' >/dev/null 2>&1 &"
-	if !strings.Contains(script, want) {
-		t.Fatalf("expected %q in the launch script, got: %q", want, script)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &mcpMockRunner{}
+			root, _ := initializedRoot(t, true)
+			home := newIntuneHome(t)
+			writeDesktop(t, home, tt.id, "Outlook")
+
+			if err := runOpenApp(r, root, home, tt.id); err != nil {
+				t.Fatalf("runOpenApp() = %v, want nil", err)
+			}
+			script := lastExecScript(t, r)
+
+			want := "nohup microsoft-edge '--profile-directory=" + tt.profile +
+				"' '--app-id=" + tt.appID + "' >/dev/null 2>&1 &"
+			if !strings.Contains(script, want) {
+				t.Fatalf("expected %q in the launch script, got: %q", want, script)
+			}
+			// gtk-launch runs the desktop file's Exec line, which holds an
+			// absolute Edge path and skips the wrapper and its container flags.
+			for _, banned := range []string{"gtk-launch", "/usr/bin/microsoft-edge", "/opt/microsoft", ".desktop"} {
+				if strings.Contains(script, banned) {
+					t.Errorf("launch script must not contain %q: %q", banned, script)
+				}
+			}
+		})
 	}
 }
 

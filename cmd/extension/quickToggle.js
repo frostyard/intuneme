@@ -178,8 +178,9 @@ class IntuneToggle extends QuickSettings.QuickMenuToggle {
     }
 
     destroy() {
+        // _destroyed is what drops a list that is still in flight; the menu
+        // signal is disconnected, so no newer refresh can start.
         this._destroyed = true;
-        this._appsGeneration++;
         if (this._openStateId) {
             this.menu.disconnect(this._openStateId);
             this._openStateId = null;

@@ -124,9 +124,13 @@ func runOpenAppList(root, intuneHome string, out io.Writer, asJSON bool) error {
 	return tw.Flush()
 }
 
-// runOpenApp launches 1 Edge web app with gtk-launch inside the container. The
-// ID is checked against the desktop file in the Intune home before any runner
-// call, so a refused ID never reaches sudo; runOpen then quotes it with
+// runOpenApp launches 1 Edge web app inside the container. The ID is checked
+// against the desktop file in the Intune home before any runner call, so a
+// refused ID never reaches sudo. The launch uses the microsoft-edge wrapper on
+// the container's PATH with --profile-directory and --app-id, never the desktop
+// file's Exec line and never gtk-launch: the wrapper adds the container flags
+// (--disable-gpu-sandbox and the Wayland flags), and a cold Edge start without
+// them can crash in nspawn. runOpen quotes each argument with
 // nspawn.ShellQuote and loads the config again.
 func runOpenApp(r runner.Runner, root, intuneHome, id string) error {
 	cfg, err := config.Load(root)
@@ -142,7 +146,15 @@ func runOpenApp(r runner.Runner, root, intuneHome, id string) error {
 		return err
 	}
 
-	return runOpen(r, root, "gtk-launch", []string{id})
+	appID, profileDir, err := webapps.SplitID(id)
+	if err != nil {
+		return err
+	}
+
+	return runOpen(r, root, "microsoft-edge", []string{
+		"--profile-directory=" + profileDir,
+		"--app-id=" + appID,
+	})
 }
 
 func makeOpenWebAppCmd() *cobra.Command {
@@ -162,7 +174,10 @@ with "Apps > Install this site as an app" and it appears here.
 
 The ID must match msedge-<32 letters a-p>-<Default|Profile_<n> and must name a
 regular file in that directory; anything else is refused before any command
-runs. The app is launched with gtk-launch as the container user.
+runs. The desktop file only proves that the app is installed in that profile:
+the launch runs the container's microsoft-edge wrapper on PATH with
+--profile-directory and --app-id, the same way 'intuneme open edge' starts Edge,
+so the container flags apply. It never runs the desktop file's Exec line.
 
 Examples:
 

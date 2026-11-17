@@ -41,6 +41,8 @@ intuneme open app msedge-ahjdipcglkflohmjbcjmjpidpbbiocpk-Default
 
 The IDs come from Edge, not from intuneme. Use `--list --json` for machine-readable output; the [GNOME extension](gnome-extension.md) uses it to fill its Apps submenu.
 
+The launch runs the container's `microsoft-edge` wrapper with `--profile-directory` and `--app-id`, the same way `intuneme open edge` starts Edge, so the container's flags apply. intuneme never runs the desktop file's `Exec` line (`gtk-launch`), which would start Edge without them.
+
 !!! note
     intuneme reads the desktop files in `~/Intune/.local/share/applications/`, the host side of the container's home directory, so `--list` works with the container stopped.
 

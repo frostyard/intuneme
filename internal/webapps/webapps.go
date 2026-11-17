@@ -10,7 +10,11 @@
 // The container user's home is a bind mount of the host's <home>/Intune
 // directory (see cmd/start.go), so the files are read on the host from
 // <home>/Intune/.local/share/applications/. Nothing here runs a command: the
-// caller launches an app with gtk-launch inside the container.
+// caller launches an app with the container's microsoft-edge wrapper, which
+// applies the container flags, and uses SplitID to turn the ID into the
+// --profile-directory and --app-id arguments. The desktop file only proves
+// that the app is installed in that profile; its Exec line is never run, and
+// never with gtk-launch, because that path skips the wrapper.
 //
 // Every ID comes from the user or from a desktop file name, so it is treated
 // as untrusted: ValidID accepts only the strict Chromium app-ID shape, and the
@@ -60,8 +64,8 @@ var idRE = regexp.MustCompile(idPattern)
 // ErrInvalidID reports an ID that does not match idPattern.
 var ErrInvalidID = errors.New("invalid Edge web app ID")
 
-// App is 1 Edge web app: the ID that gtk-launch takes, the name that Edge
-// wrote into the desktop file, and the Edge profile the app was installed in.
+// App is 1 Edge web app: the ID that names its desktop file, the name that
+// Edge wrote into that file, and the Edge profile the app was installed in.
 type App struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -71,6 +75,23 @@ type App struct {
 // ValidID reports whether id is an Edge web app ID of the accepted shape.
 func ValidID(id string) bool {
 	return idRE.MatchString(id)
+}
+
+// SplitID splits a valid ID into the Chromium app ID (the 32 letters) and the
+// Edge profile directory. "Default" stays "Default"; "Profile_<n>" becomes
+// "Profile <n>", because Chromium replaced the space with an underscore in the
+// file name. An ID that does not match idPattern gives an error that wraps
+// ErrInvalidID.
+func SplitID(id string) (appID, profileDir string, err error) {
+	if !ValidID(id) {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidID, id)
+	}
+	parts := strings.Split(id, "-")
+	profileDir = parts[2]
+	if n, ok := strings.CutPrefix(profileDir, "Profile_"); ok {
+		profileDir = "Profile " + n
+	}
+	return parts[1], profileDir, nil
 }
 
 // Check reports whether id names an installed Edge web app: the ID must match

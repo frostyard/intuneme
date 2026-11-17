@@ -57,6 +57,62 @@ func TestValidID(t *testing.T) {
 	}
 }
 
+func TestSplitID(t *testing.T) {
+	tests := []struct {
+		name       string
+		id         string
+		wantAppID  string
+		wantDirect string
+		wantErr    bool
+	}{
+		{
+			name:       "default profile",
+			id:         "msedge-ahjdipcglkflohmjbcjmjpidpbbiocpk-Default",
+			wantAppID:  "ahjdipcglkflohmjbcjmjpidpbbiocpk",
+			wantDirect: "Default",
+		},
+		{
+			name:       "profile 1",
+			id:         appID("Profile_1"),
+			wantAppID:  letters(32),
+			wantDirect: "Profile 1",
+		},
+		{
+			name:       "profile 12",
+			id:         appID("Profile_12"),
+			wantAppID:  letters(32),
+			wantDirect: "Profile 12",
+		},
+		{
+			name:    "invalid id",
+			id:      "../" + appID("Default"),
+			wantErr: true,
+		},
+		{
+			name:    "empty id",
+			id:      "",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotAppID, gotDir, err := SplitID(tt.id)
+			if tt.wantErr {
+				if !errors.Is(err, ErrInvalidID) {
+					t.Fatalf("SplitID(%q) error = %v, want ErrInvalidID", tt.id, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SplitID(%q) error = %v, want nil", tt.id, err)
+			}
+			if gotAppID != tt.wantAppID || gotDir != tt.wantDirect {
+				t.Fatalf("SplitID(%q) = (%q, %q), want (%q, %q)", tt.id, gotAppID, gotDir, tt.wantAppID, tt.wantDirect)
+			}
+		})
+	}
+}
+
 // newHome returns a temporary Intune home with an applications directory.
 func newHome(t *testing.T) string {
 	t.Helper()
