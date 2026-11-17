@@ -10,6 +10,9 @@ const INTUNEME_ROOT = `${GLib.get_home_dir()}/.local/share/intuneme`;
 // Terminal emulators to try, in order of preference.
 const TERMINALS = ['ghostty', 'ptyxis', 'kgx', 'gnome-terminal', 'xterm'];
 
+// Edge web app IDs, the same pattern as internal/webapps in the Go CLI.
+const WEB_APP_ID_RE = /^msedge-[a-p]{32}-(Default|Profile_[1-9][0-9]{0,3})$/;
+
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 
 /**
@@ -309,9 +312,10 @@ export const ContainerManager = GObject.registerClass({
     /**
      * Launch an application inside the container.
      * Uses machinectl shell (polkit-authenticated), so no terminal is needed.
+     * argv is the tail of `intuneme open`: ['edge'], ['portal'], ['app', id].
      */
-    async _openApp(subcommand, label) {
-        const [ok, , stderr] = await execCommand([INTUNEME_BIN, 'open', subcommand]);
+    async _openApp(argv, label) {
+        const [ok, , stderr] = await execCommand([INTUNEME_BIN, 'open', ...argv]);
         if (!ok) {
             console.error(`[intuneme] Failed to launch ${label}: ${stderr}`);
             this._showErrorBriefly();
@@ -322,14 +326,57 @@ export const ContainerManager = GObject.registerClass({
      * Launch Microsoft Edge inside the container via `intuneme open edge`.
      */
     openEdge() {
-        this._openApp('edge', 'Edge');
+        this._openApp(['edge'], 'Edge');
     }
 
     /**
      * Launch Intune Portal inside the container via `intuneme open portal`.
      */
     openPortal() {
-        this._openApp('portal', 'Intune Portal');
+        this._openApp(['portal'], 'Intune Portal');
+    }
+
+    /**
+     * Read the Edge web apps installed in the container.
+     * `intuneme open app --list --json` reads the desktop files on the host, so
+     * no running container is needed. Returns [] on any failure.
+     */
+    async listWebApps() {
+        const [ok, stdout, stderr] = await execCommand(
+            [INTUNEME_BIN, 'open', 'app', '--list', '--json'],
+        );
+        if (!ok) {
+            console.warn(`[intuneme] Failed to list web apps: ${stderr}`);
+            return [];
+        }
+
+        let parsed;
+        try {
+            parsed = JSON.parse(stdout);
+        } catch (e) {
+            console.warn(`[intuneme] Web app list is not JSON: ${e.message}`);
+            return [];
+        }
+        if (!Array.isArray(parsed)) {
+            console.warn('[intuneme] Web app list is not a JSON array');
+            return [];
+        }
+
+        return parsed.filter(app =>
+            app !== null && typeof app === 'object' &&
+            typeof app.id === 'string' && WEB_APP_ID_RE.test(app.id) &&
+            typeof app.name === 'string');
+    }
+
+    /**
+     * Launch 1 Edge web app inside the container via `intuneme open app <id>`.
+     */
+    openWebApp(id) {
+        if (typeof id !== 'string' || !WEB_APP_ID_RE.test(id)) {
+            console.warn(`[intuneme] Refusing to open a malformed web app ID: ${id}`);
+            return;
+        }
+        this._openApp(['app', id], 'web app');
     }
 
     destroy() {

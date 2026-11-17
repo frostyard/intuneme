@@ -149,6 +149,16 @@ A sudoers rule at `/etc/sudoers.d/intuneme-exec` makes the helper passwordless s
 
 `nspawn.ExecForeground()` is the foreground sibling of `Exec()`: same helper invocation (so it reuses the same sudoers rule), same session prologue, but it runs the command with `exec` and the caller's stdin/stdout/stderr attached instead of `nohup … &`. This is what `intuneme mcp` uses to run an MCP server in the container with its stdio wired to a host client (e.g. VS Code); backgrounding or a TTY would break JSON-RPC framing. The shared session prologue is `buildSessionEnvScript()`; for the foreground path the `intuneme-session-setup` output is sent to stderr so stdout carries only protocol traffic.
 
+#### Edge web apps (`open app`)
+
+When a user installs a site as a Microsoft 365 app in Edge ("Apps > Install this site as an app"), Edge writes 1 desktop file per app into the container user's `~/.local/share/applications/`, named `msedge-<app id>-<profile>.desktop`. `intuneme open app --list [--json]` lists them and `intuneme open app <ID>` launches 1 with `gtk-launch`, so a user needs no container shell. `internal/webapps` owns the discovery and the checks; the launch itself is the ordinary `runOpen` path (`nspawn.Exec`, `nspawn.ShellQuote`, so the script holds `nohup gtk-launch 'msedge-…-Default' >/dev/null 2>&1 &`).
+
+- **Files are read on the host.** The container user's home is the bind mount of `~/Intune` (see the bind table below), so the desktop files live at `~/Intune/.local/share/applications/` on the host. `os.UserHomeDir()` gives the home, as in `start`; `--list` therefore works with the container stopped.
+- **The ID pattern is strict:** `^msedge-[a-p]{32}-(Default|Profile_[1-9][0-9]{0,3})$`. Chromium app IDs use only the letters a to p, and Chromium makes the profile part from the profile directory name, replacing a space with `_` ("Profile 1" becomes `Profile_1`). A file name is a candidate only if its ID matches.
+- **Checks before any sudo.** The Intune directory is opened with `os.OpenRoot`, then `.local/share/applications` with `root.OpenRoot`, so a component that leads out of the tree is refused rather than followed. `Check` requires `<ID>.desktop` to be a regular file: a symlink, a directory, a FIFO and a missing file are all refused. `intuneme open app <ID>` runs `webapps.Check` before any runner call, so a refused ID never reaches sudo.
+- **Reads fail closed and skip, never abort.** `List` opens each file with `O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC` after `Lstat`, confirms a regular file again with `f.Stat()`, reads at most 64 KiB, and skips a file that fails any step. The name comes from the first plain `Name=` key of the `[Desktop Entry]` group only (a localized `Name[de]=` and other groups are ignored), trimmed, with control characters removed, capped at 200 runes; an empty name falls back to the ID. The list is sorted by name, then ID.
+- **No new problem code.** Every refusal is a user or file error, not an internal failure, so `open app` records nothing; `runOpen` keeps its existing session-bus-timeout recording.
+
 ### Bind Mount Strategy
 
 | Type | Host Path | Container Path | Lifecycle |
@@ -482,6 +492,7 @@ The embedded extension (`cmd/extension/`, UUID `intuneme@frostyard.org`, GNOME S
 - Quick Settings toggle (start/stop container)
 - Status display (container running/stopped, broker proxy state; when the PID file shows no proxy it also reports the owner of the broker bus name, see [Broker Proxy](broker-proxy.md))
 - Menu shortcuts for shell, Edge, Intune Portal
+- An "Apps" submenu of the Edge web apps installed in the container: it is filled from `intuneme open app --list --json` each time the menu opens while the container runs, and 1 click launches 1 app
 - Monitors container state via `org.freedesktop.machine1` D-Bus signals with 5-second polling fallback
 - Finds a terminal emulator (checks `$TERMINAL`, then ghostty/ptyxis/kgx/gnome-terminal/xterm)
 

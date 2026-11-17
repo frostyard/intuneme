@@ -30,6 +30,20 @@ Open Intune Portal (for compliance checks and re-enrollment):
 intuneme open portal
 ```
 
+## Open Edge web apps
+
+Sites you installed as Edge apps ("Apps > Install this site as an app" in Edge inside the container) are launched with their Edge ID:
+
+```bash
+intuneme open app --list                   # ID and name of each installed web app
+intuneme open app msedge-ahjdipcglkflohmjbcjmjpidpbbiocpk-Default
+```
+
+The IDs come from Edge, not from intuneme. Use `--list --json` for machine-readable output; the [GNOME extension](gnome-extension.md) uses it to fill its Apps submenu.
+
+!!! note
+    intuneme reads the desktop files in `~/Intune/.local/share/applications/`, the host side of the container's home directory, so `--list` works with the container stopped.
+
 !!! tip
     If you have the [GNOME extension](gnome-extension.md) or [desktop shortcuts](desktop-shortcuts.md) installed, you can launch these apps directly from the Activities overview without opening a terminal.
 
@@ -60,10 +74,11 @@ Shuts down the container and removes the udev hotplug rules. Enrollment state an
 ## Typical session
 
 ```bash
-intuneme start          # boot the container
-intuneme open edge      # use Edge for corporate resources
+intuneme start            # boot the container
+intuneme open edge        # use Edge for corporate resources
+intuneme open app --list  # see the Edge web apps you can launch
 # ... do your work ...
-intuneme stop           # shut down when done
+intuneme stop             # shut down when done
 ```
 
 !!! note

@@ -63,6 +63,10 @@ intuneme writes panics and 4 coded internal errors to the local journal with `gi
 - No network: a record is 1 datagram to the local journal socket. Never add a sender, a flag or output for problems.
 - Tests use `problemrectest.Use` (a `unixgram` socket in `t.TempDir()`). std caps a process at 10 records a minute and tests cannot reset it, so 1 test package writes at most 10 records.
 
+## Edge web apps (`intuneme open app`)
+
+`intuneme open app` accepts only an ID that matches the strict pattern `^msedge-[a-p]{32}-(Default|Profile_[1-9][0-9]{0,3})$` and names a regular file (never a symlink, directory or FIFO) at `~/Intune/.local/share/applications/<ID>.desktop`, checked with `os.Root` before any runner call; it then passes the ID to `nspawn.ShellQuote` through `runOpen`. Never widen the pattern (or drop the file check) without tests in `internal/webapps` and `cmd`. See `docs/design/overview.md` → "Edge web apps (`open app`)".
+
 ## Release automation
 
 `make bump` tags a release with svu and pushes the tag. `.github/workflows/release.yml` runs only for tag pushes: GoReleaser Pro creates the GitHub release (including `frostyard-intuneme_<version>_amd64.deb`), `actions/attest-build-provenance` attests the assets including `dist/*.deb`, and the last step requests APT publication. That request is a `repository_dispatch` of type `publish-deb` to `frostyard/apt-publisher` with `repo` and `tag`, authenticated by `APT_PUBLISH_TOKEN`. It has no ref guard (a tag run's ref is `refs/tags/<tag>`, never `refs/heads/<default>`) and is not `continue-on-error`.

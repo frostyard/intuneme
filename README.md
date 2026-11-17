@@ -17,7 +17,7 @@ intuneme runs Microsoft Intune in a [systemd-nspawn](https://www.freedesktop.org
 - **Notifications and screen sharing.** The notify and screencast proxies show the container's Edge notifications on the host and let Teams share host screens. [Notifications](https://frostyard.github.io/intuneme/user-guide/notifications/), [Screen sharing](https://frostyard.github.io/intuneme/user-guide/screen-sharing/)
 - **MCP servers in the tenant.** `intuneme mcp` runs a host MCP server inside the container, wired to host stdio, so it signs in to the container's tenant. [MCP servers](https://frostyard.github.io/intuneme/user-guide/mcp-servers/)
 - **Devices.** YubiKeys and webcams pass through with udev hotplug. [Device hotplug](https://frostyard.github.io/intuneme/user-guide/device-hotplug/)
-- **Desktop integration.** A GNOME Quick Settings extension starts and stops the container and opens apps, and desktop shortcuts open Edge and Intune Portal. [GNOME extension](https://frostyard.github.io/intuneme/user-guide/gnome-extension/)
+- **Desktop integration.** A GNOME Quick Settings extension starts and stops the container, opens apps, and lists the Edge web apps you installed; `intuneme open app` launches them from the command line, and desktop shortcuts open Edge and Intune Portal. [GNOME extension](https://frostyard.github.io/intuneme/user-guide/gnome-extension/), [Daily workflow](https://frostyard.github.io/intuneme/user-guide/daily-workflow/)
 
 ## Install
 
