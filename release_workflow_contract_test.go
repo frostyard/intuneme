@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -199,6 +201,95 @@ func TestSnapshotWorkflowDoesNotPublishPackages(t *testing.T) {
 				t.Errorf("snapshot job %s requests APT publication; only tag releases may", name)
 			}
 		}
+	}
+}
+
+// workflowGoVersion checks that go.mod is the only Go version source.
+// Walk mappings rather than text so quoted keys and flow mappings count too.
+func workflowGoVersion(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	var walk func(*yaml.Node) error
+	walk = func(node *yaml.Node) error {
+		if node.Kind == yaml.MappingNode {
+			var uses string
+			var with *yaml.Node
+			for i := 0; i < len(node.Content); i += 2 {
+				key, value := node.Content[i], node.Content[i+1]
+				switch key.Value {
+				case "go-version":
+					return fmt.Errorf("line %d: go-version is forbidden; use go-version-file: go.mod", key.Line)
+				case "uses":
+					uses = value.Value
+				case "with":
+					with = value
+				}
+			}
+			if strings.HasPrefix(uses, "actions/setup-go@") {
+				versionFile := ""
+				if with != nil && with.Kind == yaml.MappingNode {
+					for i := 0; i < len(with.Content); i += 2 {
+						if with.Content[i].Value == "go-version-file" {
+							versionFile = with.Content[i+1].Value
+						}
+					}
+				}
+				if versionFile != "go.mod" {
+					return fmt.Errorf("line %d: setup-go requires go-version-file: go.mod", node.Line)
+				}
+			}
+		}
+		for _, child := range node.Content {
+			if err := walk(child); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(&doc)
+}
+
+func TestGoVersionRule(t *testing.T) {
+	for _, tc := range []struct {
+		name, workflow string
+		wantError      bool
+	}{
+		{"go.mod", "steps:\n  - uses: actions/setup-go@v7\n    with:\n      go-version-file: go.mod\n", false},
+		{"stable", "steps:\n  - uses: actions/setup-go@v7\n    with:\n      go-version: stable\n", true},
+		{"literal", "steps:\n  - uses: actions/setup-go@v7\n    with:\n      go-version: \"1.27.4\"\n", true},
+		{"missing", "steps:\n  - uses: actions/setup-go@v7\n", true},
+		{"other file", "steps:\n  - uses: actions/setup-go@v7\n    with:\n      go-version-file: other.mod\n", true},
+		{"no setup-go", "steps:\n  - uses: actions/checkout@v7\n", false},
+		{"elsewhere", "env:\n  go-version: stable\n", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := workflowGoVersion([]byte(tc.workflow)); (err != nil) != tc.wantError {
+				t.Fatalf("workflowGoVersion() = %v, want error: %v", err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestWorkflowGoVersionFromGoMod(t *testing.T) {
+	entries, err := os.ReadDir(".github/workflows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || (filepath.Ext(entry.Name()) != ".yml" && filepath.Ext(entry.Name()) != ".yaml") {
+			continue
+		}
+		t.Run(entry.Name(), func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(".github/workflows", entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := workflowGoVersion(data); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

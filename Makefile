@@ -1,4 +1,4 @@
-.PHONY: build clean install test run help completions manpages gendocs docs fmt format-check lint lint-version-check tidy-check vet race vulncheck verify-template corrections-base verify check ci
+.PHONY: bump-guard bump build clean install test run help completions manpages gendocs docs fmt format-check lint lint-version-check tidy-check vet race vulncheck verify-template corrections-base verify check ci
 
 BINARY_NAME=intuneme
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -155,7 +155,13 @@ deps: ## Download dependencies
 	@go mod download
 	@go mod tidy
 
+bump-guard: ## refuse to tag unless HEAD is main at origin/main (core ADR-0012)
+	@test "$$(git branch --show-current)" = main || { echo "make bump runs only on main (core ADR-0012)."; exit 1; }
+	@git fetch --quiet --tags origin main
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || { echo "HEAD is not origin/main; pull or push first (core ADR-0012)."; exit 1; }
+
 bump: ## generate a new version with svu
+	@$(MAKE) bump-guard
 	@$(MAKE) build
 	@$(MAKE) test
 	@$(MAKE) fmt

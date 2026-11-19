@@ -80,7 +80,8 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 - **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.24.0`).
 - **Release start:** see "Release automation" above.
 - **Who tags:** Brian only. Agents never tag, push tags, or release. `make bump` pushes a tag, so it is for Brian only.
-- **Version rule:** svu computes the next version (`svu next` in `make bump`), configured in `.svu.yml` (`tag.prefix: "v"`, `v0: true`).
+- **Version rule:** svu computes the next version (`svu next` in `make bump`), configured in `.svu.yml` (`tag.prefix: "v"`, `v0: true`). `make bump` first runs `make bump-guard`, which refuses any branch but `main` and a `HEAD` that is not `origin/main` after a fetch (core ADR-0012; `bump_guard_test.go`).
+- **Release toolchain:** `release.yml` and `snapshot.yml` set up Go with `go-version-file: go.mod`, like CI, so a release builds with the Go that CI tested.
 - **Internal dependencies:** `github.com/frostyard/clix` and `github.com/frostyard/std` in `go.mod`. Other frostyard references: `frostyard/apt-publisher` (`repository_dispatch` in `.github/workflows/release.yml`) and the `ghcr.io/frostyard/ubuntu-intune` image (`ubuntu-intune/`, cosign verify note in `.goreleaser.yaml`). The workflows pin no other frostyard action or image.
 - **Who uses this repository:** not stated.
 
