@@ -189,6 +189,7 @@ function badgeImageAllowed(image) {
   if (host === "api.scorecard.dev" || host === "codecov.io") return true;
   if (host === "pkg.go.dev") return target.startsWith("/badge/");
   if (host === "img.shields.io") return target.startsWith("/github/v/release/");
+  if (host === "awesomemygo.dev") return target === "/badge.svg";
   return false;
 }
 
