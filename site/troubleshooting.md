@@ -131,10 +131,10 @@ Common issues and solutions. Click an item to expand it.
     Check that udev rules are installed:
 
     ```bash
-    ls /etc/udev/rules.d/70-intuneme-video.rules
+    ls /run/udev/rules.d/70-intuneme-video.rules
     ```
 
-    If the file is missing, install the rules:
+    The rules live in `/run/udev/rules.d/`, not `/etc/udev/rules.d/`. They exist only while the container runs: `intuneme start` installs them, and `intuneme stop` and a host reboot remove them. If the container is running and the file is missing, install the rules:
 
     ```bash
     intuneme udev install
@@ -202,10 +202,10 @@ Common issues and solutions. Click an item to expand it.
     Check that udev rules are installed:
 
     ```bash
-    ls /etc/udev/rules.d/70-intuneme-yubikey.rules
+    ls /run/udev/rules.d/70-intuneme-yubikey.rules
     ```
 
-    If the file is missing, install the rules:
+    The rules live in `/run/udev/rules.d/`, not `/etc/udev/rules.d/`. They exist only while the container runs: `intuneme start` installs them, and `intuneme stop` and a host reboot remove them. If the container is running and the file is missing, install the rules:
 
     ```bash
     intuneme udev install

@@ -47,6 +47,9 @@ func TestBumpGuard(t *testing.T) {
 		{name: "detached", want: "only on main"},
 		{name: "ahead", want: "HEAD is not origin/main"},
 		{name: "behind", want: "HEAD is not origin/main"},
+		// HEAD still equals the stale origin/main ref, so only the fetch
+		// line stops this run; its error names the missing origin.
+		{name: "fetch fails", want: "missing.git"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -71,7 +74,13 @@ func TestBumpGuard(t *testing.T) {
 				git(dir, "commit", "-m", content)
 			}
 			git(dir, "init", "--bare", "-b", "main", origin)
-			git(dir, "clone", origin, seed)
+			// Git before 2.31 names the unborn branch of an empty clone from
+			// init.defaultBranch, not from origin. Force that behaviour on
+			// every Git (origin hides its unborn HEAD, the clone defaults to
+			// master), so the fixture must set the seed branch itself (#302).
+			git(origin, "config", "lsrefs.unborn", "ignore")
+			git(dir, "-c", "init.defaultBranch=master", "clone", origin, seed)
+			git(seed, "checkout", "-B", "main")
 			commit(seed, "initial")
 			git(seed, "push", "origin", "main")
 			git(dir, "clone", origin, work)
@@ -85,6 +94,8 @@ func TestBumpGuard(t *testing.T) {
 			case "behind":
 				commit(seed, "remote")
 				git(seed, "push", "origin", "main")
+			case "fetch fails":
+				git(work, "remote", "set-url", "origin", filepath.Join(dir, "missing.git"))
 			}
 			cmd := exec.Command("make", "-f", filepath.Join(root, "Makefile"), "bump-guard")
 			cmd.Dir = root
