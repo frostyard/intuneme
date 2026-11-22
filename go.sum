@@ -1,7 +1,7 @@
 charm.land/fang/v2 v2.0.1 h1:zQCM8JQJ1JnQX/66B5jlCYBUxL2as5JXQZ2KJ6EL0mY=
 charm.land/fang/v2 v2.0.1/go.mod h1:S1GmkpcvK+OB5w9caywUnJcsMew45Ot8FXqoz8ALrII=
-charm.land/lipgloss/v2 v2.0.6 h1:EaGKeuA8FvF+v2BT5VmZd2LoYLaMZJXA5n34th8nCIQ=
-charm.land/lipgloss/v2 v2.0.6/go.mod h1:ipDDJNSGa1hlwDtSfW1s2/xR8Vdhbut4PXh2zEKZd0Q=
+charm.land/lipgloss/v2 v2.1.0 h1:RLCNLhSQST+NPOmvUSbRWZ3UFOXsf3ZXFmJ5E/2tHEU=
+charm.land/lipgloss/v2 v2.1.0/go.mod h1:wwfOgrNqUA9yjL8nmG6BIO0qQnmkEgJ8ISptbme83gI=
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/aymanbagabas/go-udiff v0.4.1 h1:OEIrQ8maEeDBXQDoGCbbTTXYJMYRCRO1fnodZ12Gv5o=
@@ -32,10 +32,10 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
-github.com/frostyard/clix v0.5.0 h1:Krzt2hcCoc/bRFNABKWNZMOZjU1cKtJy22e6rxlxQeo=
-github.com/frostyard/clix v0.5.0/go.mod h1:W0QNHnzoBz0KSwrMtWwKQmApJMrEy0DdOnJifYlH8WU=
-github.com/frostyard/std v0.5.0 h1:SUmy+LnGpFAsfCrokeJc8Sa/M5pj3jpSlwHlgaIJR94=
-github.com/frostyard/std v0.5.0/go.mod h1:zZ6oRXY2CZvTu81OcAsXzn2MZ/+qPKluflHdZvYiG4k=
+github.com/frostyard/clix v0.5.1 h1:ZnuitKsLBAVJIDZgKDbQw1x1GVuAbqMVkjOuXr894Z8=
+github.com/frostyard/clix v0.5.1/go.mod h1:Zb+F8WYtJ6BH29tq9wlbXyFKLCUVXzVb1YT3ksG2olw=
+github.com/frostyard/std v0.5.1 h1:VlCsHwlQrtagDTgX2bqBLZ6llpOMxdrK/PIRyCg1ajM=
+github.com/frostyard/std v0.5.1/go.mod h1:7D4hcxhYlJPV+VmxIvqGjlikFL+JPIU6dgjwE+oXPrE=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=
@@ -83,8 +83,8 @@ github.com/spf13/cast v1.10.0/go.mod h1:jNfB8QC9IA6ZuY2ZjDp0KtFO2LZZlg4S/7bzP6qq
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
 github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=
 github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
-github.com/spf13/pflag v1.0.10 h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=
-github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
+github.com/spf13/pflag v1.1.0 h1:6W6MbVUrnMb8PEhjkqwsVLY7ryuzRfFHF4mQd7L94ag=
+github.com/spf13/pflag v1.1.0/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
 github.com/spf13/viper v1.21.0 h1:x5S+0EU27Lbphp4UKm1C+1oQO+rKx36vfCoaVebLFSU=
 github.com/spf13/viper v1.21.0/go.mod h1:P0lhsswPGWD/1lZJ9ny3fYnVqxiegrlNrEmgLjbTCAY=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
