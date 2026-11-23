@@ -157,7 +157,9 @@ deps: ## Download dependencies
 
 bump-guard: ## refuse to tag unless HEAD is main at origin/main (core ADR-0012)
 	@test "$$(git branch --show-current)" = main || { echo "make bump runs only on main (core ADR-0012)."; exit 1; }
-	@git fetch --quiet --tags origin main
+	@# --force: snapshot.yml moves the rolling dev tag on every main push, so a
+	@# plain --tags fetch refuses it ("would clobber existing tag") and fails.
+	@git fetch --quiet --tags --force origin main
 	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || { echo "HEAD is not origin/main; pull or push first (core ADR-0012)."; exit 1; }
 
 bump: ## generate a new version with svu

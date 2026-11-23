@@ -1,0 +1,7 @@
+{
+  "date": "2026-11-23",
+  "scope": "Makefile",
+  "correction": "bump-guard fetches tags with --tags --force, because snapshot.yml moves the rolling dev tag on every main push and a plain --tags fetch exits 1 on it (would clobber existing tag), which --quiet hides, so make bump stops with a bare Error 1.",
+  "evidence": "make bump for v0.25.0 at 83c197c stopped with make Error 1 and Error 2 in bump-guard; reproduced with git fetch --tags origin main (rejected dev -> dev, would clobber existing tag); bump_guard_test.go TestBumpGuard/dev_tag_moved fails without the fix",
+  "promoted_to": "bump_guard_test.go"
+}

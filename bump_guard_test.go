@@ -50,6 +50,9 @@ func TestBumpGuard(t *testing.T) {
 		// HEAD still equals the stale origin/main ref, so only the fetch
 		// line stops this run; its error names the missing origin.
 		{name: "fetch fails", want: "missing.git"},
+		// snapshot.yml moves the rolling dev tag on every main push; a clone
+		// that holds the older dev tag must still pass the guard.
+		{name: "dev tag moved"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -82,7 +85,8 @@ func TestBumpGuard(t *testing.T) {
 			git(dir, "-c", "init.defaultBranch=master", "clone", origin, seed)
 			git(seed, "checkout", "-B", "main")
 			commit(seed, "initial")
-			git(seed, "push", "origin", "main")
+			git(seed, "tag", "dev")
+			git(seed, "push", "origin", "main", "dev")
 			git(dir, "clone", origin, work)
 			switch tc.name {
 			case "feature":
@@ -96,6 +100,13 @@ func TestBumpGuard(t *testing.T) {
 				git(seed, "push", "origin", "main")
 			case "fetch fails":
 				git(work, "remote", "set-url", "origin", filepath.Join(dir, "missing.git"))
+			case "dev tag moved":
+				commit(seed, "snapshot")
+				git(seed, "tag", "-f", "dev")
+				git(seed, "push", "origin", "main")
+				git(seed, "push", "--force", "origin", "dev")
+				// A pull follows main but keeps the local dev tag.
+				git(work, "pull", "--ff-only", "origin", "main")
 			}
 			cmd := exec.Command("make", "-f", filepath.Join(root, "Makefile"), "bump-guard")
 			cmd.Dir = root
