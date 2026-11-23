@@ -36,6 +36,8 @@ export class PopupBaseMenuItem extends SignalSource {
         super();
         this.label = { text: label };
         this.reactive = params.reactive ?? true;
+        this.actor = this;
+        this.visible = true;
     }
 
     destroy() {
