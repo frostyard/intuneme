@@ -77,7 +77,7 @@ apt-publisher is the only writer of Frostyard's Debian repository ([frostyard/co
 
 ## Releases and dependencies
 
-- **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.24.0`).
+- **Tag format:** `v<major>.<minor>.<patch>` (latest: `v0.25.0`).
 - **Release start:** see "Release automation" above.
 - **Who tags:** Brian only. Agents never tag, push tags, or release. `make bump` pushes a tag, so it is for Brian only.
 - **Version rule:** svu computes the next version (`svu next` in `make bump`), configured in `.svu.yml` (`tag.prefix: "v"`, `v0: true`). `make bump` first runs `make bump-guard`, which refuses any branch but `main` and a `HEAD` that is not `origin/main` after a fetch, fails if the fetch fails, and fails when `svu` is not on `PATH` (core ADR-0012). make prints only `Error 1` for a failed recipe line, so each guard failure prints its own reason, and the tag step runs under `set -e`, so a failed `svu next` tags and pushes nothing. The fetch uses `--tags --force`, because `snapshot.yml` moves the rolling `dev` tag on every `main` push and a plain `--tags` fetch refuses to update it ("would clobber existing tag") (core ADR-0012; `bump_guard_test.go`, whose fixture sets its own `main` so it does not depend on the Git version's default branch).
