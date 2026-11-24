@@ -11,6 +11,8 @@ LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.da
 # least this new, or its embedded gofmt and typechecker disagree with the
 # toolchain.
 GO_VERSION := $(strip $(shell sed -n 's/^go \(.*\)/\1/p' go.mod))
+# The svu that make bump runs; bump-guard checks that it is on PATH before any gate.
+SVU ?= svu
 # Pinned golangci-lint release, read from mise.toml — mise.toml is the only pin:
 # `mise install` provisions it locally and in CI (jdx/mise-action), verified
 # against mise.lock. Bump it there, never here.
@@ -159,8 +161,9 @@ bump-guard: ## refuse to tag unless HEAD is main at origin/main (core ADR-0012)
 	@test "$$(git branch --show-current)" = main || { echo "make bump runs only on main (core ADR-0012)."; exit 1; }
 	@# --force: snapshot.yml moves the rolling dev tag on every main push, so a
 	@# plain --tags fetch refuses it ("would clobber existing tag") and fails.
-	@git fetch --quiet --tags --force origin main
+	@git fetch --quiet --tags --force origin main || { echo "bump-guard: git fetch --tags --force origin main failed (see the git error above)."; exit 1; }
 	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" || { echo "HEAD is not origin/main; pull or push first (core ADR-0012)."; exit 1; }
+	@command -v $(SVU) >/dev/null 2>&1 || { echo "bump-guard: $(SVU) not found on PATH; make bump needs svu (https://github.com/caarlos0/svu) to compute the version."; exit 1; }
 
 bump: ## generate a new version with svu
 	@$(MAKE) bump-guard
@@ -173,11 +176,12 @@ bump: ## generate a new version with svu
 		exit 1; \
 	fi
 	@echo "Creating new tag..."
-	@version=$$(svu next); \
-		git tag -a $$version -m "Version $$version"; \
+	@set -e; version="$$($(SVU) next)"; \
+		test -n "$$version" || { echo "svu next printed no version; not tagging."; exit 1; }; \
+		git tag -a "$$version" -m "Version $$version"; \
 		echo "Tagged version $$version"; \
 		echo "Pushing tag $$version to origin..."; \
-		git push origin $$version
+		git push origin "$$version"
 
 
 .DEFAULT_GOAL := help
