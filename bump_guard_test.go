@@ -40,16 +40,22 @@ func TestBumpGuard(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name string
-		want string
+		want []string
 	}{
 		{name: "main at origin"},
-		{name: "feature", want: "only on main"},
-		{name: "detached", want: "only on main"},
-		{name: "ahead", want: "HEAD is not origin/main"},
-		{name: "behind", want: "HEAD is not origin/main"},
+		{name: "feature", want: []string{"only on main"}},
+		{name: "detached", want: []string{"only on main"}},
+		{name: "ahead", want: []string{"HEAD is not origin/main"}},
+		{name: "behind", want: []string{"HEAD is not origin/main"}},
 		// HEAD still equals the stale origin/main ref, so only the fetch
-		// line stops this run; its error names the missing origin.
-		{name: "fetch fails", want: "missing.git"},
+		// line stops this run; git's error names the missing origin. make
+		// prints only "Error 1" for a failed recipe line, so the guard
+		// also prints its own reason.
+		{name: "fetch fails", want: []string{"missing.git", "bump-guard: git fetch --tags --force origin main failed"}},
+		{name: "svu missing", want: []string{"bump-guard: ", "no-svu not found on PATH"}},
+		// snapshot.yml moves the rolling dev tag on every main push; a clone
+		// that holds the older dev tag must still pass the guard.
+		{name: "dev tag moved"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -82,7 +88,8 @@ func TestBumpGuard(t *testing.T) {
 			git(dir, "-c", "init.defaultBranch=master", "clone", origin, seed)
 			git(seed, "checkout", "-B", "main")
 			commit(seed, "initial")
-			git(seed, "push", "origin", "main")
+			git(seed, "tag", "dev")
+			git(seed, "push", "origin", "main", "dev")
 			git(dir, "clone", origin, work)
 			switch tc.name {
 			case "feature":
@@ -96,17 +103,38 @@ func TestBumpGuard(t *testing.T) {
 				git(seed, "push", "origin", "main")
 			case "fetch fails":
 				git(work, "remote", "set-url", "origin", filepath.Join(dir, "missing.git"))
+			case "dev tag moved":
+				commit(seed, "snapshot")
+				git(seed, "tag", "-f", "dev")
+				git(seed, "push", "origin", "main")
+				git(seed, "push", "--force", "origin", "dev")
+				// A pull follows main but keeps the local dev tag.
+				git(work, "pull", "--ff-only", "origin", "main")
 			}
-			cmd := exec.Command("make", "-f", filepath.Join(root, "Makefile"), "bump-guard")
+			svu := filepath.Join(dir, "svu")
+			if err := os.WriteFile(svu, []byte("#!/bin/sh\necho v0.0.1\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if tc.name == "svu missing" {
+				svu = filepath.Join(dir, "no-svu")
+			}
+			cmd := exec.Command("make", "-f", filepath.Join(root, "Makefile"), "bump-guard", "SVU="+svu)
 			cmd.Dir = root
 			cmd.Env = append(bumpTestEnv(), "GIT_DIR="+filepath.Join(work, ".git"), "GIT_WORK_TREE="+work)
 			output, err := cmd.CombinedOutput()
-			if tc.want == "" {
+			if len(tc.want) == 0 {
 				if err != nil {
 					t.Fatalf("bump-guard: %v\n%s", err, output)
 				}
-			} else if err == nil || !strings.Contains(string(output), tc.want) {
-				t.Fatalf("bump-guard error = %v, output = %s; want failure containing %q", err, output, tc.want)
+				return
+			}
+			if err == nil {
+				t.Fatalf("bump-guard passed, output = %s; want failure containing %q", output, tc.want)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(string(output), want) {
+					t.Fatalf("bump-guard error = %v, output = %s; want failure containing %q", err, output, want)
+				}
 			}
 		})
 	}
@@ -135,12 +163,17 @@ func TestBumpRunsGuardBeforeTag(t *testing.T) {
 		t.Fatalf("first bump recipe line must be @$(MAKE) bump-guard; got %q", recipe)
 	}
 	for i, line := range recipe {
-		if strings.Contains(line, "svu next") {
+		if strings.Contains(line, "$(SVU) next") {
 			if i == 0 {
 				t.Fatal("tag creation must follow bump-guard")
+			}
+			// Without set -e, a failed svu next still runs git tag and
+			// git push with an empty version, and make bump exits 0.
+			if !strings.HasPrefix(line, "@set -e;") {
+				t.Fatalf("tag recipe must start with @set -e; got %q", line)
 			}
 			return
 		}
 	}
-	t.Fatal("bump recipe has no svu next line")
+	t.Fatal("bump recipe has no $(SVU) next line")
 }
