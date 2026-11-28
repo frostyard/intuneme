@@ -1,13 +1,16 @@
 # Each entry has 1 group with `patterns: ["*"]`, so it opens at most 1
-# version-update PR for each run (frostyard/core ADR-0075). Security
-# updates stay ungrouped.
+# version-update PR for each run (frostyard/core ADR-0075). Each entry's
+# schedule is only `interval: monthly`, so GitHub runs it on the 1st of the
+# month at a time it picks, and each ecosystem has 1 entry (frostyard/core
+# ADR-0089). Security updates are not on the schedule: they stay ungrouped
+# and immediate.
 version: 2
 updates:
   # Maintain Go module dependencies
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 10
     groups:
       gomod:
@@ -17,7 +20,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     ignore:
       # Stay on buildah-build v2 (#233): v3 defaults `squash` to true, which
@@ -32,7 +35,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/ubuntu-intune"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
     open-pull-requests-limit: 5
     ignore:
       # Stay on Ubuntu 24.04 LTS: Microsoft supports the Intune agent and the
