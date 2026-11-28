@@ -20,18 +20,33 @@ intuneme start
 
 No re-enrollment is needed after `recreate`. Your existing enrollment, browser profiles, downloads, and other files in `~/Intune/` are preserved.
 
+For the experimental Himmelblau image, `recreate` also backs up and restores
+the Himmelblau daemon, HSM PIN, policy and NSS caches, and
+`/var/lib/systemd/credential.secret` needed to decrypt the HSM PIN. DynamicUser
+daemon state is restored under the systemd-managed private backing paths. If an
+encrypted HSM PIN exists but its credential key is missing, `recreate` stops
+before deleting the rootfs rather than installing an unusable credential; see
+[Himmelblau troubleshooting](../troubleshooting.md#himmelblau-fails-with-failed-to-determine-local-credential-key).
+The Himmelblau package source is Community Nightly, so a rebuild can contain a
+newer upstream package snapshot. The identity itself cannot be switched with
+`recreate`; use `destroy` and a new `init` to change image families, which
+requires enrolling again.
+
 ### Checks the image signature
 
-Before it stops anything, `recreate` checks the cosign signature of the new image against the key in your intuneme release, and then pulls the image by the digest it verified, never by the tag. If the check fails, `recreate` stops with `image signature check failed` and leaves the old rootfs alone: the container keeps running and the enrollment stays where it is. The message names the reason and what to try. See [Troubleshooting → Image signature check failed](../troubleshooting.md#image-signature-check-failed).
+Before it stops anything, `recreate` checks the cosign signature of the selected registry image against the key in your intuneme release, and then pulls the image by the digest it verified, never by the tag. If the check fails, the running container, old rootfs, enrollment and saved local-image selection are unchanged. See [Troubleshooting → Image signature check failed](../troubleshooting.md#image-signature-check-failed).
 
-`--insecure-skip-signature-check` skips the check and pulls the tag. It warns that the image is not verified; use it only for an image you built and trust yourself.
+Unsigned local Himmelblau images require `--insecure-skip-signature-check` on
+every `init` or `recreate`; the bypass is not saved in config. The flag keeps
+the local reference and warns that the image is not verified. Use it only for
+an image you built and trust yourself; normal registry images remain verified.
 
 ### What is preserved
 
 | Data | Preserved by `recreate`? |
 |---|---|
 | Intune enrollment state | Yes |
-| Edge browser profile | Yes |
+| Edge browser profile (Microsoft image only) | Yes |
 | Files in `~/Intune/Downloads/` | Yes |
 | gnome-keyring / stored credentials | Yes |
 | Container rootfs (system packages, config) | No — rebuilt from image |
@@ -87,3 +102,19 @@ intuneme destroy --all
 !!! warning
     Re-enrollment (`destroy` + `init`) will require you to go through the full Intune enrollment process again. Your IT administrator may need to approve the device before you regain access to corporate resources.
 
+For the experimental Himmelblau image, initialize with `intuneme init
+--himmelblau`, then enroll with `intuneme enroll --user user@example.com`.
+To use terminal QR/Bluetooth passkeys, pass the locally built image with
+`--himmelblau-local-image`; its source marker automatically selects the
+variant. The optional `--himmelblau-terminal-passkey` switch asserts that the
+marked variant is intended. There is no hosted terminal-passkey image; the
+selected local tag and source commit are preserved by `recreate`.
+Enrollment starts a stopped container automatically. Switching identity
+families (Microsoft versus Himmelblau) requires `destroy` followed by a new
+`init`. To switch an existing Himmelblau installation to a locally built
+terminal-passkey image while preserving Himmelblau enrollment state, update
+`himmelblau_local_image` in `config.toml` to the local image tag or pass
+`--himmelblau-local-image` to `intuneme recreate`. The image's embedded source
+marker is detected and persisted automatically. Rebuilding that same local tag
+from a different commit and running `recreate --insecure-skip-signature-check` updates the recorded source
+commit.

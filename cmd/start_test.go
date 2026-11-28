@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/frostyard/clix"
+	"github.com/frostyard/intuneme/internal/bluezproxy"
 	"github.com/frostyard/intuneme/internal/config"
 	"github.com/frostyard/intuneme/internal/nspawn"
 	"github.com/frostyard/intuneme/internal/problemrec/problemrectest"
@@ -73,6 +74,64 @@ func TestStartMigratesRunningContainer(t *testing.T) {
 	// --wait reports the inner loginctl exit status; machinectl shell does not.
 	if !strings.Contains(all, "sudo systemd-run --machine=intuneme --wait --pipe") {
 		t.Fatalf("already-running start did not enable linger: %s", all)
+	}
+}
+
+func TestStartRunningHimmelblauRefreshesBrokerEnvironment(t *testing.T) {
+	mockLaunchInstall(t)
+	root := t.TempDir()
+	rootfs := filepath.Join(root, "rootfs")
+	if err := os.Mkdir(rootfs, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		MachineName: "intuneme", RootfsPath: rootfs, HostUID: os.Getuid(), HostUser: "alice",
+		Himmelblau: true, HimmelblauDomain: "example.com", HimmelblauUPN: "alice@example.com",
+	}
+	if err := cfg.Save(root); err != nil {
+		t.Fatal(err)
+	}
+	r := &startSecurityRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	all := strings.Join(r.commands, "\n")
+	setup := strings.Index(all, "sudo "+nspawn.NsenterHelperPath+" exec ")
+	linger := strings.Index(all, "enable-linger")
+	if setup < 0 || setup < linger {
+		t.Fatalf("already-running Himmelblau start did not initialize its session after linger:\n%s", all)
+	}
+	if !strings.Contains(all, "/usr/local/bin/intuneme-session-setup >&2") ||
+		!strings.Contains(all, "exec /usr/bin/systemctl --user try-restart himmelblau-broker.service") {
+		t.Fatalf("missing activation environment refresh and active broker restart:\n%s", all)
+	}
+	if strings.Contains(all, "sudo systemd-nspawn") {
+		t.Fatalf("session repair rebooted the running container:\n%s", all)
+	}
+}
+
+func TestStartRunningHimmelblauSessionFailureIsFatal(t *testing.T) {
+	mockLaunchInstall(t)
+	journal := problemrectest.Use(t, recordVersion)
+	root := identityRoot(t, "himmelblau = true\nhimmelblau_domain = \"example.com\"\nhimmelblau_upn = \"alice@example.com\"\n")
+	r := &startSecurityRunner{fail: nspawn.NsenterHelperPath}
+	if err := runStart(r, root); err == nil || !strings.Contains(err.Error(), "initialize Himmelblau session environment") {
+		t.Fatalf("session refresh failure = %v, want explicit startup error", err)
+	}
+	journal.ExpectNone(50 * time.Millisecond)
+}
+
+func TestStartRunningHimmelblauDryRunDoesNotRefreshSession(t *testing.T) {
+	old := clix.DryRun
+	clix.DryRun = true
+	t.Cleanup(func() { clix.DryRun = old })
+	root := startRoot(t, "himmelblau = true\nhimmelblau_domain = \"example.com\"\nhimmelblau_upn = \"alice@example.com\"\n")
+	r := &startSecurityRunner{}
+	if err := runStart(r, root); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(r.commands, "\n"), "sudo ") {
+		t.Fatalf("dry run refreshed the session or security artifacts: %v", r.commands)
 	}
 }
 
@@ -188,6 +247,65 @@ func (r *coldBootRunner) RunAttached(name string, args ...string) error {
 func (r *coldBootRunner) RunBackground(name string, args ...string) error {
 	_, err := r.Run(name, args...)
 	return err
+}
+
+func TestHimmelblauStartBindsBlueZOnlyForTerminalPasskeys(t *testing.T) {
+	mockLaunchInstall(t)
+	for _, terminal := range []bool{false, true} {
+		t.Run(fmt.Sprintf("terminal=%t", terminal), func(t *testing.T) {
+			root, err := os.MkdirTemp("", "imb")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(root) })
+			rootfs := filepath.Join(root, "rootfs")
+			defaults := filepath.Join(rootfs, "usr/lib/himmelblau/himmelblau.conf")
+			if err := os.MkdirAll(filepath.Dir(defaults), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(defaults, []byte("[global]\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{
+				MachineName: "intuneme", RootfsPath: rootfs, HostUID: os.Getuid(), HostUser: "alice",
+				Himmelblau: true, HimmelblauDomain: "example.com", HimmelblauUPN: "alice@example.com",
+				HimmelblauTerminalPasskey: terminal,
+			}
+			if terminal {
+				cfg.HimmelblauTerminalPasskeySource = strings.Repeat("a", 40)
+				writeTerminalPasskeyMarker(t, rootfs, "usr/share/intuneme/himmelblau-terminal-passkey-source", cfg.HimmelblauTerminalPasskeySource)
+			}
+			if err := cfg.Save(root); err != nil {
+				t.Fatal(err)
+			}
+			r := &coldBootRunner{}
+			if err := runStart(r, root); err != nil {
+				t.Fatal(err)
+			}
+			all := strings.Join(r.commands, "\n")
+			var boot string
+			for _, c := range r.commands {
+				if strings.HasPrefix(c, "sudo systemd-nspawn ") {
+					boot = c
+				}
+			}
+			wantBind := "--bind-ro=" + filepath.Join(root, "runtime/himmelblau-bluez") + ":" + bluezproxy.ContainerDir
+			if strings.Contains(boot, wantBind) != terminal {
+				t.Fatalf("terminal=%t, boot = %s", terminal, boot)
+			}
+			if strings.Contains(all, "machinectl bind") || strings.Contains(all, "xdg-dbus-proxy") {
+				t.Fatalf("startup used a runtime bind or started a proxy: %s", all)
+			}
+			if strings.Index(all, "install-helpers") > strings.Index(all, "sudo systemd-nspawn ") {
+				t.Fatalf("Himmelblau boot preceded security reconciliation: %s", all)
+			}
+			if !strings.Contains(all, "sudo systemd-run --machine=intuneme --wait --pipe") ||
+				!strings.Contains(all, "sudo "+nspawn.NsenterHelperPath+" exec ") ||
+				!strings.Contains(all, "exec /usr/bin/systemctl --user try-restart himmelblau-broker.service") {
+				t.Fatalf("Himmelblau startup did not initialize linger and its session: %s", all)
+			}
+		})
+	}
 }
 
 // On a cold boot the GNOME extension can launch an app as soon as the machine

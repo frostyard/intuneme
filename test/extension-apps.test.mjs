@@ -135,6 +135,49 @@ test('a closed menu does not refresh the apps', async () => {
     toggle.destroy();
 });
 
+test('Himmelblau hides Edge apps without listing them and keeps sign-in available', async () => {
+    const manager = fakeManager({ running: true });
+    manager.identity = 'himmelblau-experimental';
+    const toggle = new IntuneToggle(manager);
+
+    toggle.menu.setOpen(true);
+    await flush();
+    assert.equal(manager.listCalls, 0);
+    assert.equal(toggle._appsItem.actor.visible, false);
+    assert.equal(toggle._appsItem.sensitive, false);
+    assert.equal(toggle._edgeItem.actor.visible, false);
+    assert.equal(toggle._portalItem.label.text, 'Himmelblau Sign-in');
+    assert.equal(toggle._portalItem.sensitive, true);
+
+    manager.identity = 'microsoft';
+    toggle._sync();
+    toggle.menu.setOpen(true);
+    await flush();
+    assert.equal(manager.listCalls, 1);
+    assert.equal(toggle._appsItem.actor.visible, true);
+    assert.equal(toggle._appsItem.sensitive, true);
+    toggle.destroy();
+});
+
+test('portal dispatch preserves Microsoft argv and routes Himmelblau to enrollment', async () => {
+    const manager = webAppManager();
+    await flush();
+    let signIns = 0;
+    manager.openHimmelblauLogin = () => signIns++;
+
+    manager.openPortal();
+    await flush();
+    assert.deepEqual(GioMock.calls().at(-1), ['intuneme', 'open', 'portal']);
+    const calls = GioMock.calls().length;
+
+    manager._identity = 'himmelblau-experimental';
+    manager.openPortal();
+    await flush();
+    assert.equal(signIns, 1);
+    assert.equal(GioMock.calls().length, calls);
+    manager.destroy();
+});
+
 test('a failed command gives an empty list', async () => {
     const manager = webAppManager();
     answerOpenWith({ success: false, stdout: '', stderr: 'intuneme: no such file' });

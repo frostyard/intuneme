@@ -53,6 +53,6 @@ function registerClass(...args) {
 export default {
     registerClass,
     Object: GObjectObject,
-    ParamSpec: { boolean: () => ({}) },
+    ParamSpec: { boolean: () => ({}), string: () => ({}) },
     ParamFlags: { READABLE: 1, WRITABLE: 2, READWRITE: 3 },
 };

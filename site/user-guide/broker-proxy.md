@@ -1,13 +1,18 @@
 # Broker Proxy (Host-Side SSO)
 
-By default, the Microsoft Identity Broker only runs inside the container. The broker proxy is an opt-in feature that forwards broker calls from host applications to the container, enabling single sign-on (SSO) for apps like Microsoft Edge and VS Code running natively on the host.
+By default, the selected identity broker only runs inside the container. The broker proxy is an opt-in feature that forwards broker calls from host applications to the container, enabling single sign-on (SSO) for apps like Microsoft Edge and VS Code running natively on the host.
+
+The experimental Himmelblau image provides the same D-Bus broker name and can
+use this proxy plumbing. Its activation in a headless systemd-nspawn user
+session is not upstream-validated; see the
+[Himmelblau guide](himmelblau.md) before relying on it.
 
 ## What it does
 
 When enabled, intuneme starts a D-Bus forwarding proxy on the host session bus that claims `com.microsoft.identity.broker1` and relays all calls to the broker service inside the container. Host applications using MSAL (such as Edge, VS Code, and Teams) will transparently use the container's enrollment for SSO and conditional access — no changes are needed on the application side.
 
 !!! note
-    The container must be running and the user must be enrolled in Intune before the proxy is useful. The proxy itself starts and stops automatically with the container.
+    The container must be running and the user must be enrolled in the selected identity stack before the proxy is useful. The proxy itself starts and stops automatically with the container.
 
 ## How it works
 
